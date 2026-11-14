@@ -86,7 +86,6 @@ def test_pick_cards_keeps_all_when_three_domains_or_fewer():
     assert pick_cards([A, B, C]) == [A, B, C]
 
 
-@pytest.mark.xfail(strict=True, reason="卡片文件在 Task 3 放进来")
 def test_shipped_cards_are_named_as_perspectives():
     cards = load_cards(CARDS_DIR)
     assert len(cards) >= 4
@@ -123,10 +122,18 @@ def test_each_lens_sees_only_its_own_card_and_no_earlier_council(store):
         assert "研二，找实习" in text  # 这个人的情况每个视角都拿到了
 
 
-def test_all_council_calls_use_think_mode(store):
+def test_lenses_think_and_synthesis_does_not(store):
+    # 视角要对着记录里的日期和数字说话，用思考模式更准；合成只是归并，用快的
     model = RoutingModel({A.title: [lens()], B.title: [lens()]}, [synth()])
     run_council(store, model, [A, B], D14, "weekly")
-    assert len(model.calls) == 3 and all(think for _, _, think in model.calls)
+    assert len(model.calls) == 3
+    assert all(think == (who != "synth") for who, _, think in model.calls)
+
+
+def test_empty_reply_is_retried(store):
+    model = RoutingModel({A.title: ["", lens(sees="重试后")], B.title: [lens()]}, ["", synth("重试后的结论")])
+    out = run_council(store, model, [A, B], D14, "weekly")
+    assert out.opinions[0].sees == "重试后" and out.conclusion == "重试后的结论"
 
 
 # 降级

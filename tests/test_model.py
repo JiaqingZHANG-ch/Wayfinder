@@ -60,7 +60,8 @@ def test_think_mode_enables_thinking_and_raises_token_cap():
     assert DeepSeekModel(KEY, opener=opener).complete_json(MESSAGES, think=True) == '{"sees": "x"}'
     body = json.loads(opener.requests[0][0].data)
     assert body["thinking"] == {"type": "enabled"}
-    assert body["max_tokens"] == 4000
+    # 思考的 token 也算在上限里：实测上限 4000 时推理会把它用光，答案是空的
+    assert body["max_tokens"] == 16000
     assert body["response_format"] == {"type": "json_object"}
 
 
@@ -88,10 +89,16 @@ def test_network_error_and_timeout_become_model_error(error):
         DeepSeekModel(KEY, opener=RecordingOpener(error=error)).complete_json(MESSAGES)
 
 
-@pytest.mark.parametrize("payload", [b"not json", b'{"choices": []}', b'{"nope": 1}', reply(""), reply(None)])
-def test_bad_shape_and_empty_content_become_model_error(payload):
+@pytest.mark.parametrize("payload", [b"not json", b'{"choices": []}', b'{"nope": 1}', reply(3)])
+def test_bad_shape_becomes_model_error(payload):
     with pytest.raises(ModelError):
         DeepSeekModel(KEY, opener=RecordingOpener(payload)).complete_json(MESSAGES)
+
+
+@pytest.mark.parametrize("payload", [reply(""), reply(None)])
+def test_empty_content_is_returned_as_empty_text_so_callers_retry(payload):
+    # 空答案是模型没答好（比如推理用光了 token），不是连不上；交给调用方按「不合约定」重试
+    assert DeepSeekModel(KEY, opener=RecordingOpener(payload)).complete_json(MESSAGES) == ""
 
 
 def test_from_env_missing_key():

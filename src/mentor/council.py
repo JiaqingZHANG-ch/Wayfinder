@@ -4,6 +4,7 @@
 先各自判断、再汇总，免得先开口的把后面的带偏。
 """
 import json
+import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from pathlib import Path
 from mentor.model import ModelError, ModelPort
 from mentor.prompts import context_block
 from mentor.store import Council, Opinion, Store
+
+_log = logging.getLogger(__name__)
 
 CARDS_DIR: Path = Path(__file__).parent / "cards"
 MIN_OPINIONS = 2
@@ -101,12 +104,13 @@ def _synth_fields(obj) -> tuple[str, str] | None:
     return None
 
 
-def _ask(model: ModelPort, messages: list[dict[str, str]], fields: Callable):
+def _ask(model: ModelPort, messages: list[dict[str, str]], fields: Callable, who: str, *, think: bool):
     """模型的输出是不可信的输入：不合约定最多再试一次；连不上就直接放弃。"""
-    for _ in range(_TRIES):
+    for attempt in range(1, _TRIES + 1):
         try:
-            raw = model.complete_json(messages, think=True)
-        except ModelError:
+            raw = model.complete_json(messages, think=think)
+        except ModelError as e:
+            _log.warning("智囊团：%s 调用失败（%s），放弃这一个", who, e)  # ModelError 的文字里不带密钥
             return None
         try:
             parsed = fields(json.loads(raw))
@@ -114,12 +118,13 @@ def _ask(model: ModelPort, messages: list[dict[str, str]], fields: Callable):
             parsed = None
         if parsed is not None:
             return parsed
+        _log.warning("智囊团：%s 第 %d 次输出不合约定（长度 %d）", who, attempt, len(raw))  # 不记内容，只记长度
     return None
 
 
 def _opinion(model: ModelPort, card: Card, case: str) -> Opinion | None:
     got = _ask(model, [{"role": "system", "content": _LENS.format(card=card.text)},
-                       {"role": "user", "content": case}], _lens_fields)
+                       {"role": "user", "content": case}], _lens_fields, card.title, think=True)
     return None if got is None else Opinion(card.title, *got)
 
 
@@ -142,7 +147,8 @@ def run_council(store: Store, model: ModelPort, cards: list[Card], today: date, 
         return None
     said = "\n\n".join(f"{o.title}\n看到：{o.sees}\n担心：{o.worry}\n建议：{o.advice}" for o in opinions)
     got = _ask(model, [{"role": "system", "content": _SYNTH},
-                       {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}], _synth_fields)
+                       {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}], _synth_fields, "合成", think=False)
+    # 视角用思考模式（实测对日期和数字更准，17–43 秒），合成只是归并，用非思考模式（几秒）
     if got is None:
         return None
     council = Council(today, trigger, got[0], got[1], tuple(opinions))

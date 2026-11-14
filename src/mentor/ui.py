@@ -8,14 +8,16 @@ from pathlib import Path
 
 from nicegui import run, ui
 
+from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, run_council
 from mentor.mentor import MAX_INPUT, TurnResult, current_mode, handle_turn, logical_date, weekly_due
 from mentor.model import DeepSeekModel, ModelError, ModelPort
 from mentor.prompts import history as conversation_history
 from mentor.safety import CRISIS_MESSAGE
-from mentor.store import Store
+from mentor.store import Council, Store
 
 DB_PATH = Path(__file__).resolve().parents[2] / "var" / "mentor.db"
 FIRST_USE = "这不是心理咨询或医疗服务。你说的话会发送给模型服务商（DeepSeek）用来生成回复，记录保存在这台电脑上。"
+COUNCIL_NOTE = "这些视角由 AI 依据各位作者的公开著作模拟，不是本人言论。"
 _DONE_TEXT = {"none": "还没问", "yes": "做到了", "no": "没做到"}
 _DONE_VALUE = {"none": None, "yes": True, "no": False}
 _PAGE = "width: 100%; max-width: 720px; margin: 0 auto"
@@ -35,12 +37,30 @@ def _bubble(role: str, text: str) -> None:
         ui.label(text).style("white-space: pre-wrap")  # 纯文本显示，保留换行
 
 
+def _council_card(c: Council) -> None:
+    with ui.card().classes("w-full"):
+        ui.label(f"智囊团的看法（{c.day.isoformat()}）").classes("text-subtitle1")
+        ui.label("供你和导师参考。导师之后带你时会带着它，和已经定下的事不一样的地方，下次对账时一起商量。") \
+            .classes("text-caption text-grey")
+        ui.label(c.conclusion).style("white-space: pre-wrap")
+        if c.disagreement:
+            ui.label(f"他们的分歧：{c.disagreement}").classes("text-grey-8").style("white-space: pre-wrap")
+        with ui.expansion("各位怎么说").classes("w-full"):
+            for o in c.opinions:
+                ui.label(o.title).classes("text-weight-medium")
+                for line in (f"看到：{o.sees}", f"担心：{o.worry}", f"建议：{o.advice}"):
+                    ui.label(line).style("white-space: pre-wrap")
+            ui.label(COUNCIL_NOTE).classes("text-caption text-grey")
+
+
 def _today() -> date:
     return logical_date(datetime.now())
 
 
-def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], date] = _today) -> None:
+def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], date] = _today,
+          cards: list[Card] | None = None) -> None:
     lock = threading.Lock()  # 单人本机版：同一时刻只处理一轮对话
+    cards = cards or []
 
     @ui.page("/")
     def chat_page() -> None:
@@ -75,6 +95,9 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                         with ui.card().classes("w-full"):
                             ui.label(f"本周规律：{latest.pattern}")
                             ui.label(f"下周调整：{latest.adjustment}")
+                council = store.latest_council()
+                if council is not None and council.day == day:
+                    _council_card(council)
                 rows = store.daily_between(day, day)
                 if state["mode"] == "free" and rows:
                     with ui.card().classes("w-full"):
@@ -90,7 +113,8 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
             if model is None:
                 return
             if not lock.acquire(blocking=False):  # 锁是全局的：刷新页面或开第二个标签页也不会同时回两句
-                ui.notify("导师还在回上一句，稍等一下。", type="info")
+                with root:
+                    ui.notify("导师还在忙上一件事，稍等一下。", type="info")
                 return
             try:
                 state["busy"] = True
@@ -117,6 +141,32 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                 conversation.refresh()
                 composer.refresh()
                 ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
+            if result.saved == "profile":
+                await council_step("intake")  # 档案刚写好：请智囊团看一遍
+
+        async def council_step(trigger: str) -> None:
+            """开一次智囊团的会。开不成就算了，导师照常工作。"""
+            if model is None or len(cards) < MIN_OPINIONS or store.is_paused(day):
+                return
+            if not lock.acquire(blocking=False):
+                return
+            try:
+                state["busy"] = True
+                with root:
+                    composer.refresh()
+                with state["box"], ui.row().classes("items-center"):
+                    ui.spinner("dots", size="lg")
+                    ui.label("智囊团正在看你的情况，大约一分钟…")
+                await run.io_bound(run_council, store, model, cards, day, trigger)
+            except Exception:
+                logging.exception("智囊团开会时出错")
+            finally:
+                state["busy"] = False
+                lock.release()
+            with root:
+                conversation.refresh()
+                composer.refresh()
+                ui.run_javascript("window.scrollTo(0, document.body.scrollHeight)")
 
         async def open_conversation() -> None:
             if state["mode"] != "free" and not store.is_paused(day) and not history():
@@ -130,8 +180,10 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
 
         async def start_weekly() -> None:
             state["mode"], state["notice"] = "weekly", None
-            conversation.refresh()
-            composer.refresh()
+            with root:
+                conversation.refresh()
+                composer.refresh()
+            await council_step("weekly")  # 先会诊，导师开口时就带着智囊团的看法
             await open_conversation()
 
         def resume() -> None:
@@ -202,6 +254,9 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                 ui.notify("已保存", type="positive")
 
             ui.button("保存", on_click=save)
+            council = store.latest_council()
+            if council is not None:
+                _council_card(council)
 
     @ui.page("/records")
     def records_page() -> None:
@@ -245,5 +300,5 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
 
 
 def main() -> None:
-    build(Store(DB_PATH), lambda: DeepSeekModel.from_env(os.environ))
+    build(Store(DB_PATH), lambda: DeepSeekModel.from_env(os.environ), cards=load_cards(CARDS_DIR))
     ui.run(host="127.0.0.1", port=8765, reload=False, show=False, title="成长导师", language="zh-CN")
