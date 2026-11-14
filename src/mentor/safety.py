@@ -11,10 +11,13 @@ CRISIS_MESSAGE: str = (
     "今天的带练先停在这里。等你觉得可以了，点下面的「继续」。"
 )
 
-# 「想死」前面是「得」时是夸张说法（热得想死），不算；单个「死」字（累死了）也不算。
-# shortcut: 只认明确说法，含蓄的表达靠模型返回的 crisis 标记兜底；有误判漏判的实例再扩词表
-_CRISIS = re.compile(r"自杀|自残|轻生|不想活|活不下去|结束生命|结束自己|伤害自己|割腕|(?<!得)想死")
+# 只有这几种身体或场面上的夸张说法（热得想死）不算；「难受得想死」「我觉得想死」都算。
+# 单个「死」字（累死了）不算；「不想活动」不是「不想活」。宁可多拦：误拦只需点一次「继续」。
+# shortcut: 只认简体中文的明确说法，含蓄表达、繁体和外语靠模型返回的 crisis 标记兜底；有实例再扩词表
+_HYPERBOLE = re.compile(r"(?:热|冷|累|困|饿|渴|撑|忙|尴尬|笑|羞|辣|酸|无聊)得想死")
+_CRISIS = re.compile(r"自杀|自残|轻生|不想活(?!动)|活不下去|结束生命|结束自己|伤害自己|割腕|想死")
 
 
 def is_crisis(text: str) -> bool:
-    return _CRISIS.search(re.sub(r"\s+", "", text)) is not None
+    compact = re.sub(r"\s+", "", text)
+    return _CRISIS.search(_HYPERBOLE.sub("", compact)) is not None

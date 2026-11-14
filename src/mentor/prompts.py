@@ -2,7 +2,7 @@
 import json
 from datetime import date, timedelta
 
-from mentor.store import Daily, Store
+from mentor.store import Daily, Message, Store
 
 MODES: tuple[str, ...] = ("intake", "daily", "weekly", "free")
 
@@ -138,13 +138,18 @@ def _as_output(reply: str) -> str:
     return json.dumps({"reply": reply, "crisis": False, "done": False, "result": None}, ensure_ascii=False)
 
 
+def history(store: Store, mode: str, today: date) -> list[Message]:
+    """这段对话的历史：建档可以分几天谈，取全部；其余只取当天的。"""
+    return store.messages(mode) if mode == "intake" else store.messages(mode, today)
+
+
 def build_messages(store: Store, mode: str, today: date, *, force_finish: bool = False) -> list[dict[str, str]]:
     system = system_prompt(mode) + "\n" + context_block(store, today)
-    history = store.messages(mode) if mode == "intake" else store.messages(mode, today)
+    shown = history(store, mode, today)
     messages = [{"role": "system", "content": system}]
     messages += [{"role": m.role, "content": m.content if m.role == "user" else _as_output(m.content)}
-                 for m in history]
-    if not history:
+                 for m in shown]
+    if not shown:
         messages.append({"role": "user", "content": OPENING_NOTE})
     if force_finish:
         messages.append({"role": "user", "content": FINISH_NOTE})

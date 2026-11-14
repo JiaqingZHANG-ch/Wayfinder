@@ -13,6 +13,10 @@ from mentor.safety import CRISIS_MESSAGE, is_crisis
     "我想轻生",
     "昨晚差点割腕",
     "我 想 自 杀",  # 中间夹空格也算
+    "我觉得想死",  # 「觉得」的「得」不是夸张补语
+    "难受得想死",
+    "烦得想死",
+    "今天不想活动，其实是不想活了",
 ])
 def test_crisis_phrases_are_caught(text):
     assert is_crisis(text) is True
@@ -24,6 +28,8 @@ def test_crisis_phrases_are_caught(text):
     "今天热得想死",
     "尴尬得想死",
     "这游戏难死了",
+    "累得想死",
+    "今天不想活动",
     "",
     "今天读了20分钟书",
 ])

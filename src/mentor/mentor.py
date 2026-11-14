@@ -1,10 +1,10 @@
 """导师核心：判断这次该聊什么，处理一轮对话，校验并保存模型给的结果。不依赖界面。"""
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from mentor.model import ModelError, ModelPort
-from mentor.prompts import MODES, build_messages
+from mentor.prompts import MODES, build_messages, history
 from mentor.safety import CRISIS_MESSAGE, is_crisis
 from mentor.store import Daily, Habit, Message, Store, Weekly
 
@@ -30,6 +30,13 @@ class _Parsed:
     reply: str
     crisis: bool
     result: dict | None  # 只有 done 且校验通过时才有
+
+
+DAY_STARTS_AT = 4  # 凌晨 4 点前算前一天：半夜十二点后对账，记的还是「今天」
+
+
+def logical_date(now: datetime) -> date:
+    return (now - timedelta(hours=DAY_STARTS_AT)).date()
 
 
 def current_mode(store: Store, today: date) -> str:
@@ -66,18 +73,24 @@ def _valid_result(mode: str, r) -> bool:
             and _minutes(r.get("daily_minutes"), 1) and _text(r.get("observation")))
 
 
-def _parse(raw: str, mode: str) -> _Parsed | None:
+def _parse(raw: str, mode: str, *, must_finish: bool = False) -> _Parsed | None:
     """模型的输出是不可信的输入：不合约定就返回 None，由调用方重试或放弃。"""
     try:
         obj = json.loads(raw)
     except (ValueError, TypeError):
         return None
-    if not isinstance(obj, dict) or not _text(obj.get("reply")):
+    if not isinstance(obj, dict):
         return None
-    if obj.get("crisis") is True:
-        return _Parsed(obj["reply"], True, None)
-    if obj.get("done") is not True or mode == "free":
+    flag = obj.get("crisis")
+    if flag is not None and flag is not False:  # 先看危机标记：写成 "true"、1，或回话为空，都按危机处理
+        return _Parsed("", True, None)
+    done = obj.get("done")
+    if not _text(obj.get("reply")) or (done is not None and type(done) is not bool):
+        return None
+    if mode == "free":
         return _Parsed(obj["reply"], False, None)
+    if not done:
+        return None if must_finish else _Parsed(obj["reply"], False, None)  # 点了「结束并生成」就必须给结果
     if not _valid_result(mode, obj.get("result")):
         return None
     return _Parsed(obj["reply"], False, obj["result"])
@@ -131,6 +144,10 @@ def handle_turn(store: Store, model: ModelPort, mode: str, text: str | None, tod
             return TurnResult(MSG_TOO_LONG, mode, error=True)
     if store.is_paused(today):
         return TurnResult(CRISIS_MESSAGE, mode, crisis=True)
+    if text is None and not force_finish:
+        shown = history(store, mode, today)
+        if shown and shown[-1].role == "assistant":
+            return TurnResult("", mode)  # 上一句已经有回应了（比如另一个页面刚拿到），不再多回一条
     if text is not None:
         store.add_message(Message(today, mode, "user", text))  # 先存再调模型：断网也不丢用户打的字
         if is_crisis(text):
@@ -142,7 +159,7 @@ def handle_turn(store: Store, model: ModelPort, mode: str, text: str | None, tod
             raw = model.complete_json(messages)
         except ModelError:
             return TurnResult(MSG_OFFLINE, mode, error=True)
-        parsed = _parse(raw, mode)
+        parsed = _parse(raw, mode, must_finish=force_finish)
         if parsed is not None:
             break
     if parsed is None:

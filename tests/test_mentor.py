@@ -1,10 +1,10 @@
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
 from mentor.mentor import (MAX_INPUT, MSG_OFFLINE, MSG_TOO_LONG, MSG_UNCLEAR, TurnResult, current_mode,
-                           handle_turn, weekly_due)
+                           handle_turn, logical_date, weekly_due)
 from mentor.model import ModelError
 from mentor.prompts import FINISH_NOTE, OPENING_NOTE
 from mentor.safety import CRISIS_MESSAGE
@@ -230,6 +230,42 @@ def test_done_with_bad_result_saves_nothing(ready, bad):
     assert ready.daily_between(D14, D14) == []
 
 
+def test_non_boolean_done_is_rejected(ready):
+    # 「done」写成字符串时，回话会说「记下了」却什么都没存；必须当作不合约定
+    raw = json.dumps({"reply": "记下了", "crisis": False, "done": "true", "result": DAILY}, ensure_ascii=False)
+    out = handle_turn(ready, FakeModel(raw, raw), "daily", "读了", D14)
+    assert out == TurnResult(MSG_UNCLEAR, "daily", error=True)
+    assert ready.daily_between(D14, D14) == []
+
+
+def test_force_finish_without_done_is_an_error(store):
+    store.add_message(Message(D14, "intake", "user", "我25岁"))
+    model = FakeModel(j("我们再聊聊"), j("我们再聊聊"))
+    out = handle_turn(store, model, "intake", None, D14, force_finish=True)
+    assert out == TurnResult(MSG_UNCLEAR, "intake", error=True)
+    assert len(model.calls) == 2 and store.get_profile() is None
+
+
+def test_none_text_after_answered_turn_does_nothing(ready):
+    # 另一个页面已经拿到回复后，再点「让导师回应」不该多出一条回话
+    ready.add_message(Message(D14, "daily", "user", "读了"))
+    ready.add_message(Message(D14, "daily", "assistant", "好"))
+    model = FakeModel()
+    assert handle_turn(ready, model, "daily", None, D14) == TurnResult("", "daily")
+    assert model.calls == [] and len(ready.messages("daily", D14)) == 2
+
+
+def test_none_text_after_unanswered_user_turn_retries(ready):
+    ready.add_message(Message(D14, "daily", "user", "读了"))
+    assert handle_turn(ready, FakeModel(j("好")), "daily", None, D14) == TurnResult("好", "daily")
+
+
+def test_day_starts_at_four_in_the_morning():
+    assert logical_date(datetime(2026, 11, 15, 0, 30)) == D14  # 半夜十二点半对账，记的还是 14 日
+    assert logical_date(datetime(2026, 11, 15, 3, 59)) == D14
+    assert logical_date(datetime(2026, 11, 15, 4, 0)) == date(2026, 11, 15)
+
+
 def test_empty_blocker_is_allowed(ready):
     out = handle_turn(ready, FakeModel(j(done=True, result={**DAILY, "blocker": ""})), "daily", "读了", D14)
     assert out.saved == "daily"
@@ -275,6 +311,19 @@ def test_model_flag_crisis_shows_fixed_message(ready):
     assert ready.is_paused(D14) is True
     assert ready.daily_between(D14, D14) == []  # 危机时不保存对账结果
     assert ready.messages("daily", D14)[-1].content == CRISIS_MESSAGE
+
+
+def test_model_crisis_flag_wins_over_bad_reply(ready):
+    model = FakeModel('{"reply": "", "crisis": true}')
+    out = handle_turn(ready, model, "daily", "没意思", D14)
+    assert out == TurnResult(CRISIS_MESSAGE, "daily", crisis=True)
+    assert len(model.calls) == 1 and ready.is_paused(D14) is True
+
+
+@pytest.mark.parametrize("flag", ['"true"', "1", '"yes"'])
+def test_non_boolean_crisis_flag_counts_as_crisis(ready, flag):
+    raw = '{"reply": "嗯", "crisis": %s, "done": false, "result": null}' % flag
+    assert handle_turn(ready, FakeModel(raw), "daily", "没意思", D14).crisis is True
 
 
 def test_paused_day_does_not_call_model_until_resumed(ready):

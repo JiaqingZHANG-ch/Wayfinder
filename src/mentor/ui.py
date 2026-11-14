@@ -1,13 +1,16 @@
 """界面：对话、档案、记录三页。只做展示和把输入交给 mentor.handle_turn，不含导师的逻辑。"""
+import logging
 import os
+import threading
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from nicegui import run, ui
 
-from mentor.mentor import MAX_INPUT, current_mode, handle_turn, weekly_due
+from mentor.mentor import MAX_INPUT, TurnResult, current_mode, handle_turn, logical_date, weekly_due
 from mentor.model import DeepSeekModel, ModelError, ModelPort
+from mentor.prompts import history as conversation_history
 from mentor.safety import CRISIS_MESSAGE
 from mentor.store import Store
 
@@ -32,11 +35,16 @@ def _bubble(role: str, text: str) -> None:
         ui.label(text).style("white-space: pre-wrap")  # 纯文本显示，保留换行
 
 
-def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], date] = date.today) -> None:
+def _today() -> date:
+    return logical_date(datetime.now())
+
+
+def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], date] = _today) -> None:
+    lock = threading.Lock()  # 单人本机版：同一时刻只处理一轮对话
 
     @ui.page("/")
     def chat_page() -> None:
-        day = today()  # 整个页面用打开时的日期：过了午夜接着聊，仍算这一天的对话；刷新后才换天
+        day = today()  # 整个页面用打开时的日期（凌晨 4 点换天），换天后由下面的定时器刷新页面
         state = {"mode": current_mode(store, day), "busy": False, "notice": None, "box": None}
         try:
             model = get_model()
@@ -45,8 +53,13 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
             missing = str(e)
 
         def history():
-            mode = state["mode"]
-            return store.messages(mode) if mode == "intake" else store.messages(mode, day)
+            return conversation_history(store, state["mode"], day)
+
+        def reload_on_new_day() -> None:
+            if today() != day and not state["busy"]:
+                ui.navigate.reload()
+
+        ui.timer(60, reload_on_new_day)  # 页面开着过了凌晨 4 点就自动换到新的一天，否则当天的对账不会出现
 
         @ui.refreshable
         def conversation() -> None:
@@ -74,18 +87,25 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                     _bubble("assistant", CRISIS_MESSAGE)
 
         async def turn(text: str | None, *, force: bool = False) -> None:
-            if state["busy"] or model is None:
+            if model is None:
                 return
-            state["busy"] = True
-            composer.refresh()
-            with state["box"]:
-                if text:
-                    _bubble("user", text)
-                ui.spinner("dots", size="lg")
+            if not lock.acquire(blocking=False):  # 锁是全局的：刷新页面或开第二个标签页也不会同时回两句
+                ui.notify("导师还在回上一句，稍等一下。", type="info")
+                return
             try:
+                state["busy"] = True
+                composer.refresh()
+                with state["box"]:
+                    if text:
+                        _bubble("user", text)
+                    ui.spinner("dots", size="lg")
                 result = await run.io_bound(handle_turn, store, model, state["mode"], text, day, force_finish=force)
+            except Exception:  # 兜底：出了意料之外的错也要让转圈停下来
+                logging.exception("处理这一轮对话时出错")
+                result = TurnResult("出了点问题，这一句可能没处理完。刷新页面再试一次。", state["mode"], error=True)
             finally:
                 state["busy"] = False
+                lock.release()
             if result.saved is not None:
                 state["notice"] = result
                 state["mode"] = current_mode(store, day)
