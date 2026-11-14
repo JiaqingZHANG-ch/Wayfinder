@@ -1,0 +1,18 @@
+[project]
+name = "growth-mentor"
+version = "0.1.0"
+description = "成长导师：会记住你、每天对账、每周复盘的 AI 导师（本机单人版）"
+requires-python = ">=3.12"
+dependencies = [
+    "nicegui>=4.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "--basetemp=.pytest_tmp"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
