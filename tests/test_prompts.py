@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from mentor.prompts import MODES, build_messages, context_block, system_prompt
-from mentor.store import Daily, Habit, Message, Store, Weekly
+from mentor.store import Council, Daily, Habit, Message, Opinion, Store, Weekly
 
 D10, D13, D14 = date(2026, 11, 10), date(2026, 11, 13), date(2026, 11, 14)
 OPENING = "（对话开始，请你先开口）"
@@ -70,6 +70,24 @@ def test_context_block_shows_profile_habit_and_weekly(store):
     assert "研二，找实习" in text
     assert "读书" in text and "20" in text
     assert "晚上容易断" in text and "挪到晚饭前" in text
+
+
+def test_context_block_shows_latest_council(store):
+    assert "【智囊团最近一次的看法】（还没有）" in context_block(store, D14)
+    store.save_council(Council(D13, "weekly", "把读书挪到晚饭前", "一个说先减量", (Opinion("甲视角", "a", "b", "c"),)))
+    section = context_block(store, D14).split("【智囊团最近一次的看法】")[1]
+    assert "2026-11-13" in section and "把读书挪到晚饭前" in section and "一个说先减量" in section
+
+
+def test_context_block_can_leave_council_out(store):
+    store.save_council(Council(D13, "weekly", "把读书挪到晚饭前", "", (Opinion("甲视角", "a", "b", "c"),)))
+    text = context_block(store, D14, with_council=False)
+    assert "智囊团" not in text and "把读书挪到晚饭前" not in text
+
+
+def test_mentor_prompt_mentions_council_reference():
+    for mode in MODES:
+        assert "智囊团最近一次的看法" in system_prompt(mode)
 
 
 def test_context_block_marks_empty_days(store):

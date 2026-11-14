@@ -32,6 +32,9 @@ _COMMON = """\
 - 不给投资、借贷、理财建议；他问起就直说这不是你能帮的。
 - 不扮演恋人、亲人，不假装自己是真人。
 
+下面有「智囊团最近一次的看法」时，那是几个视角各自看过他的情况后合成的建议。把它当作你带人的参考，\
+用你自己的话说，不逐条复述；它和他今天说的情况对不上时，以他今天说的为准。
+
 他流露出伤害自己或不想活的意思时，把 crisis 设为 true，程序会接手并给他求助电话。
 
 输出约定：只输出一个 json 对象，不要别的文字：
@@ -110,7 +113,7 @@ def _daily_line(d: Daily) -> str:
             f"卡在：{d.blocker or '无'}；定下的下一件事：{d.tomorrow_task}")
 
 
-def context_block(store: Store, today: date) -> str:
+def context_block(store: Store, today: date, *, with_council: bool = True) -> str:
     habit, last = store.get_habit(), store.last_daily_before(today)
     weekly = store.all_weekly()
     start = today - timedelta(days=6)
@@ -129,6 +132,12 @@ def context_block(store: Store, today: date) -> str:
             f"{weekly[0].day.isoformat()}：规律：{weekly[0].pattern}；调整：{weekly[0].adjustment}"
             if weekly else _NONE),
     ]
+    if with_council:
+        council = store.latest_council()
+        parts.append("【智囊团最近一次的看法】" + (
+            f"{council.day.isoformat()}：{council.conclusion}"
+            + (f"\n视角之间的分歧：{council.disagreement}" if council.disagreement else "")
+            if council else _NONE))
     return "\n\n".join(parts)
 
 
