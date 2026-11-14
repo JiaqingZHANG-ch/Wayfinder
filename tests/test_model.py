@@ -55,6 +55,22 @@ def test_sends_messages_and_returns_content():
     assert body["thinking"] == {"type": "disabled"}
 
 
+def test_think_mode_enables_thinking_and_raises_token_cap():
+    opener = RecordingOpener(reply('{"sees": "x"}'))
+    assert DeepSeekModel(KEY, opener=opener).complete_json(MESSAGES, think=True) == '{"sees": "x"}'
+    body = json.loads(opener.requests[0][0].data)
+    assert body["thinking"] == {"type": "enabled"}
+    assert body["max_tokens"] == 4000
+    assert body["response_format"] == {"type": "json_object"}
+
+
+def test_default_call_keeps_the_fast_settings():
+    opener = RecordingOpener(reply('{"reply": "好"}'))
+    DeepSeekModel(KEY, opener=opener).complete_json(MESSAGES)
+    body = json.loads(opener.requests[0][0].data)
+    assert body["thinking"] == {"type": "disabled"} and body["max_tokens"] == 2000
+
+
 def test_http_error_becomes_model_error_without_key():
     err = urllib.error.HTTPError("https://api.deepseek.com/chat/completions", 401, KEY, {}, io.BytesIO(b""))
     model = DeepSeekModel(KEY, opener=RecordingOpener(error=err))

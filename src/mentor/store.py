@@ -1,7 +1,8 @@
 """数据库：建表与读写。不依赖界面和模型。每个方法各自开关连接，界面在别的线程里调用也安全。"""
+import json
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
@@ -37,7 +38,27 @@ class Weekly:
     adjustment: str
 
 
+@dataclass(frozen=True)
+class Opinion:
+    title: str  # 视角名，如「逆向思考视角（源自查理·芒格）」
+    sees: str
+    worry: str
+    advice: str
+
+
+@dataclass(frozen=True)
+class Council:
+    day: date
+    trigger: str  # "intake" | "weekly"
+    conclusion: str
+    disagreement: str
+    opinions: tuple[Opinion, ...]
+
+
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS council (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, trigger TEXT NOT NULL,
+    conclusion TEXT NOT NULL, disagreement TEXT NOT NULL, opinions TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT NOT NULL, mode TEXT NOT NULL,
@@ -155,6 +176,29 @@ class Store:
         rows = self._run(lambda c: c.execute(
             "SELECT day, pattern, adjustment FROM weekly ORDER BY day DESC").fetchall())
         return [Weekly(date.fromisoformat(d), p, a) for d, p, a in rows]
+
+    # 智囊团
+    def save_council(self, c: Council) -> None:
+        opinions = json.dumps([asdict(o) for o in c.opinions], ensure_ascii=False)
+        self._run(lambda conn: conn.execute(
+            "INSERT INTO council (day, trigger, conclusion, disagreement, opinions) VALUES (?, ?, ?, ?, ?)",
+            (c.day.isoformat(), c.trigger, c.conclusion, c.disagreement, opinions)))
+
+    def _one_council(self, where: str, args: tuple) -> Council | None:
+        row = self._run(lambda conn: conn.execute(
+            f"SELECT day, trigger, conclusion, disagreement, opinions FROM council {where} ORDER BY id DESC LIMIT 1",
+            args).fetchone())
+        if row is None:
+            return None
+        day, trigger, conclusion, disagreement, opinions = row
+        return Council(date.fromisoformat(day), trigger, conclusion, disagreement,
+                       tuple(Opinion(**o) for o in json.loads(opinions)))
+
+    def latest_council(self) -> Council | None:
+        return self._one_council("", ())
+
+    def council_on(self, day: date, trigger: str) -> Council | None:
+        return self._one_council("WHERE day = ? AND trigger = ?", (day.isoformat(), trigger))
 
     # 危机暂停
     def log_crisis(self, day: date, text: str) -> None:

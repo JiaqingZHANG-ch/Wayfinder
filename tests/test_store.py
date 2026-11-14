@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from mentor.store import Daily, Habit, Message, Store, Weekly
+from mentor.store import Council, Daily, Habit, Message, Opinion, Store, Weekly
 
 D10, D14, D20 = date(2026, 11, 10), date(2026, 11, 14), date(2026, 11, 20)
 
@@ -98,6 +98,34 @@ def test_flags(store):
     assert store.get_flag("first_use_ack") is False
     store.set_flag("first_use_ack")
     assert store.get_flag("first_use_ack") is True
+
+
+def council(day, trigger="intake", conclusion="先把读书挪到晚饭前"):
+    return Council(day, trigger, conclusion, "一个说先减量，一个说先换时间",
+                   (Opinion("认知偏差视角（源自卡尼曼）", "看到a", "担心b", "建议c"),
+                    Opinion("微习惯视角（源自福格）", "他说：\"别'放弃'\"\n第二行 🙂", "担心e", "建议f")))
+
+
+def test_council_roundtrip_keeps_opinion_order_and_text(store):
+    assert store.latest_council() is None
+    assert store.council_on(D14, "intake") is None
+    store.save_council(council(D14))
+    assert store.latest_council() == council(D14)
+    assert [o.title for o in store.latest_council().opinions] == ["认知偏差视角（源自卡尼曼）", "微习惯视角（源自福格）"]
+
+
+def test_latest_council_is_the_last_saved(store):
+    store.save_council(council(D20, "weekly", "后存的日期更早也算最新"))
+    store.save_council(council(D14, "intake", "最后存的"))
+    assert store.latest_council().conclusion == "最后存的"
+
+
+def test_council_on_filters_by_day_and_trigger(store):
+    store.save_council(council(D14, "intake"))
+    store.save_council(council(D14, "weekly", "周"))
+    assert store.council_on(D14, "weekly").conclusion == "周"
+    assert store.council_on(D14, "intake").trigger == "intake"
+    assert store.council_on(D20, "intake") is None
 
 
 def test_data_survives_reopen(tmp_path):

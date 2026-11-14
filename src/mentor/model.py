@@ -11,7 +11,7 @@ class ModelError(Exception): ...
 
 
 class ModelPort(Protocol):
-    def complete_json(self, messages: list[dict[str, str]]) -> str: ...
+    def complete_json(self, messages: list[dict[str, str]], *, think: bool = False) -> str: ...
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -38,11 +38,11 @@ class DeepSeekModel:
             raise ModelError("缺少环境变量 DEEPSEEK_API_KEY")
         return cls(key)
 
-    def complete_json(self, messages: list[dict[str, str]]) -> str:
+    def complete_json(self, messages: list[dict[str, str]], *, think: bool = False) -> str:
+        # 日常对话用非思考模式换响应速度；智囊团的分析（think=True）用思考模式，慢但想得深
         body = {"model": self._model, "messages": messages,
-                "response_format": {"type": "json_object"}, "max_tokens": 2000,
-                # shortcut: 非思考模式换响应速度；第二步智囊团分析时改用思考模式
-                "thinking": {"type": "disabled"}}
+                "response_format": {"type": "json_object"}, "max_tokens": 4000 if think else 2000,
+                "thinking": {"type": "enabled" if think else "disabled"}}
         req = urllib.request.Request(
             f"{self._base}/chat/completions", data=json.dumps(body).encode("utf-8"), method="POST",
             headers={"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"})
