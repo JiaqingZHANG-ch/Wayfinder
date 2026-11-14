@@ -110,7 +110,7 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                     _bubble("assistant", CRISIS_MESSAGE)
 
         async def turn(text: str | None, *, force: bool = False) -> None:
-            if model is None:
+            if model is None or root.is_deleted:  # 页面已经关了（比如开会途中离开）：不再往下做
                 return
             if not lock.acquire(blocking=False):  # 锁是全局的：刷新页面或开第二个标签页也不会同时回两句
                 with root:
@@ -130,6 +130,8 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
             finally:
                 state["busy"] = False
                 lock.release()
+            if root.is_deleted:
+                return  # 等回复的时候页面关了：结果已经存进数据库，下次打开能看到
             if result.saved is not None:
                 state["notice"] = result
                 state["mode"] = current_mode(store, day)
@@ -146,7 +148,7 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
 
         async def council_step(trigger: str) -> None:
             """开一次智囊团的会。开不成就算了，导师照常工作。"""
-            if model is None or len(cards) < MIN_OPINIONS or store.is_paused(day):
+            if model is None or len(cards) < MIN_OPINIONS or store.is_paused(day) or root.is_deleted:
                 return
             if not lock.acquire(blocking=False):
                 return
@@ -156,13 +158,15 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                     composer.refresh()
                 with state["box"], ui.row().classes("items-center"):
                     ui.spinner("dots", size="lg")
-                    ui.label("智囊团正在看你的情况，大约一分钟…")
+                    ui.label("智囊团正在看你的情况，大约一分钟，最长两分钟…")
                 await run.io_bound(run_council, store, model, cards, day, trigger)
             except Exception:
                 logging.exception("智囊团开会时出错")
             finally:
                 state["busy"] = False
                 lock.release()
+            if root.is_deleted:
+                return  # 开会途中页面关了：结论已经存下，回来就能看到
             with root:
                 conversation.refresh()
                 composer.refresh()

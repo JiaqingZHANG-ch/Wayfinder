@@ -51,6 +51,11 @@ def test_daily_prompt_asks_about_today_not_yesterday():
     assert "算进今天的分钟数" in text
 
 
+def test_weekly_prompt_waits_for_the_person_to_agree():
+    # 走查时模型一边问「可以吗？」一边就把下周的调整存了；要等他点头
+    assert "他点头" in system_prompt("weekly")
+
+
 def test_unknown_mode_raises_value_error():
     with pytest.raises(ValueError):
         system_prompt("chat")

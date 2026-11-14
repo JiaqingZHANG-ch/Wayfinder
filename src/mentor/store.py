@@ -209,6 +209,12 @@ class Store:
             "SELECT 1 FROM crisis WHERE day = ? AND resumed = 0 LIMIT 1", (day.isoformat(),)).fetchone())
         return row is not None
 
+    def had_crisis(self, day: date) -> bool:
+        """这一天有没有触发过危机处理，点过「继续」也算。"""
+        row = self._run(lambda c: c.execute(
+            "SELECT 1 FROM crisis WHERE day = ? LIMIT 1", (day.isoformat(),)).fetchone())
+        return row is not None
+
     def resume(self, day: date) -> None:
         self._run(lambda c: c.execute("UPDATE crisis SET resumed = 1 WHERE day = ?", (day.isoformat(),)))
 

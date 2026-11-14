@@ -94,6 +94,15 @@ def test_crisis_pauses_until_resumed(store):
     assert store.is_paused(D14) is False
 
 
+def test_had_crisis_remembers_the_day_even_after_resume(store):
+    assert store.had_crisis(D14) is False
+    store.log_crisis(D14, "x")
+    store.resume(D14)
+    assert store.is_paused(D14) is False
+    assert store.had_crisis(D14) is True
+    assert store.had_crisis(D20) is False
+
+
 def test_flags(store):
     assert store.get_flag("first_use_ack") is False
     store.set_flag("first_use_ack")

@@ -219,6 +219,88 @@ def test_paused_day_runs_nothing(store):
     assert model.calls == []
 
 
+# 危机内容不进智囊团：这类话只能由程序给固定的求助信息，不能让几个视角自由发挥
+
+def test_profile_with_crisis_words_runs_nothing(store):
+    store.set_profile("## 焦虑点\n有时候真的不想活了", D14)
+    model = RoutingModel({A.title: [lens()], B.title: [lens()]}, [synth()])
+    assert run_council(store, model, [A, B], D14, "intake") is None
+    assert model.calls == [] and store.latest_council() is None
+
+
+def test_day_with_a_crisis_runs_nothing_even_after_resume(store):
+    store.log_crisis(D14, "x")
+    store.resume(D14)
+    model = RoutingModel({A.title: [lens()], B.title: [lens()]}, [synth()])
+    assert run_council(store, model, [A, B], D14, "intake") is None
+    assert model.calls == []
+    later = RoutingModel({A.title: [lens()], B.title: [lens()]}, [synth()])
+    assert run_council(store, later, [A, B], D14 + timedelta(days=1), "weekly") is not None  # 第二天照常
+
+
+@pytest.mark.parametrize("flag", ["true", '"true"', "1"])
+def test_lens_crisis_flag_voids_council_and_pauses(store, flag):
+    flagged = '{"sees": "a", "worry": "b", "advice": "c", "crisis": %s}' % flag
+    model = RoutingModel({A.title: [flagged], B.title: [lens()], C.title: [lens()]}, [synth()])
+    assert run_council(store, model, [A, B, C], D14, "intake") is None
+    assert store.latest_council() is None and model.count("synth") == 0
+    assert store.is_paused(D14) is True  # 页面随后显示固定的求助信息
+
+
+def test_synthesis_crisis_flag_voids_council_and_pauses(store):
+    model = RoutingModel({A.title: [lens()], B.title: [lens()]}, ['{"conclusion": "a", "disagreement": "", "crisis": true}'])
+    assert run_council(store, model, [A, B], D14, "intake") is None
+    assert store.latest_council() is None and store.is_paused(D14) is True
+
+
+@pytest.mark.parametrize("where", ["lens", "synth"])
+def test_output_with_crisis_words_voids_council_and_pauses(store, where):
+    bad_lens = lens(advice="别再想自杀的事") if where == "lens" else lens()
+    bad_synth = synth("你说过不想活了") if where == "synth" else synth()
+    model = RoutingModel({A.title: [bad_lens], B.title: [lens()], C.title: [lens()]}, [bad_synth])
+    assert run_council(store, model, [A, B, C], D14, "intake") is None
+    assert store.latest_council() is None and store.is_paused(D14) is True
+
+
+def test_prompts_tell_the_model_to_flag_crisis():
+    import mentor.council as council
+    assert "crisis" in council._LENS and "crisis" in council._SYNTH
+
+
+# 时限与意外
+
+def test_slow_lens_is_dropped_after_the_time_limit(store, monkeypatch):
+    import time
+
+    import mentor.council as council
+    monkeypatch.setattr(council, "LENS_SECONDS", 0.3)
+
+    class Slow(RoutingModel):
+        def complete_json(self, messages, *, think=False):
+            if A.title in messages[0]["content"]:
+                time.sleep(1.5)
+            return super().complete_json(messages, think=think)
+
+    model = Slow({A.title: [lens()], B.title: [lens()], C.title: [lens()]}, [synth()])
+    started = time.monotonic()
+    out = run_council(store, model, [A, B, C], D14, "intake")
+    assert time.monotonic() - started < 1.2  # 没有等那个慢的
+    assert [o.title for o in out.opinions] == [B.title, C.title]
+
+
+def test_unexpected_error_in_one_lens_only_drops_that_lens(store):
+    model = RoutingModel({A.title: [RuntimeError("意外")], B.title: [lens()], C.title: [lens()]}, [synth()])
+    assert [o.title for o in run_council(store, model, [A, B, C], D14, "intake").opinions] == [B.title, C.title]
+
+
+def test_shipped_cards_do_not_invite_speaking_as_the_author_or_labelling_the_person():
+    for c in load_cards(CARDS_DIR):
+        style = c.text.split("## 说话方式")[1].split("##")[0]
+        assert "自嘲" not in style and "承认自己" not in style, c.slug
+        uses = [line for line in c.text.splitlines() if line.strip().startswith("用在这个人身上")]
+        assert not any("自怜" in line or "其实一份简历都没投" in line for line in uses), c.slug
+
+
 def test_unknown_trigger_raises(store):
     with pytest.raises(ValueError):
         run_council(store, RoutingModel({}, []), [A, B], D14, "daily")
