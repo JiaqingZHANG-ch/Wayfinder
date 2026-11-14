@@ -1,4 +1,5 @@
 """给模型的固定指示，以及每次对话带给它的内容（档案、当前习惯、近期记录）。"""
+import json
 from datetime import date, timedelta
 
 from mentor.store import Daily, Store
@@ -59,7 +60,9 @@ done 时在 reply 里告诉他档案写好了，可以去档案页看和改，�
     "daily": """\
 【这次的任务：每日对账】
 大约三分钟、三四轮说完。要弄清四件事：今天花在自己身上多少分钟、做了什么、卡在哪、明天的一件事。
-下面「上次定的那件事」有内容时，开口先问那件事做到没有；没有就直接问今天。
+下面「上次定的那件事」有内容时，开口先问那件事今天做到没有；没有就直接问今天。\
+那件事是上次对账时为今天定下的，所以问的是今天，不是昨天；他为它花的时间算进今天的分钟数。
+四件事都清楚了就立刻收尾，不为凑轮数多问。
 他说卡住了，就对照档案和最近几天的记录，看是不是同一个地方反复卡，给一个小的调整，不讲道理。
 明天的一件事由你和他商量着定，要具体到能回答「做到没有」。
 弄清楚后 done 设为 true，result 为：
@@ -118,7 +121,8 @@ def context_block(store: Store, today: date) -> str:
         f"【档案】\n{store.get_profile() or _NONE}",
         "【当前习惯】" + (f"{habit.name}，每天 {habit.daily_minutes} 分钟" if habit else _NONE),
         "【上次定的那件事】" + (
-            f"{last.day.isoformat()} 定的：{last.tomorrow_task}（做到没有：{_DONE[last.done]}）" if last else _NONE),
+            f"{last.day.isoformat()} 对账时为之后定的：{last.tomorrow_task}（做到没有：{_DONE[last.done]}）"
+            if last else _NONE),
         "【最近 7 天的记录】\n" + "\n".join(
             _daily_line(by_day[d]) if d in by_day else f"{d.isoformat()}：没有记录" for d in days),
         "【最近一次每周复盘】" + (
@@ -128,11 +132,18 @@ def context_block(store: Store, today: date) -> str:
     return "\n\n".join(parts)
 
 
+def _as_output(reply: str) -> str:
+    # 导师说过的话按输出约定的形状回放。纯文本回放时 DeepSeek 的 JSON 模式有六成概率只回一串空格
+    # （2026-11-14 实测：纯文本 6/10 空回复，json 形状 0/10）。
+    return json.dumps({"reply": reply, "crisis": False, "done": False, "result": None}, ensure_ascii=False)
+
+
 def build_messages(store: Store, mode: str, today: date, *, force_finish: bool = False) -> list[dict[str, str]]:
     system = system_prompt(mode) + "\n" + context_block(store, today)
     history = store.messages(mode) if mode == "intake" else store.messages(mode, today)
     messages = [{"role": "system", "content": system}]
-    messages += [{"role": m.role, "content": m.content} for m in history]
+    messages += [{"role": m.role, "content": m.content if m.role == "user" else _as_output(m.content)}
+                 for m in history]
     if not history:
         messages.append({"role": "user", "content": OPENING_NOTE})
     if force_finish:

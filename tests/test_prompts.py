@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import pytest
@@ -41,6 +42,13 @@ def test_each_mode_names_its_task_and_result_fields():
     for field in ("pattern", "adjustment", "habit", "daily_minutes", "observation"):
         assert field in system_prompt("weekly")
     assert "tomorrow_task" not in system_prompt("free")
+
+
+def test_daily_prompt_asks_about_today_not_yesterday():
+    # 上次定的「下一件事」是要在今天做的；实测模型曾问成「昨天做到了吗」，把时间算错了天
+    text = system_prompt("daily")
+    assert "今天做到没有" in text
+    assert "算进今天的分钟数" in text
 
 
 def test_unknown_mode_raises_value_error():
@@ -95,8 +103,13 @@ def test_build_messages_replays_history_without_opening(store):
     store.add_message(Message(D14, "daily", "assistant", "昨天读了吗？"))
     store.add_message(Message(D14, "daily", "user", "读了一半"))
     msgs = build_messages(store, "daily", D14)
-    assert msgs[1:] == [{"role": "assistant", "content": "昨天读了吗？"},
-                        {"role": "user", "content": "读了一半"}]
+    assert msgs[2] == {"role": "user", "content": "读了一半"}
+    # 导师说过的话要按输出约定的 json 形状回放：纯文本回放时 DeepSeek 的 JSON 模式有六成概率只回空格
+    # （2026-11-14 实测 6/10 对 0/10）
+    assert msgs[1]["role"] == "assistant"
+    assert json.loads(msgs[1]["content"]) == {"reply": "昨天读了吗？", "crisis": False, "done": False,
+                                              "result": None}
+    assert "昨天读了吗？" in msgs[1]["content"]  # 中文不转义，模型读得到原文
 
 
 def test_build_messages_force_finish_appends_instruction(store):
