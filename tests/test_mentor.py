@@ -326,6 +326,21 @@ def test_non_boolean_crisis_flag_counts_as_crisis(ready, flag):
     assert handle_turn(ready, FakeModel(raw), "daily", "没意思", D14).crisis is True
 
 
+@pytest.mark.parametrize("raw", [
+    j("你是不是有过自杀的念头？"),  # 模型看出来了、说出来了，却没标 crisis
+    j("好", done=True, result={**DAILY, "blocker": "他说不想活了"}),  # 写在结果里
+    "他提到了轻生，我不知道怎么回",  # 连 json 都不是
+    '{"reply": "\\u4e0d\\u60f3\\u6d3b\\u4e86\\u5417", "crisis": false, "done": false, "result": null}',  # 转义写法
+])
+def test_crisis_words_anywhere_in_model_output_show_fixed_message(ready, raw):
+    model = FakeModel(raw)
+    out = handle_turn(ready, model, "daily", "没意思", D14)
+    assert out == TurnResult(CRISIS_MESSAGE, "daily", crisis=True)
+    assert len(model.calls) == 1 and ready.is_paused(D14) is True
+    assert ready.daily_between(D14, D14) == []
+    assert ready.messages("daily", D14)[-1].content == CRISIS_MESSAGE  # 模型那句话没有存下来
+
+
 def test_paused_day_does_not_call_model_until_resumed(ready):
     ready.log_crisis(D14, "x")
     model = FakeModel(j("我们继续"))

@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 from mentor.model import ModelError, ModelPort
 from mentor.prompts import MODES, build_messages, history
-from mentor.safety import CRISIS_MESSAGE, is_crisis
+from mentor.safety import CRISIS_MESSAGE, is_crisis, model_output_is_crisis
 from mentor.store import Daily, Habit, Message, Store, Weekly
 
 MAX_INPUT = 4000
@@ -75,15 +75,14 @@ def _valid_result(mode: str, r) -> bool:
 
 def _parse(raw: str, mode: str, *, must_finish: bool = False) -> _Parsed | None:
     """模型的输出是不可信的输入：不合约定就返回 None，由调用方重试或放弃。"""
+    if model_output_is_crisis(raw):  # 先看危机，再看格式：回话为空、字段不全、不是 json，都不影响
+        return _Parsed("", True, None)
     try:
         obj = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return None
     if not isinstance(obj, dict):
         return None
-    flag = obj.get("crisis")
-    if flag is not None and flag is not False:  # 先看危机标记：写成 "true"、1，或回话为空，都按危机处理
-        return _Parsed("", True, None)
     done = obj.get("done")
     if not _text(obj.get("reply")) or (done is not None and type(done) is not bool):
         return None

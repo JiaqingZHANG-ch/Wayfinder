@@ -12,7 +12,7 @@ from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, run_counci
 from mentor.mentor import MAX_INPUT, TurnResult, current_mode, handle_turn, logical_date, weekly_due
 from mentor.model import DeepSeekModel, ModelError, ModelPort
 from mentor.prompts import history as conversation_history
-from mentor.safety import CRISIS_MESSAGE
+from mentor.safety import CRISIS_MESSAGE, is_crisis
 from mentor.store import Council, Store
 
 DB_PATH = Path(__file__).resolve().parents[2] / "var" / "mentor.db"
@@ -61,6 +61,14 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
           cards: list[Card] | None = None) -> None:
     lock = threading.Lock()  # 单人本机版：同一时刻只处理一轮对话
     cards = cards or []
+
+    def after_save(text: str) -> None:
+        """档案页、记录页保存之后：写进去的话里有危机内容，就和在对话里说出来一样处理。"""
+        if is_crisis(text):
+            store.log_crisis(today(), text)
+            ui.navigate.to("/")  # 对话页会显示固定的求助信息和「继续」
+        else:
+            ui.notify("已保存", type="positive")
 
     @ui.page("/")
     def chat_page() -> None:
@@ -255,7 +263,7 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                     ui.notify("档案不能是空的", type="warning")
                     return
                 store.set_profile(box.value, today())
-                ui.notify("已保存", type="positive")
+                after_save(box.value)
 
             ui.button("保存", on_click=save)
             council = store.latest_council()
@@ -289,7 +297,7 @@ def build(store: Store, get_model: Callable[[], ModelPort], today: Callable[[], 
                                 return
                             store.update_daily(day, minutes=int(value), tomorrow_task=task.value.strip(),
                                                done=_DONE_VALUE[done.value])
-                            ui.notify("已保存", type="positive")
+                            after_save(task.value)
 
                         ui.button("保存", on_click=save).props("outline")
             ui.label("每周复盘").classes("text-lg")

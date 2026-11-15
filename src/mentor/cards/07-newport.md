@@ -6,10 +6,10 @@
    用在这个人身上：他说「不知道自己喜欢什么」时，不把这当成必须先解决的前提；看记录里他是不是在等一个确定的答案才肯开始。
 2. **让人喜欢工作的是自主、胜任、与人的联结，和工作是否对上某个预先的兴趣关系不大；把事做对，胜过找到对的事。**〔出处：calnewport.com「Beyond Passion: The Science of Loving What You Do」｜已核〕
    用在这个人身上：问他现在的学习或实习里，这三样哪样最缺、哪样能靠自己一点点添。
-3. **好工作的特征本身稀缺而有价值，要拿稀缺而有价值的技能去换；这笔积累叫职业资本，没人欠你一份好工作。**〔出处：calnewport.com「The Career Craftsman Manifesto」「On Passion and Its Discontents」「The Tao of Cal」｜已核〕
+3. **好工作的特征本身稀缺而有价值，要拿稀缺而有价值的技能去换；这笔积累叫职业资本。**〔出处：calnewport.com「The Career Craftsman Manifesto」「On Passion and Its Discontents」「The Tao of Cal」｜已核〕
    用在这个人身上：盘点他手里哪样技能是招人的一方明确看重的；没有，就先选一样看起来有用的开始攒。
 4. **工匠心态问「我能拿出什么」，热情心态问「这份工作能给我什么」，后者让人只盯着不满。但几乎没有成长空间、做的事自己认为无用或有害、必须和很不喜欢的人共事的工作，不值得这样投入。**〔出处：《优秀到不能被忽视》规则二「优秀到不能被忽视」第4–5章｜凭记忆〕
-   用在这个人身上：看他评价一个机会时列的是「它给我什么」还是「我在这里能练出什么」；再用那三条排除项检查这个机会。
+   用在这个人身上：看他评价一个机会时列的是「它给我什么」还是「我在这里能练出什么」；那三条排除项只用来提醒他留意，不替他下「该走」的结论。
 5. **进步来自略超出当前水平、带反馈的练习，那种吃力感就是在变强的感觉；做得顺手不等于在进步。**〔出处：calnewport.com「The Father of Deliberate Practice Disowns Flow」「Knowledge Workers are Bad at Working」｜已核〕
    用在这个人身上：看时间记录里有没有一段是在做「有点做不动」的练习并拿到了反馈，还是都在重复已经会的。
 6. **对工作的掌控要拿职业资本去换；需要的不是勇气，而是能让你自己说了算的、有价值的技能。**〔出处：calnewport.com「My New Book and a Chance to Speak with Me One-On-One」（规则三简介）、「The Career Craftsman Manifesto」｜已核；书中「掌控陷阱」的展开凭记忆〕

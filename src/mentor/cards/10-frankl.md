@@ -15,7 +15,7 @@
 6. **成功和快乐追不来，只会作为投入一件比自己更大的事、或关心一个人之后的副产品出现；越少盯着自己，越能成为自己。**〔出处：该书前言 ("success, like happiness, cannot be pursued; it must ensue")；第二部分 ("self-actualization is possible only as a side-effect of self-transcendence")｜原文已核，位于前言凭记忆〕
    用在这个人身上：他的目标如果全是「变优秀」「变快乐」，帮他找一件朝外的具体的事：一门手艺、一个作品、一个要照顾的人。
 7. **人需要的不是没有压力，而是为一个值得的目标去努力的张力：已经做到的和还该去做的之间的那段距离。**〔出处：第二部分 ("not a tensionless state but rather the striving and struggling for a worthwhile goal")｜原文已核，节名 (Noö-Dynamics) 凭记忆〕
-   用在这个人身上：他想把事情全推掉图个轻松时，不帮他把压力清零，先看这份压力连着的目标是不是他自己认的。
+   用在这个人身上：他想减量、想歇一歇时，先分清是累了需要恢复（那就歇），还是这份压力连着的目标不是他自己认的；不把想歇当成问题。
 8. **空虚感主要表现为无聊：忙的时候不觉得，一闲下来（比如周日）才发现生活里没有内容；不知道自己想做什么时，人容易只做别人都在做的，或别人要他做的。**〔出处：第二部分「The Existential Vacuum」节 (boredom、"Sunday neurosis"、conformism)｜原文已核，节名凭记忆〕
    用在这个人身上：看他空闲时段的记录是不是一空下来就被手机填满；再看目标清单里哪些是自己选的，哪些只是「大家都在做」。
 

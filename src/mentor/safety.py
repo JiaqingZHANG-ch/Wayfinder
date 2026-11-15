@@ -1,4 +1,5 @@
 """危机检查：用户的话里出现伤害自己的意思时，程序直接给固定话术，不交给模型临场发挥。"""
+import json
 import re
 
 # 号码核实于 2026-11-14：12356（国家卫健委，全国统一心理援助热线）；3114（3114.fr，全天、免费）
@@ -21,3 +22,18 @@ _CRISIS = re.compile(r"自杀|自残|轻生|不想活(?!动)|活不下去|结束
 def is_crisis(text: str) -> bool:
     compact = re.sub(r"\s+", "", text)
     return _CRISIS.search(_HYPERBOLE.sub("", compact)) is not None
+
+
+def model_output_is_crisis(raw: str) -> bool:
+    """模型的一段输出该不该按危机处理：标了 crisis，或者整段话里任何地方出现了危机字眼。
+
+    要在校验格式之前查。模型看出来了却没按约定回（只回一个标记、把话写在别的字段里、干脆不回 json）是常事，
+    这时候不能把它当成「格式不对」丢掉。
+    """
+    try:
+        obj = json.loads(raw)
+    except (ValueError, RecursionError):
+        return is_crisis(raw)
+    flag = obj.get("crisis") if isinstance(obj, dict) else None
+    # 标记写成 "true"、1 也算；再把内容还原成文字查一遍，免得字眼藏在 \uXXXX 转义里
+    return (flag is not None and flag is not False) or is_crisis(json.dumps(obj, ensure_ascii=False))

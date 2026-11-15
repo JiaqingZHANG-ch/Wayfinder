@@ -13,7 +13,7 @@ from pathlib import Path
 
 from mentor.model import ModelError, ModelPort
 from mentor.prompts import context_block
-from mentor.safety import is_crisis
+from mentor.safety import is_crisis, model_output_is_crisis
 from mentor.store import Council, Opinion, Store
 
 _log = logging.getLogger(__name__)
@@ -48,6 +48,8 @@ _LENS = """\
 - 对这个人说话，用「你」。
 - 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
 - 建议只给一件小到做得到的事，只加不禁：不要求他戒掉什么。
+- 不建议退学、辞职、换专业、换工作这类难回头的决定，也不评判他现在的学校或工作值不值得待；他自己提到时，只建议先放慢、不急着定。
+- 说他的自责、拖延、压力时用平常的说法（比如「让你更难开始」），不用「伤害自己」「活不下去」这类字眼。
 - 每项不超过 80 字。
 - 档案或记录里流露出伤害自己或不想活的意思时，不要分析，在输出里加上 "crisis": true，程序会接手。
 
@@ -59,7 +61,7 @@ _LENS = """\
 """
 
 _TRIAGE = """\
-你是「成长导师」。智囊团有下面几个领域，每个领域有两个视角。你会拿到一个人的档案和最近的记录，\
+你是「成长导师」。智囊团有下面几个领域，每个领域后面列着它的视角。你会拿到一个人的档案和最近的记录，\
 请挑出此刻最该发言的 2 到 3 个领域，不是每次都让所有人发言。
 
 {domains}
@@ -83,6 +85,8 @@ _SYNTH = """\
 - 视角之间有分歧时，照实写出分歧在哪、各自的理由，不要抹平；没有分歧时 disagreement 写空字符串。
 - 具体，对这个人说话用「你」。
 - 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
+- 不建议退学、辞职、换专业、换工作这类难回头的决定；有视角往这边说时不采纳，只写成「这件事先放慢」。
+- 说他的自责、拖延、压力时用平常的说法，不用「伤害自己」「活不下去」这类字眼。
 - conclusion 不超过 200 字，disagreement 不超过 120 字。conclusion 只说那一件事和为什么先做它，两三句话。
 - 上面这些要求是给你的，照着做就行，不要把「不承诺结果」「只加不禁」这类话写给他看。
 - 档案、记录或各视角的意见里流露出伤害自己或不想活的意思时，不要合成，在输出里加上 "crisis": true，程序会接手。
@@ -130,25 +134,19 @@ def _ok(value, limit: int, *, allow_empty: bool = False) -> bool:
 
 
 class _CrisisFlag(Exception):
-    """模型标了 crisis，或它的话里出现了危机内容：整场作废，交给程序的固定话术。"""
-
-
-def _checked(fields: tuple[str, ...]) -> tuple[str, ...]:
-    if any(is_crisis(text) for text in fields):
-        raise _CrisisFlag
-    return fields
+    """模型标了 crisis，或它的输出里任何地方出现了危机字眼：整场作废，交给程序的固定话术。"""
 
 
 def _lens_fields(obj) -> tuple[str, ...] | None:
     if isinstance(obj, dict) and all(_ok(obj.get(k), 300) for k in ("sees", "worry", "advice")):
-        return _checked((obj["sees"], obj["worry"], obj["advice"]))
+        return obj["sees"], obj["worry"], obj["advice"]
     return None
 
 
 def _synth_fields(obj) -> tuple[str, ...] | None:
     if (isinstance(obj, dict) and _ok(obj.get("conclusion"), 600)
             and _ok(obj.get("disagreement"), 400, allow_empty=True)):
-        return _checked((obj["conclusion"], obj["disagreement"]))
+        return obj["conclusion"], obj["disagreement"]
     return None
 
 
@@ -160,14 +158,12 @@ def _ask(model: ModelPort, messages: list[dict[str, str]], fields: Callable, who
         except ModelError as e:
             _log.warning("智囊团：%s 调用失败（%s），放弃这一个", who, e)  # ModelError 的文字里不带密钥
             return None
-        try:
-            obj = json.loads(raw)
-        except ValueError:
-            obj = None
-        # 先看危机标记，再看别的字段：模型常常只回 {"crisis": true}，不能把它当成「不合约定」丢掉
-        if isinstance(obj, dict) and obj.get("crisis") is not None and obj.get("crisis") is not False:
+        if model_output_is_crisis(raw):  # 先看危机，再看格式：不能把它当成「不合约定」丢掉然后照开
             raise _CrisisFlag
-        parsed = fields(obj)
+        try:
+            parsed = fields(json.loads(raw))
+        except (ValueError, RecursionError):
+            parsed = None
         if parsed is not None:
             return parsed
         _log.warning("智囊团：%s 第 %d 次输出不合约定（长度 %d）", who, attempt, len(raw))  # 不记内容，只记长度

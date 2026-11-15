@@ -342,6 +342,62 @@ def test_bare_crisis_flag_without_other_fields_still_voids_and_pauses(store, whe
     assert store.latest_council() is None and store.is_paused(D14) is True
 
 
+@pytest.mark.parametrize("where, raw", [
+    ("triage", '{"domains": ["情绪与焦虑", "习惯养成"], "reason": "他流露出轻生的念头"}'),  # 字眼在约定外的字段里
+    ("triage", "他有自杀的想法，我不挑了"),  # 不是 json
+    ("lens", lens(sees="他有自杀的念头" + "字" * 300)),  # 超长，本来会被当成不合约定丢掉
+    ("lens", '{"sees": "a", "worry": "b", "advice": "c", "note": "\\u4e0d\\u60f3\\u6d3b"}'),  # 转义写法
+    ("synth", '{"conclusion": "a", "disagreement": "", "extra": ["他说活不下去"]}'),
+])
+def test_crisis_words_anywhere_in_model_output_void_and_pause(store, where, raw):
+    # 模型看出来了、用文字说了，只是没按格式标记：不能当成格式问题丢掉然后照开
+    model = RoutingModel({c.title: [raw if where == "lens" else lens()] for c in FIVE},
+                         [raw if where == "synth" else synth()],
+                         [raw if where == "triage" else triage("判断与决策", "习惯养成")])
+    assert run_council(store, model, FIVE, D14, "intake") is None
+    assert store.latest_council() is None and store.is_paused(D14) is True
+
+
+def test_with_five_domains_nothing_is_called_when_the_council_must_not_run(store, tmp_path):
+    # 分诊也是一次把档案交给模型的调用：暂停、当天有过危机、档案里有危机字眼、当天开过，都不能走到它
+    def model():
+        return RoutingModel({c.title: [lens()] for c in FIVE}, [synth()], [triage("判断与决策", "习惯养成")])
+
+    first = model()
+    assert run_council(store, first, FIVE, D14, "intake") is not None
+    again = model()
+    run_council(store, again, FIVE, D14, "intake")  # 当天开过
+    store.set_profile("## 焦虑点\n有时候真的不想活了", D14)
+    with_words = model()
+    run_council(store, with_words, FIVE, D14, "weekly")  # 档案里有危机字眼
+    store.set_profile("## 处境\n研二", D14)
+    store.log_crisis(D14, "x")
+    paused = model()
+    run_council(store, paused, FIVE, D14, "weekly")  # 暂停中
+    store.resume(D14)
+    resumed = model()
+    run_council(store, resumed, FIVE, D14, "weekly")  # 当天有过危机
+    assert [m.calls for m in (again, with_words, paused, resumed)] == [[], [], [], []]
+
+
+def test_council_still_runs_with_the_first_two_domains_when_triage_fails(store):
+    model = RoutingModel({c.title: [lens()] for c in FIVE}, [synth()], ["不是json", "[" * 100000 + "]" * 100000])
+    out = run_council(store, model, FIVE, D14, "intake")  # 第二次是嵌套极深的 json，解析会抛 RecursionError
+    assert [o.title for o in out.opinions] == [c.title for c in FIVE[:4]]
+
+
+def test_prompts_keep_perspectives_away_from_big_irreversible_moves_and_alarming_wording():
+    import mentor.council as council
+    for prompt in (council._LENS, council._SYNTH):
+        assert "退学" in prompt and "辞职" in prompt  # 「判断与决策」不一定在场，这条规矩要对每个视角都生效
+        assert "字眼" in prompt  # 形容自责、压力时不用会被危机检查拦下的说法
+
+
+def test_triage_prompt_does_not_assume_two_perspectives_per_domain():
+    import mentor.council as council
+    assert "两个视角" not in council._TRIAGE
+
+
 def test_prompts_tell_the_model_to_flag_crisis():
     import mentor.council as council
     assert "crisis" in council._LENS and "crisis" in council._SYNTH and "crisis" in council._TRIAGE
@@ -378,7 +434,10 @@ def test_shipped_cards_do_not_invite_speaking_as_the_author_or_labelling_the_per
         style = c.text.split("## 说话方式")[1].split("##")[0]
         assert "自嘲" not in style and "承认自己" not in style, c.slug
         uses = [line for line in c.text.splitlines() if line.strip().startswith("用在这个人身上")]
-        assert not any("自怜" in line or "其实一份简历都没投" in line for line in uses), c.slug
+        assert not any("自怜" in line or "其实一份简历都没投" in line or "图个轻松" in line for line in uses), c.slug
+        assert "更难受" not in c.text, c.slug  # 「选短期更难受的那个」会被套到去留这类大决定上
+    burns = next(c for c in load_cards(CARDS_DIR) if c.slug == "09-burns")
+    assert "不用这些名称" in burns.text.split("## 说话方式")[1]  # 不对人说「你这是情绪推理」
 
 
 def test_unknown_trigger_raises(store):
