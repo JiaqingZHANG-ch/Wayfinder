@@ -20,6 +20,7 @@ _log = logging.getLogger(__name__)
 
 CARDS_DIR: Path = Path(__file__).parent / "cards"
 MIN_OPINIONS = 2
+MAX_DOMAINS = 3  # 一次会最多几个领域发言；卡片的领域不超过这个数就全部上，不用分诊
 LENS_SECONDS = 100  # 等所有视角的总时限；合成另算（非思考模式，通常几秒）
 TRIGGERS = ("intake", "weekly")
 _TRIES = 2
@@ -57,6 +58,23 @@ _LENS = """\
 - advice：建议下一步做的一件具体的事
 """
 
+_TRIAGE = """\
+你是「成长导师」。智囊团有下面几个领域，每个领域有两个视角。你会拿到一个人的档案和最近的记录，\
+请挑出此刻最该发言的 2 到 3 个领域，不是每次都让所有人发言。
+
+{domains}
+
+怎么挑：
+- 看他现在实际卡在哪、接下来一周最需要哪种帮助，不看哪个领域听起来更重要。
+- 依据档案和记录里的事实，不凭猜测。
+- 只挑 2 个或 3 个。
+- 档案或记录里流露出伤害自己或不想活的意思时，不要挑，在输出里加上 "crisis": true，程序会接手。
+
+只输出一个 json 对象，不要别的文字：
+{{"domains": ["领域名", "领域名"]}}
+领域名必须和上面列出的一字不差。
+"""
+
 _SYNTH = """\
 你是「成长导师」。智囊团的几个视角各自独立看了这个人的情况，他们的意见在下面。请把它们合成一个建议。
 
@@ -86,9 +104,24 @@ def load_cards(directory: Path) -> list[Card]:
     return cards
 
 
-def pick_cards(cards: list[Card]) -> list[Card]:
-    # shortcut: 领域不超过 3 个时全部上；补齐五个领域时在这里加「先挑最相关的 2–3 个领域」的分诊
-    return cards
+def pick_cards(cards: list[Card], model: ModelPort, case: str) -> list[Card]:
+    """分诊：领域多于 MAX_DOMAINS 个时，让模型挑此刻最相关的 2–3 个领域，只请这些领域的视角发言。"""
+    domains = list(dict.fromkeys(card.domain for card in cards))
+    if len(domains) <= MAX_DOMAINS:
+        return cards
+    listing = "\n".join(f"- {d}：{'、'.join(c.title for c in cards if c.domain == d)}" for d in domains)
+
+    def fields(obj) -> tuple[str, ...] | None:
+        names = obj.get("domains") if isinstance(obj, dict) else None
+        valid = (isinstance(names, list) and 2 <= len(names) <= MAX_DOMAINS
+                 and all(isinstance(n, str) and n in domains for n in names) and len(set(names)) == len(names))
+        return tuple(names) if valid else None
+
+    picked = _ask(model, [{"role": "system", "content": _TRIAGE.format(domains=listing)},
+                          {"role": "user", "content": case}], fields, "分诊", think=False)
+    # 挑不出来（连不上、两次都不合约定）就用排在最前的两个领域，会照开
+    picked = picked or domains[:2]
+    return [card for card in cards if card.domain in picked]
 
 
 def _ok(value, limit: int, *, allow_empty: bool = False) -> bool:
@@ -99,23 +132,22 @@ class _CrisisFlag(Exception):
     """模型标了 crisis，或它的话里出现了危机内容：整场作废，交给程序的固定话术。"""
 
 
-def _checked(obj, fields: tuple[str, ...]) -> tuple[str, ...]:
-    flag = obj.get("crisis")
-    if (flag is not None and flag is not False) or any(is_crisis(text) for text in fields):
+def _checked(fields: tuple[str, ...]) -> tuple[str, ...]:
+    if any(is_crisis(text) for text in fields):
         raise _CrisisFlag
     return fields
 
 
 def _lens_fields(obj) -> tuple[str, ...] | None:
     if isinstance(obj, dict) and all(_ok(obj.get(k), 300) for k in ("sees", "worry", "advice")):
-        return _checked(obj, (obj["sees"], obj["worry"], obj["advice"]))
+        return _checked((obj["sees"], obj["worry"], obj["advice"]))
     return None
 
 
 def _synth_fields(obj) -> tuple[str, ...] | None:
     if (isinstance(obj, dict) and _ok(obj.get("conclusion"), 600)
             and _ok(obj.get("disagreement"), 400, allow_empty=True)):
-        return _checked(obj, (obj["conclusion"], obj["disagreement"]))
+        return _checked((obj["conclusion"], obj["disagreement"]))
     return None
 
 
@@ -128,9 +160,13 @@ def _ask(model: ModelPort, messages: list[dict[str, str]], fields: Callable, who
             _log.warning("智囊团：%s 调用失败（%s），放弃这一个", who, e)  # ModelError 的文字里不带密钥
             return None
         try:
-            parsed = fields(json.loads(raw))
-        except (ValueError, TypeError):
-            parsed = None
+            obj = json.loads(raw)
+        except ValueError:
+            obj = None
+        # 先看危机标记，再看别的字段：模型常常只回 {"crisis": true}，不能把它当成「不合约定」丢掉
+        if isinstance(obj, dict) and obj.get("crisis") is not None and obj.get("crisis") is not False:
+            raise _CrisisFlag
+        parsed = fields(obj)
         if parsed is not None:
             return parsed
         _log.warning("智囊团：%s 第 %d 次输出不合约定（长度 %d）", who, attempt, len(raw))  # 不记内容，只记长度
@@ -152,13 +188,13 @@ def run_council(store: Store, model: ModelPort, cards: list[Card], today: date, 
     existing = store.council_on(today, trigger)
     if existing is not None:
         return existing  # 同一天同一时刻只开一次：刷新页面、连点按钮都不重复花钱
-    chosen = pick_cards(cards)
-    if len(chosen) < MIN_OPINIONS:
+    if len(cards) < MIN_OPINIONS:
         return None
     case = context_block(store, today, with_council=False)  # 不带上一次的结论，免得被它带着走
     if is_crisis(case):
         return None  # 档案或记录里有伤害自己的话：这类内容只能由固定的求助信息回应，不交给视角去分析
     try:
+        chosen = pick_cards(cards, model, case)
         opinions = _opinions(model, chosen, case)
         if len(opinions) < MIN_OPINIONS:
             return None

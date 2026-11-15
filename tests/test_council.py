@@ -18,6 +18,14 @@ def card(name: str, domain: str = "判断与决策") -> Card:
 
 
 A, B, C = card("甲"), card("乙"), card("丙", "习惯养成")
+# 五个领域、每个领域两张：领域多于三个时要先分诊
+FIVE = [card(name, domain) for name, domain in (
+    ("甲", "判断与决策"), ("乙", "判断与决策"), ("丙", "习惯养成"), ("丁", "习惯养成"), ("戊", "学习与技能"),
+    ("己", "学习与技能"), ("庚", "方向与职业"), ("辛", "方向与职业"), ("壬", "情绪与焦虑"), ("癸", "情绪与焦虑"))]
+
+
+def triage(*names) -> str:
+    return json.dumps({"domains": list(names)}, ensure_ascii=False)
 
 
 def lens(sees="看到了晚上九点后断", worry="担心一个人待着就打游戏", advice="把读书挪到晚饭前") -> str:
@@ -31,18 +39,21 @@ def synth(conclusion="明天晚饭前读 10 页", disagreement="") -> str:
 class RoutingModel:
     """视角是并行调用的，先后不定；所以按 system 消息里的卡片标题决定回什么。"""
 
-    def __init__(self, lenses: dict[str, list], synthesis: list):
+    def __init__(self, lenses: dict[str, list], synthesis: list, triage: list | tuple = ()):
         self.lenses = {title: list(replies) for title, replies in lenses.items()}
         self.synthesis = list(synthesis)
-        self.calls: list[tuple[str, list[dict], bool]] = []  # (卡片标题或 "synth", 消息, think)
+        self.triage = list(triage)
+        self.calls: list[tuple[str, list[dict], bool]] = []  # (卡片标题、"triage" 或 "synth", 消息, think)
         self._lock = threading.Lock()
 
     def complete_json(self, messages, *, think=False):
         system = messages[0]["content"]
         with self._lock:
-            who = next((title for title in self.lenses if title in system), "synth")
+            # 分诊的指示里列了所有卡片标题，所以先认它
+            who = "triage" if '"domains"' in system else next((t for t in self.lenses if t in system), "synth")
             self.calls.append((who, messages, think))
-            item = (self.synthesis if who == "synth" else self.lenses[who]).pop(0)
+            replies = {"triage": self.triage, "synth": self.synthesis}.get(who)
+            item = (self.lenses[who] if replies is None else replies).pop(0)
         if isinstance(item, Exception):
             raise item
         return item
@@ -82,15 +93,73 @@ def test_non_markdown_files_are_ignored_and_missing_dir_is_empty(tmp_path):
     assert load_cards(tmp_path / "nope") == []
 
 
-def test_pick_cards_keeps_all_when_three_domains_or_fewer():
-    assert pick_cards([A, B, C]) == [A, B, C]
-
-
-def test_shipped_cards_are_named_as_perspectives():
+def test_shipped_cards_cover_five_domains_two_perspectives_each():
+    from collections import Counter
     cards = load_cards(CARDS_DIR)
-    assert len(cards) >= 4
-    assert len({c.domain for c in cards}) >= 2
+    assert Counter(c.domain for c in cards) == {
+        "判断与决策": 2, "习惯养成": 2, "学习与技能": 2, "方向与职业": 2, "情绪与焦虑": 2}
     assert all("视角（源自" in c.title for c in cards)
+    assert len({c.title for c in cards}) == 10
+
+
+def test_shipped_cards_contain_no_crisis_words():
+    # 卡片全文会放进给模型的指示里；里面有这类字眼会诱导视角说出来，而视角一说出来当天的带练就会被中断
+    from mentor.safety import is_crisis
+    assert [c.slug for c in load_cards(CARDS_DIR) if is_crisis(c.text)] == []
+
+
+# 分诊：领域多于三个时，先挑此刻最相关的 2–3 个领域
+
+def test_pick_cards_keeps_all_when_three_domains_or_fewer():
+    model = RoutingModel({}, [])
+    assert pick_cards([A, B, C], model, "这个人的情况") == [A, B, C]
+    assert model.calls == []  # 不用分诊就不花这一次调用
+
+
+def test_triage_picks_the_named_domains_in_card_order():
+    model = RoutingModel({}, [], [triage("情绪与焦虑", "习惯养成")])
+    assert pick_cards(FIVE, model, "这个人的情况") == [FIVE[2], FIVE[3], FIVE[8], FIVE[9]]
+    (who, messages, think), = model.calls
+    assert who == "triage" and think is False
+    assert all(c.domain in messages[0]["content"] and c.title in messages[0]["content"] for c in FIVE)
+    assert messages[1] == {"role": "user", "content": "这个人的情况"}
+
+
+@pytest.mark.parametrize("bad", [
+    "不是json", triage("习惯养成"), triage("判断与决策", "习惯养成", "学习与技能", "方向与职业"),
+    triage("习惯养成", "习惯养成"), triage("习惯养成", "不存在的领域"), '{"domains": "习惯养成"}',
+    '{"domains": [["习惯养成"], "情绪与焦虑"]}', "[]",
+])
+def test_triage_bad_output_twice_falls_back_to_the_first_two_domains(bad):
+    model = RoutingModel({}, [], [bad, bad])
+    assert pick_cards(FIVE, model, "x") == FIVE[:4]
+    assert model.count("triage") == 2
+
+
+def test_triage_second_try_is_used():
+    model = RoutingModel({}, [], ["", triage("方向与职业", "学习与技能", "情绪与焦虑")])
+    assert pick_cards(FIVE, model, "x") == FIVE[4:]
+
+
+def test_triage_model_error_falls_back_to_the_first_two_domains():
+    model = RoutingModel({}, [], [ModelError("网络错误")])
+    assert pick_cards(FIVE, model, "x") == FIVE[:4]
+
+
+def test_council_with_five_domains_only_asks_the_chosen_perspectives(store):
+    chosen = FIVE[4:6] + FIVE[8:]
+    model = RoutingModel({c.title: [lens()] for c in FIVE}, [synth()], [triage("学习与技能", "情绪与焦虑")])
+    out = run_council(store, model, FIVE, D14, "intake")
+    assert [o.title for o in out.opinions] == [c.title for c in chosen]
+    assert sorted(who for who, _, _ in model.calls) == sorted(["triage", "synth"] + [c.title for c in chosen])
+    assert "研二，找实习" in model.calls[0][1][1]["content"]  # 分诊看的是同一份材料
+
+
+def test_triage_crisis_flag_voids_council_and_pauses(store):
+    model = RoutingModel({c.title: [lens()] for c in FIVE}, [synth()], ['{"domains": [], "crisis": true}'])
+    assert run_council(store, model, FIVE, D14, "intake") is None
+    assert model.count("triage") == len(model.calls) == 1  # 一个视角都没问
+    assert store.latest_council() is None and store.is_paused(D14) is True
 
 
 # 正常开会
@@ -262,9 +331,20 @@ def test_output_with_crisis_words_voids_council_and_pauses(store, where):
     assert store.latest_council() is None and store.is_paused(D14) is True
 
 
+@pytest.mark.parametrize("where", ["triage", "lens", "synth"])
+def test_bare_crisis_flag_without_other_fields_still_voids_and_pauses(store, where):
+    # 指示里说的是「不要分析，加上 crisis」，模型很可能只回这一个字段
+    bare = '{"crisis": true}'
+    model = RoutingModel({c.title: [bare if where == "lens" else lens()] for c in FIVE},
+                         [bare if where == "synth" else synth()],
+                         [bare if where == "triage" else triage("判断与决策", "习惯养成")])
+    assert run_council(store, model, FIVE, D14, "intake") is None
+    assert store.latest_council() is None and store.is_paused(D14) is True
+
+
 def test_prompts_tell_the_model_to_flag_crisis():
     import mentor.council as council
-    assert "crisis" in council._LENS and "crisis" in council._SYNTH
+    assert "crisis" in council._LENS and "crisis" in council._SYNTH and "crisis" in council._TRIAGE
 
 
 # 时限与意外
