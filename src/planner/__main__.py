@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from .check import check_plan
-from .errors import PlanInfeasible
+from .errors import InputError, PlanInfeasible
 from .model import load_input
 from .output import to_r2
 from .solve import solve_day
@@ -19,7 +19,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-o", "--output", type=Path, required=True)
     args = ap.parse_args(argv)
 
-    inp = load_input(args.input)
+    try:
+        inp = load_input(args.input)
+    except (InputError, OSError) as e:
+        print(e if isinstance(e, InputError) else f"输入有误：读不了文件 {args.input}（{e}）", file=sys.stderr)
+        return 3
     try:
         plan = solve_day(inp)
     except PlanInfeasible as e:

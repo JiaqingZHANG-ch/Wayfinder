@@ -56,6 +56,42 @@ def _commute_blocks(c: Commute) -> list[Block]:
     return out
 
 
+MOVE_PREFIXES = ("bus-", "to-", "from-")  # 换地方的块
+
+
+def _travel_blocks(inp: PlanInput) -> list[Block]:
+    """去「其他地点」的路上：没有班次表，按单程 other_travel_min 估。"""
+    t = inp.rules.other_travel_min
+    out = []
+    for e in inp.fixed:
+        if e.where == "other":
+            out.append(Block(f"to-{e.id}", f"去{e.title}的路上（按 {t} 分钟估，以实际为准）", e.start - t, e.start, "life"))
+            out.append(Block(f"from-{e.id}", f"从{e.title}回来的路上（按 {t} 分钟估）", e.end, e.end + t, "life"))
+    return out
+
+
+def _away_spans(inp: PlanInput, c: Commute) -> list[tuple[int, int]]:
+    """人不在家的时段：去学校到回家，以及去其他地点的来回。"""
+    spans = [(c.out.leave_home, c.back.arrive_home)] if c.out and c.back else []
+    t = inp.rules.other_travel_min
+    spans += [(e.start - t, e.end + t) for e in inp.fixed if e.where == "other"]
+    return spans
+
+
+def _fixed_conflict(inp: PlanInput, c: Commute) -> str | None:
+    """固定的事（课、会、通勤、路上）彼此撞了：直接说是哪两件，不去怪习惯。"""
+    spans = sorted(
+        [Block(e.id, e.title, e.start, e.end, "class") for e in inp.fixed if e.kind != "tentative"]
+        + _commute_blocks(c) + _travel_blocks(inp),
+        key=lambda b: b.start)
+    for i, x in enumerate(spans):
+        for y in spans[i + 1:]:
+            if y.start >= x.end:
+                break
+            return f"{x.title}（{to_hhmm(x.start)}–{to_hhmm(x.end)}）和 {y.title}（{to_hhmm(y.start)}–{to_hhmm(y.end)}）时间冲突"
+    return None
+
+
 def _english_on_bus(inp: PlanInput, c: Commute, habits: list[Habit]) -> Habit | None:
     """英语能在通勤上听：出门到进教室整段 ≥ 习惯时长，且在习惯窗口内。"""
     if not c.out:
@@ -100,9 +136,12 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     m = cp_model.CpModel()
     pad = inp.rules.min_gap_min
     lo, hi = inp.wake, inp.sleep
+    work_lo = lo + inp.rules.getup_min
     fixed = [Block(e.id, e.title, e.start, e.end, "class") for e in inp.fixed]
-    commute = _commute_blocks(c)
+    commute = _commute_blocks(c) + _travel_blocks(inp)
     on_bus = _english_on_bus(inp, c, habits)
+    away_spans = _away_spans(inp, c)
+    home_ivs = [m.NewFixedSizeIntervalVar(a, z - a, f"away-{i}") for i, (a, z) in enumerate(away_spans)]
     # 两组不重叠：busy 管所有事；gapped 只管非生活类的事，每件结束后留 pad 分钟。
     # 通勤（换地方）在两组里前后都留 pad：吃完饭到出门、到家到下一件事都要缓一下。
     # 固定的事之间本来挨得更近，就按实际间隔留，不让真实课表变成「排不下」。
@@ -118,7 +157,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for s, e, name in spans:
         nxt = min((x for x in starts if x >= e), default=e + pad)
         e2 = e + min(pad, nxt - e)
-        if name.startswith("bus-"):
+        if name.startswith(MOVE_PREFIXES):
             prv = max((x for x in ends if x <= s), default=s - pad)
             s2 = s - min(pad, s - prv)
             busy.append(m.NewFixedSizeIntervalVar(s2, e2 - s2, name))
@@ -132,14 +171,19 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 
     movables: list[_Movable] = []
 
-    def add(block: Block, minutes: int, ws: int, we: int, padded: bool) -> bool:
-        a, z = max(lo, ws), min(hi, we) - minutes
+    objective = []
+
+    def add(block: Block, minutes: int, ws: int, we: int, padded: bool, at_home: bool = False) -> bool:
+        a, z = max(lo if block.kind == "life" else work_lo, ws), min(hi, we) - minutes
         if a > z:
             return False
         s = m.NewIntVar(a, z, block.id)
         busy.append(m.NewIntervalVar(s, minutes, s + minutes, block.id + "-iv"))
         if padded:
             gapped.append(m.NewIntervalVar(s, minutes + pad, s + minutes + pad, block.id + "-g"))
+        if at_home:
+            home_ivs.append(m.NewIntervalVar(s, minutes, s + minutes, block.id + "-home"))
+        objective.append(-s)  # 同样可行时往早放，结果稳定可复现
         movables.append(_Movable(block, s, minutes))
         return True
 
@@ -149,16 +193,15 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for h in habits:
         if h is on_bus:
             continue
-        if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True):
+        if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True, h.where == "home"):
             return None
 
-    # 不在家的时段：出门到到家。人在学校的时段：到 Campus 2 到离开教学楼。
-    away = (c.out.leave_home, c.back.arrive_home) if c.out and c.back else None
+    # 人在学校的时段：到 Campus 2 到离开教学楼。
+    away = away_spans[0] if c.out and c.back else None
     campus = (c.out.arrive_campus, c.back.leave_building) if c.out and c.back else None
     cap = daily_cap(inp)
     full_day = class_minutes(inp) >= 360
-    objective, durations, presences = [], [], []
-    home_ivs = [m.NewFixedSizeIntervalVar(away[0], away[1] - away[0], "away")] if away else []
+    durations, presences = [], []
     optional = []  # (block, start, dur, presence)
 
     for t in tasks:
@@ -169,12 +212,12 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         if ub <= 0:
             continue
         w = weight(t, inp.day, cap)
-        a, z = (campus if t.where == "campus" else (lo, hi))
+        a, z = (campus if t.where == "campus" else (work_lo, hi))
         if t.heavy and full_day:
             z = min(z, EVENING)
         if z - a < lb:
             continue
-        task_durs = []
+        task_durs, prev = [], None
         for k in range(BLOCKS_PER_TASK):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
             d = m.NewIntVar(0, ub, f"{t.id}-{k}-dur")
@@ -183,9 +226,14 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             m.Add(e == s + d)
             m.Add(d >= lb).OnlyEnforceIf(p)
             m.Add(d == 0).OnlyEnforceIf(~p)
+            if prev:  # 第 k 块只在第 k-1 块存在时才用，并且排在它后面：编号和时间顺序一致
+                pp, pe = prev
+                m.AddImplication(p, pp)
+                m.Add(s >= pe).OnlyEnforceIf(p)
+            prev = (p, e)
             busy.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-iv"))
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
-            if t.where == "home" and away:
+            if t.where == "home" and away_spans:
                 home_ivs.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-home"))
             objective += [w * 1440 * d, -w * s, -NEW_BLOCK_PENALTY * 1440 * p]
             task_durs.append(d)
@@ -196,7 +244,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 
     for f in flex:
         clash = any(e.start < f.window_end and f.window_start < e.end for e in inp.fixed)
-        if clash or (away and away[0] < f.window_end and f.window_start < away[1]):
+        if clash or any(a < f.window_end and f.window_start < z for a, z in away_spans):
             continue  # 窗口里有课或人不在家就不排，不另约
         if f.window_end - f.window_start < f.minutes:
             continue
@@ -219,6 +267,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         m.Maximize(sum(objective))
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = SOLVE_SECONDS
+    solver.parameters.random_seed = 0
+    solver.parameters.num_workers = 1  # 单线程才可复现；一天的模型很小，0.1 秒内解完
     if solver.Solve(m) not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
     blocks = fixed + commute + extra
@@ -250,8 +300,13 @@ def _diagnose(inp: PlanInput, c: Commute) -> str:
 
 def solve_day(inp: PlanInput) -> DayPlan:
     c = pick_commute(inp)
+    conflict = _fixed_conflict(inp, c)
+    if conflict:
+        raise PlanInfeasible(conflict)
     plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
     if plan is None:
         raise PlanInfeasible(_diagnose(inp, c))
-    plan.warnings = _warnings(inp, daily_cap(inp))
+    plan.warnings = _warnings(inp, daily_cap(inp)) + [
+        f"{e.title}：路上时间按单程 {inp.rules.other_travel_min} 分钟估算，以实际为准"
+        for e in inp.fixed if e.where == "other"]
     return plan

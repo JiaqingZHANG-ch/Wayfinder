@@ -6,6 +6,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from .errors import InputError
+
+FIXED_WHERE = {"home", "campus", "other"}
+KINDS = {"class", "exam", "meeting", "tentative"}
+PLACE = {"home", "campus", "any"}
+
 
 def to_min(hhmm: str) -> int:
     h, m = hhmm.split(":")
@@ -23,6 +29,8 @@ class Rules:
     min_gap_min: int = 5
     heavy_min_block: int = 120
     light_min_block: int = 30
+    getup_min: int = 15  # 起床后先洗漱，不贴着闹钟开工
+    other_travel_min: int = 30  # 去「其他地点」的单程估计
 
 
 @dataclass
@@ -55,6 +63,7 @@ class Habit:
     window_start: int
     window_end: int
     can_be_on_bus: bool = False
+    where: str = "any"  # home | campus | any（练字只能在家）
 
 
 @dataclass
@@ -111,7 +120,40 @@ def _window(d: dict) -> tuple[int, int]:
 
 
 def load_input(path: Path) -> PlanInput:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    """读输入并检查；任何格式或取值错误都变成 InputError（消息以「输入有误」开头）。"""
+    try:
+        inp = _load(json.loads(Path(path).read_text(encoding="utf-8")))
+    except InputError:
+        raise
+    except (KeyError, TypeError, ValueError, IndexError) as e:
+        raise InputError(f"输入有误：{type(e).__name__}: {e}") from e
+    _validate(inp)
+    return inp
+
+
+def _validate(inp: PlanInput) -> None:
+    def need(ok: bool, msg: str) -> None:
+        if not ok:
+            raise InputError("输入有误：" + msg)
+
+    need(inp.wake < inp.sleep, "起床时间要早于睡觉时间")
+    for e in inp.fixed:
+        need(e.where in FIXED_WHERE, f"{e.title} 的 where 只能是 {sorted(FIXED_WHERE)}，现在是 {e.where!r}")
+        need(e.kind in KINDS, f"{e.title} 的 kind 只能是 {sorted(KINDS)}，现在是 {e.kind!r}")
+        need(e.start < e.end, f"{e.title} 的开始要早于结束")
+    for x in [*inp.meals, *inp.habits, *inp.flex]:
+        need(x.minutes > 0, f"{x.title} 的时长要大于 0")
+        need(x.window_start < x.window_end, f"{x.title} 的时间窗口开始要早于结束")
+    for h in inp.habits:
+        need(h.where in PLACE, f"{h.title} 的 where 只能是 {sorted(PLACE)}，现在是 {h.where!r}")
+    ids = [t.id for t in inp.tasks]
+    need(len(ids) == len(set(ids)), "任务 id 有重复")
+    for t in inp.tasks:
+        need(t.where in PLACE, f"{t.title} 的 where 只能是 {sorted(PLACE)}，现在是 {t.where!r}")
+        need(t.remaining_min >= 0, f"{t.title} 的剩余时间不能是负数")
+
+
+def _load(raw: dict) -> PlanInput:
     rules = Rules(**raw.get("rules", {}))
 
     def task(t: dict) -> Task:
@@ -137,7 +179,8 @@ def load_input(path: Path) -> PlanInput:
         fixed=[FixedEvent(e["id"], e["title"], to_min(e["start"]), to_min(e["end"]), e["where"], e["kind"])
                for e in raw.get("fixed", [])],
         meals=[Meal(m["id"], m["title"], int(m["minutes"]), *_window(m)) for m in raw.get("meals", [])],
-        habits=[Habit(h["id"], h["title"], int(h["minutes"]), *_window(h), bool(h.get("can_be_on_bus", False)))
+        habits=[Habit(h["id"], h["title"], int(h["minutes"]), *_window(h), bool(h.get("can_be_on_bus", False)),
+                      h.get("where", "any"))
                 for h in raw.get("habits", [])],
         flex=[Flex(f["id"], f["title"], int(f["minutes"]), *_window(f)) for f in raw.get("flex", [])],
         tasks=[task(t) for t in raw.get("tasks", [])],

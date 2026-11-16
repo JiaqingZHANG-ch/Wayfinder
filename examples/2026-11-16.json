@@ -17,7 +17,7 @@
     {"id": "dinner", "title": "晚饭", "minutes": 45, "window": ["18:00", "19:30"]}
   ],
   "habits": [
-    {"id": "calligraphy", "title": "练字", "minutes": 20, "window": ["06:15", "08:00"]},
+    {"id": "calligraphy", "title": "练字", "minutes": 20, "window": ["06:15", "08:00"], "where": "home"},
     {"id": "reading", "title": "看书", "minutes": 30, "window": ["20:30", "21:45"]},
     {"id": "english", "title": "英语", "minutes": 30, "window": ["06:30", "21:00"], "can_be_on_bus": true},
     {"id": "french", "title": "法语", "minutes": 30, "window": ["18:30", "21:00"]}
