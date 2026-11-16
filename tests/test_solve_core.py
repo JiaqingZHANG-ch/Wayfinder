@@ -32,6 +32,16 @@ def test_monday_core_feasible():
     assert all(to_min("06:00") <= b.start and b.end <= to_min("22:00") for b in plan.blocks)
 
 
+def test_commute_has_transition_buffer():
+    # 用户 11-16 指出：吃完饭到出门、到家到下一件事都要留转场
+    plan = solve_day(core_input())
+    bus = [b for b in plan.blocks if b.id.startswith("bus-")]
+    others = [b for b in plan.blocks if not b.id.startswith("bus-") and b.id != "english" and b.kind != "class"]
+    for x in bus:
+        for y in others:
+            assert y.end <= x.start - 5 or y.start >= x.end + 5, (x.id, y.id)
+
+
 def test_english_on_bus_only_if_30():
     plan = solve_day(core_input())
     eng = next(b for b in plan.blocks if b.id == "english")
