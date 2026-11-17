@@ -24,12 +24,12 @@
   ],
   "flex": [
     {"id": "gym", "title": "健身", "minutes": 120, "window": ["14:00", "16:00"]},
-    {"id": "call", "title": "和女朋友打电话", "minutes": 60, "window": ["16:00", "18:00"]}
+    {"id": "call", "title": "打电话", "minutes": 60, "window": ["16:00", "18:00"]}
   ],
   "tasks": [
     {"id": "egg-flow", "project": "EGG", "title": "EGG 完整流程写成一页", "remaining_min": 120, "deadline": "2026-11-18", "heavy": false, "where": "any",
-     "steps": ["一页纸写出流程：数据 → 预处理 → EMD → 指标 → 统计 → 结果", "标出没做完的步骤，列 3 个要问 Rudy 的问题"], "done_criteria": "流程一页纸写好"},
-    {"id": "egg-edits", "project": "EGG", "title": "EGG 按 Rudy 的意见改展示", "remaining_min": 240, "deadline": "2026-11-26", "heavy": true, "where": "home",
+     "steps": ["一页纸写出流程：数据 → 预处理 → EMD → 指标 → 统计 → 结果", "标出没做完的步骤，列 3 个要问导师的问题"], "done_criteria": "流程一页纸写好"},
+    {"id": "egg-edits", "project": "EGG", "title": "EGG 按导师的意见改展示", "remaining_min": 240, "deadline": "2026-11-26", "heavy": true, "where": "home",
      "steps": ["删掉表格只留图", "补 SII 和 EMD 的背景"], "done_criteria": "意见改完"},
     {"id": "cv", "project": "CV", "title": "CV 一页法语版", "remaining_min": 300, "deadline": "2026-11-19", "heavy": true, "where": "any",
      "steps": ["列出缺的事实", "写一页法语初稿", "导出 PDF"], "done_criteria": "一页 PDF"},

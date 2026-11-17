@@ -77,7 +77,7 @@ def test_no_work_at_wake_minute(tmp_path):  # I5
 def test_check_flags_home_task_while_away():  # I6
     inp = load_input(EXAMPLE)
     plan = solve_day(inp)
-    plan.blocks.append(Block("egg-edits-9", "EGG 按 Rudy 的意见改展示", to_min("13:00"), to_min("14:00"), "proj", task_id="egg-edits"))
+    plan.blocks.append(Block("egg-edits-9", "EGG 按导师的意见改展示", to_min("13:00"), to_min("14:00"), "proj", task_id="egg-edits"))
     assert any("不在家" in p for p in check_plan(inp, plan))
 
 
