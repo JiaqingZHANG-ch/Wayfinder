@@ -31,8 +31,9 @@
 7. 「今天…不排项目」的提示在可选预算 < 30 分钟（排不下一个番茄）时就出，不只是 ≤ 0 时。
 8. 紧急度用的「一天能干多少」= 不算健身的可选预算；< 30 时退回 240。
 9. 「等车不算自由时间」落实为：紧挨在 `bus-back` 前面的空档不算。
-10. `Rules.heavy_min_block`/`light_min_block`、`Task.min_block`/`max_block` 保留读取（旧 JSON 要能读），求解器不再用。
-11. 第一步的「课满 6 小时的日子 heavy 任务不排在 18:00 之后」保留不动。
+10. 习惯块「越早越好」只是目标里原有的 `-s` 那一项（软偏好），不压过项目对早上的争用；不另加权重。
+11. `Rules.heavy_min_block`/`light_min_block`、`Task.min_block`/`max_block` 保留读取（旧 JSON 要能读），求解器不再用。
+12. 第一步的「课满 6 小时的日子 heavy 任务不排在 18:00 之后」保留不动。
 
 ## Review Focus
 
@@ -221,14 +222,14 @@ def home_class(inp, start, end):   # 在家上的网课
 def test_budget_squeezes_projects(home_day):      # 课 240 + 必做 100 = 340，上限 384 → 只剩 44
     home_class(home_day, "08:00", "12:00")
     plan = solve_day(home_day)
-    assert plan.energy_cap == 384 and minutes(proj(plan)) == 30
-    assert plan.energy_used == 340 + 30
+    assert plan.energy_cap == pytest.approx(384) and minutes(proj(plan)) == 30
+    assert plan.energy_used == pytest.approx(340 + 30)
 
 def test_gym_adds_budget(home_day):               # 健身 → 上限 480 → 剩 140
     home_class(home_day, "08:00", "12:00")
     home_day.flex = [Flex("gym", "健身", 120, to_min("14:00"), to_min("16:00"))]
     plan = solve_day(home_day)
-    assert any(b.id == "gym" for b in plan.blocks) and plan.energy_cap == 480
+    assert any(b.id == "gym" for b in plan.blocks) and plan.energy_cap == pytest.approx(480)
     assert 30 < minutes(proj(plan)) <= 140
 
 def test_over_budget_day_keeps_musts():           # 11-16：课和考试 360 + 必做 85 > 384（§4.7 第 1 条）
@@ -241,7 +242,7 @@ def test_over_budget_day_keeps_musts():           # 11-16：课和考试 360 + �
 必须跟着改的旧测试（原因：11-16 这天按新规则不排项目）：
   - `test_egg_in_campus_gap`：改用 `light_day`，课间空档换成 `10:00`–`12:51`，在家任务的断言换成 `b.end <= to_min("07:11") or b.start >= to_min("13:14")`。
   - `test_cv_before_gnn`：改用 `light_day`，`daily_cap(inp)` 换成 `day_capacity(inp, pick_commute(inp))`。
-  - `test_cap_respected`：删除（被上面三个新测试取代）；「满课日 heavy 不排晚上」的断言移到一个新测试 `test_full_day_no_heavy_evening`：例子把三节课的 `where` 改成 `home` 不行（仍超预算），所以直接断言 11-16 的方案里没有任何 proj 块在 18:00 之后。
+  - `test_cap_respected`：删除（被上面三个新测试取代）；「满课日 heavy 不排晚上」换成新测试 `test_full_day_no_heavy_evening(home_day)`：`fixed` 设成两节在家的课 08:00–12:00、13:00–15:00（共 360），`energy.base_min = 720`（否则预算为 0，排不出项目），断言有 proj 块，且 heavy 任务的块都 `end <= to_min("18:00")`。
   - `test_to_r2_shape`：改用 `light_day`。
   - `test_overload_warns`、`test_deadline_passed_warns`：不用改（容量退回 240，仍会警告），跑一下确认。
 
@@ -272,6 +273,7 @@ m.Add(optional <= allow[0] + (allow[1] - allow[0]) * gym)      # 取代 sum(dura
 def by_id(plan, i): return next(b for b in plan.blocks if b.id == i)
 
 def test_habit_block_contiguous_at_home(home_day):
+    home_day.tasks = []                                  # 「越早」只是软偏好：有项目时早上先让给进度更高的项目
     plan = solve_day(home_day)
     e, r, k = (by_id(plan, i) for i in ("english", "reading", "calligraphy"))
     assert e.end == r.start and r.end == k.start and (e.end - e.start, r.end - r.start, k.end - k.start) == (30, 30, 20)
