@@ -75,18 +75,19 @@ def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
               and by_hid[h.id].start < bus.end and bus.start < by_hid[h.id].end}
     proj = [b for b in plan.blocks if b.kind == "proj"]
 
-    fixed = sum(x.end - x.start for x in inp.fixed if x.kind in FOCUS_KINDS) * cost["class"]
+    fixed = sum((x.end - x.start) * cost.get(x.id, cost["class"]) for x in inp.fixed if x.kind in FOCUS_KINDS)
     fixed += sum(h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h.id in on_bus else 1) for h in inp.habits)
-    optional = sum((b.end - b.start) * cost["project"] for b in proj)
+    optional = sum((b.end - b.start) * cost.get(b.task_id, cost["project"]) for b in proj)
     optional += sum((b.end - b.start) * cost.get(b.id, 0) for b in plan.blocks if b.kind == "flex")
     gym = any(b.id == GYM_ID for b in plan.blocks)
     cap = e.load * (e.base_min + e.gym_bonus_min * gym)
     if optional > max(0, cap - fixed) + 1e-6:
         problems.append(f"精力超了：项目和健身要 {optional:.0f}，上限 {cap:.0f} 减固定 {fixed:.0f} 只剩 {max(0, cap - fixed):.0f}")
 
-    focus = [(b.start, b.end, b.id, False) for b in proj]
+    # 消耗 0 的项目和课是热爱的事：不扣精力，前后也不要求放松
+    focus = [(b.start, b.end, b.id, False) for b in proj if cost.get(b.task_id, cost["project"]) > 0]
     focus += [(b.start, b.end, b.id, False) for b in plan.blocks if b.kind == "must" and b.id not in on_bus]
-    focus += [(x.start, x.end, x.id, True) for x in inp.fixed if x.kind in FOCUS_KINDS]
+    focus += [(x.start, x.end, x.id, True) for x in inp.fixed if x.kind in FOCUS_KINDS and cost.get(x.id, cost["class"]) > 0]
     focus.sort()
     for (s1, e1, i1, f1), (s2, e2, i2, f2) in zip(focus, focus[1:]):
         if f1 and f2:

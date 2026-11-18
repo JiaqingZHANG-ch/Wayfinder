@@ -128,11 +128,21 @@ def energy_cap(inp: PlanInput, gym: bool) -> float:
     return e.load * (e.base_min + e.gym_bonus_min * gym)
 
 
+def event_cost(inp: PlanInput, e) -> float:
+    """每门课、每次会可以按 id 单独定消耗系数，没定的按 class。"""
+    return inp.energy.cost.get(e.id, inp.energy.cost["class"])
+
+
+def task_cost(inp: PlanInput, task_id: str) -> float:
+    """每个项目可以按任务 id 单独定消耗系数；0 = 热爱的事：不扣精力，做完也不用放松。"""
+    return inp.energy.cost.get(task_id, inp.energy.cost["project"])
+
+
 def fixed_cost(inp: PlanInput, c: Commute) -> float:
     """课、考试、会议和必做习惯一定会花掉的精力（分钟）。"""
     cost = inp.energy.cost
     on_bus = _english_on_bus(inp, c, inp.habits)
-    total = sum(e.end - e.start for e in inp.fixed if e.kind in FOCUS_KINDS) * cost["class"]
+    total = sum((e.end - e.start) * event_cost(inp, e) for e in inp.fixed if e.kind in FOCUS_KINDS)
     for h in inp.habits:
         total += h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h is on_bus else 1)
     return total
@@ -197,7 +207,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     ends = sorted(e for _, e, _ in spans)
     busy, gapped, focus_ivs = [], [], []
     rest = inp.energy.rest_after_focus_min
-    focus_starts = sorted(e.start for e in inp.fixed if e.kind in FOCUS_KINDS)
+    tiring = [e for e in inp.fixed if e.kind in FOCUS_KINDS and event_cost(inp, e) > 0]
+    focus_starts = sorted(e.start for e in tiring)
     for s, e, name in spans:
         nxt = min((x for x in starts if x >= e), default=e + pad)
         e2 = e + min(pad, nxt - e)
@@ -209,10 +220,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         else:
             busy.append(m.NewFixedSizeIntervalVar(s, e - s, name))
             gapped.append(m.NewFixedSizeIntervalVar(s, e2 - s, name + "-g"))
-    for e in inp.fixed:  # 课表自己定的间隔照实际留，最多留 rest
-        if e.kind in FOCUS_KINDS:
-            nxt = min((x for x in focus_starts if x >= e.end), default=e.end + rest)
-            focus_ivs.append(m.NewFixedSizeIntervalVar(e.start, e.end + min(rest, nxt - e.end) - e.start, e.id + "-f"))
+    for e in tiring:  # 课表自己定的间隔照实际留，最多留 rest
+        nxt = min((x for x in focus_starts if x >= e.end), default=e.end + rest)
+        focus_ivs.append(m.NewFixedSizeIntervalVar(e.start, e.end + min(rest, nxt - e.end) - e.start, e.id + "-f"))
     extra = []
     if on_bus:
         extra.append(Block(on_bus.id, on_bus.title, c.out.leave_home, c.out.leave_home + on_bus.minutes, "must"))
@@ -265,7 +275,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     cost = inp.energy.cost
     gym_p, flex_cost = 0, []
     full_day = class_minutes(inp) >= 360
-    durations, presences = [], []
+    durations, presences, proj_cost = [], [], []
     optional = []  # (block, start, dur, presence)
     fills = []  # (proj 块, [(效率, 番茄数, 选中变量)])
 
@@ -310,7 +320,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             prev = (p, e)
             busy.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-iv"))
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
-            focus_ivs.append(m.NewOptionalIntervalVar(s, d + rest, e + rest, p, f"{t.id}-{k}-f"))
+            if task_cost(inp, t.id) > 0:
+                focus_ivs.append(m.NewOptionalIntervalVar(s, d + rest, e + rest, p, f"{t.id}-{k}-f"))
+            proj_cost.append(round(100 * task_cost(inp, t.id)) * d)
             if t.where != "campus" and block_start is not None:  # 在家的项目等习惯块做完；落在学校空档里的不受限
                 in_gap = m.NewBoolVar(f"{t.id}-{k}-gap")
                 if campus and t.where == "any":
@@ -351,7 +363,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         d = m.NewConstant(f.minutes)
         optional.append((Block(f.id, f.title, 0, 0, "flex"), s, d, p))
 
-    m.Add(round(100 * cost["project"]) * sum(durations) + sum(flex_cost)
+    m.Add(sum(proj_cost) + sum(flex_cost)
           <= allow[0] + (allow[1] - allow[0]) * gym_p)  # 精力总账：课和必做先扣，剩下的才给项目和健身
     if durations:
         m.Add(sum(presences) <= MAX_PROJECT_BLOCKS)
@@ -410,7 +422,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
                 b.pomodoros, b.progress_min = n, block_progress(eff, n, inp.energy.pomodoro_decay)
     for i, b in enumerate(sorted(projects, key=lambda b: b.start)):
         b.slot = f"p{i + 1}"
-    used = spent / 100 + sum((b.end - b.start) * (cost["project"] if b.kind == "proj" else cost.get(b.id, 0))
+    used = spent / 100 + sum((b.end - b.start) * (task_cost(inp, b.task_id) if b.kind == "proj" else cost.get(b.id, 0))
                              for b in blocks if b.kind in ("proj", "flex"))
     gym = any(b.id == GYM_ID for b in blocks)
     return DayPlan(inp.day, sorted(blocks, key=lambda b: b.start), energy_used=used, energy_cap=energy_cap(inp, gym))
@@ -439,6 +451,6 @@ def solve_day(inp: PlanInput) -> DayPlan:
     plan.warnings = _warnings(inp, day_capacity(inp, c)) + [
         f"{e.title}：路上时间按单程 {inp.rules.other_travel_min} 分钟估算，以实际为准"
         for e in inp.fixed if e.where == "other"]
-    if plan.energy_cap - fixed_cost(inp, c) < POMODORO_MIN:
+    if plan.energy_cap - fixed_cost(inp, c) < POMODORO_MIN and not any(b.kind == "proj" for b in plan.blocks):
         plan.warnings.append(f"今天课和必做已经用掉 {fixed_cost(inp, c) / 60:.1f} 小时精力，晚上不排项目")
     return plan

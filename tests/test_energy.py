@@ -203,3 +203,44 @@ def test_check_rest(home_day):
 def test_check_passes_new_days(home_day, light_day):
     for inp in (home_day, light_day):
         assert check_plan(inp, solve_day(inp)) == []
+
+
+def loved(inp, *ids):                                    # 用户 11-18：热爱的事几乎不耗精力，消耗记 0
+    inp.energy.cost.update({i: 0 for i in ids})
+
+
+def test_loved_project_costs_nothing(home_day):          # 精力上限 0：普通项目排不进，热爱的照样排
+    home_day.tasks = [task(home_day, "egg-flow")]
+    home_day.energy.base_min = 0
+    assert proj(solve_day(home_day)) == []
+    loved(home_day, "egg-flow")
+    plan = solve_day(home_day)
+    assert proj(plan) and check_plan(home_day, plan) == []
+    assert not any("不排项目" in w for w in plan.warnings)
+
+
+def test_loved_project_needs_no_rest(home_day):          # 做完热爱的事不用放松（但不算自由时间）
+    loved(home_day, *(t.id for t in home_day.tasks))
+    def m(plan, b):
+        k = by_id(plan, "calligraphy")
+        b.start, b.end = k.end + 10, k.end + 10 + (b.end - b.start)
+    assert not any("放松" in p for p in bad(home_day, m))
+
+
+def test_class_cost_by_id(home_day):                     # 每门课可以有自己的系数：网课 240 × 0.5 = 120
+    home_class(home_day, "08:00", "12:00")
+    home_day.energy.cost["net"] = 0.5
+    plan = solve_day(home_day)
+    assert plan.energy_used == pytest.approx(120 + 100 + minutes(proj(plan)))
+    assert 30 < minutes(proj(plan)) <= 164 and check_plan(home_day, plan) == []
+
+
+def test_negative_cost_rejected(tmp_path):
+    import json
+    from planner.errors import InputError
+    raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    raw["energy"] = {"cost": {"net": -1}}
+    p = tmp_path / "in.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(InputError):
+        load_input(p)
