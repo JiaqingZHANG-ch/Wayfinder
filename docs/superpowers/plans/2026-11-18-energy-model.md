@@ -31,7 +31,7 @@
 7. 「今天…不排项目」的提示在可选预算 < 30 分钟（排不下一个番茄）时就出，不只是 ≤ 0 时。
 8. 紧急度用的「一天能干多少」= 不算健身的可选预算；< 30 时退回 240。
 9. 「等车不算自由时间」落实为：紧挨在 `bus-back` 前面的空档不算。
-10. 习惯块「越早越好」只是目标里原有的 `-s` 那一项（软偏好），不压过项目对早上的争用；不另加权重。
+10. 习惯块必须在所有在家的项目块之前做完（硬约束，用户 11-18 定「先把习惯做完，剩下的时间再做工作」）；在学校空档里的项目块不受限。块内再用原有的 `-s` 偏好往早排。
 11. `Rules.heavy_min_block`/`light_min_block`、`Task.min_block`/`max_block` 保留读取（旧 JSON 要能读），求解器不再用。
 12. 第一步的「课满 6 小时的日子 heavy 任务不排在 18:00 之后」保留不动。
 
@@ -273,7 +273,7 @@ m.Add(optional <= allow[0] + (allow[1] - allow[0]) * gym)      # 取代 sum(dura
 def by_id(plan, i): return next(b for b in plan.blocks if b.id == i)
 
 def test_habit_block_contiguous_at_home(home_day):
-    home_day.tasks = []                                  # 「越早」只是软偏好：有项目时早上先让给进度更高的项目
+    home_day.tasks = []                                  # 没有项目时，块往早排
     plan = solve_day(home_day)
     e, r, k = (by_id(plan, i) for i in ("english", "reading", "calligraphy"))
     assert e.end == r.start and r.end == k.start and (e.end - e.start, r.end - r.start, k.end - k.start) == (30, 30, 20)
@@ -284,6 +284,11 @@ def test_habit_block_shrinks_when_english_on_bus():      # 11-16：英语在车�
     r, k = by_id(plan, "reading"), by_id(plan, "calligraphy")
     assert r.end == k.start and r.start >= to_min("18:16")
     assert by_id(plan, "english").start == to_min("07:11")
+
+def test_habit_block_before_home_projects(home_day):     # 用户 11-18：习惯先做完，再做项目（硬约束）
+    plan = solve_day(home_day)                           # home_day 带项目任务
+    k = by_id(plan, "calligraphy")
+    assert all(b.start >= k.end for b in plan.blocks if b.kind == "proj")
 
 def test_habit_block_unknown_id_ignored(home_day):       # Review Focus 4
     home_day.habit_block = ["english", "nope", "reading"]
@@ -296,7 +301,7 @@ def test_habit_block_unknown_id_ignored(home_day):       # Review Focus 4
   - `test_home_habit_not_on_campus`：它测的是「不成块的习惯仍守自己的窗口和地点」，在 `change` 里加 `raw.pop("habit_block")`。
 
 - [ ] **Step 2:** `uv run pytest tests/test_energy.py -q` → FAIL。
-- [ ] **Step 3: 实现。** `_solve` 里：`members` = `inp.habit_block` 里按顺序、存在于参数 `habits`、且不是 `on_bus` 的习惯。`len(members) >= 2` 时把它们从逐个习惯的循环里拿掉，改成调一次 `add(...)`：时长是各项之和，窗口 `(work_lo, hi)`，`padded=True`，任一成员 `where == "home"` 就 `at_home=True`；排不下同样 `return None`。求解后把这一段按顺序切成各成员自己的 `Block`（id、title、kind="must" 不变），首尾相接。只剩 0 或 1 个成员时走原来的逐个路径（用它自己的窗口）。
+- [ ] **Step 3: 实现。** `_solve` 里：`members` = `inp.habit_block` 里按顺序、存在于参数 `habits`、且不是 `on_bus` 的习惯。`len(members) >= 2` 时把它们从逐个习惯的循环里拿掉，改成调一次 `add(...)`：时长是各项之和，窗口 `(work_lo, hi)`，`padded=True`，任一成员 `where == "home"` 就 `at_home=True`；排不下同样 `return None`。求解后把这一段按顺序切成各成员自己的 `Block`（id、title、kind="must" 不变），首尾相接。只剩 0 或 1 个成员时走原来的逐个路径（用它自己的窗口）。**另加硬约束（用户 11-18「先把习惯做完，剩下的时间再做工作」）：在家的每个项目块，开始时间 ≥ 习惯块的结束时间**（`OnlyEnforceIf(p)`）；在学校空档里的项目块不受这条限制。
 - [ ] **Step 4:** `uv run pytest -q` → 全绿。
 - [ ] **Step 5:** `git commit -m "feat: english-reading-calligraphy as one habit block (C14)"`
 
