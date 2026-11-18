@@ -112,6 +112,7 @@ def test_habit_block_shrinks_when_english_on_bus():      # 11-16：英语在车�
 def test_habit_block_before_home_projects(home_day):     # 用户 11-18：习惯先做完，再做项目（硬约束）
     plan = solve_day(home_day)                           # home_day 带项目任务
     k = by_id(plan, "calligraphy")
+    assert proj(plan)
     assert all(b.start >= k.end for b in plan.blocks if b.kind == "proj")
 
 
