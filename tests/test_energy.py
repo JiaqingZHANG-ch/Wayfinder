@@ -1,9 +1,19 @@
-from planner.model import to_min
+from pathlib import Path
+
+import pytest
+
+from planner.model import Flex, FixedEvent, load_input, to_min
 from planner.solve import block_progress, solve_day
+
+EXAMPLE = Path(__file__).parent.parent / "examples" / "2026-11-16.json"
 
 
 def proj(plan):
     return [b for b in plan.blocks if b.kind == "proj"]
+
+
+def minutes(blocks):
+    return sum(b.end - b.start for b in blocks)
 
 
 def task(inp, tid):
@@ -43,3 +53,38 @@ def test_tiny_remainder(home_day):  # Review Focus 3
     home_day.tasks = [task(home_day, "egg-flow")]
     home_day.tasks[0].remaining_min = 10
     assert sum(b.pomodoros for b in proj(solve_day(home_day))) <= 1
+
+
+def home_class(inp, start, end):   # 在家上的网课
+    inp.fixed = [FixedEvent("net", "网课", to_min(start), to_min(end), "home", "class")]
+
+
+def test_budget_squeezes_projects(home_day):      # 课 240 + 必做 100 = 340，上限 384 → 只剩 44
+    home_class(home_day, "08:00", "12:00")
+    plan = solve_day(home_day)
+    assert plan.energy_cap == pytest.approx(384) and minutes(proj(plan)) == 30
+    assert plan.energy_used == pytest.approx(340 + 30)
+
+
+def test_gym_adds_budget(home_day):               # 健身 → 上限 480 → 剩 140
+    home_class(home_day, "08:00", "12:00")
+    home_day.flex = [Flex("gym", "健身", 120, to_min("14:00"), to_min("16:00"))]
+    plan = solve_day(home_day)
+    assert any(b.id == "gym" for b in plan.blocks) and plan.energy_cap == pytest.approx(480)
+    assert 30 < minutes(proj(plan)) <= 140
+
+
+def test_over_budget_day_keeps_musts():           # 11-16：课和考试 360 + 必做 85 > 384（§4.7 第 1 条）
+    inp = load_input(EXAMPLE)
+    plan = solve_day(inp)
+    assert proj(plan) == [] and any("不排项目" in w for w in plan.warnings)
+    assert {h.id for h in inp.habits} <= {b.id for b in plan.blocks}
+
+
+def test_full_day_no_heavy_evening(home_day):
+    home_day.fixed = [FixedEvent("c1", "课1", to_min("08:00"), to_min("12:00"), "home", "class"),
+                      FixedEvent("c2", "课2", to_min("13:00"), to_min("15:00"), "home", "class")]
+    home_day.energy.base_min = 720
+    plan = solve_day(home_day)
+    heavy = {t.id for t in home_day.tasks if t.heavy}
+    assert proj(plan) and all(b.end <= to_min("18:00") for b in proj(plan) if b.task_id in heavy)

@@ -21,8 +21,8 @@ def test_check_passes_solver_output():
     assert check_plan(inp, solve_day(inp)) == []
 
 
-def test_to_r2_shape():
-    inp = load_input(EXAMPLE)
+def test_to_r2_shape(light_day):
+    inp = light_day
     out = to_r2(solve_day(inp), inp)
     rows = out["rows"]
     assert rows == sorted(rows, key=lambda r: r[0])

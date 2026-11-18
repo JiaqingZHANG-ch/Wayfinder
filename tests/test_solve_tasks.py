@@ -3,7 +3,8 @@ from datetime import date
 from pathlib import Path
 
 from planner.model import load_input, to_min
-from planner.solve import daily_cap, solve_day
+from planner.commute import pick_commute
+from planner.solve import day_capacity, solve_day
 from planner.urgency import weight
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "2026-11-16.json"
@@ -25,35 +26,26 @@ def minutes(blocks):
     return sum(b.end - b.start for b in blocks)
 
 
-def test_egg_in_campus_gap():
-    inp = example()
+def test_egg_in_campus_gap(light_day):
+    inp = light_day
     plan = solve_day(inp)
-    gap = [b for b in proj_blocks(plan) if b.start >= to_min("12:15") and b.end <= to_min("15:30")]
+    gap = [b for b in proj_blocks(plan) if b.start >= to_min("10:00") and b.end <= to_min("12:51")]
     assert any(b.task_id in ("egg-flow", "cv") for b in gap)
     home_ids = {t.id for t in inp.tasks if t.where == "home"}
     for b in proj_blocks(plan):
         if b.task_id in home_ids:
-            assert b.end <= to_min("07:11") or b.start >= to_min("18:16"), b
+            assert b.end <= to_min("07:11") or b.start >= to_min("13:14"), b
 
 
-def test_cv_before_gnn():
-    inp = example()
-    cap = daily_cap(inp)
+def test_cv_before_gnn(light_day):
+    inp = light_day
+    cap = day_capacity(inp, pick_commute(inp))
     assert weight(task(inp, "cv"), inp.day, cap) > weight(task(inp, "gnn"), inp.day, cap)
     plan = solve_day(inp)
     cv, gnn = proj_blocks(plan, "cv"), proj_blocks(plan, "gnn")
     assert minutes(cv) >= minutes(gnn)
     if cv and gnn:
         assert min(b.start for b in cv) < min(b.start for b in gnn)
-
-
-def test_cap_respected():
-    inp = example()
-    assert daily_cap(inp) == 180
-    plan = solve_day(inp)
-    assert minutes(proj_blocks(plan)) <= 180
-    heavy = {t.id for t in inp.tasks if t.heavy}
-    assert all(b.end <= to_min("18:00") for b in proj_blocks(plan) if b.task_id in heavy)
 
 
 def test_overload_warns():

@@ -19,6 +19,9 @@ FLEX_WEIGHT = 5
 NEW_BLOCK_PENALTY = 50
 POMODORO_MIN = 30  # 一个番茄：25 分钟专注 + 5 分钟小歇
 FOCUS_MIN = 25
+GYM_ID = "gym"  # 这个 id 的 flex 排上了，当天精力上限加 gym_bonus_min
+ON_BUS_COST = 0.5  # 车上听的习惯只算一半精力
+FOCUS_KINDS = ("class", "exam", "meeting")
 
 
 @dataclass
@@ -45,6 +48,8 @@ class DayPlan:
     day: date
     blocks: list[Block]
     warnings: list[str] = field(default_factory=list)
+    energy_used: float = 0.0
+    energy_cap: float = 0.0
 
 
 @dataclass
@@ -116,9 +121,25 @@ def class_minutes(inp: PlanInput) -> int:
     return sum(e.end - e.start for e in inp.fixed if e.kind in ("class", "exam"))
 
 
-def daily_cap(inp: PlanInput) -> int:
-    h = class_minutes(inp)
-    return 180 if h >= 360 else 240 if h > 0 else 360
+def energy_cap(inp: PlanInput, gym: bool) -> float:
+    e = inp.energy
+    return e.load * (e.base_min + e.gym_bonus_min * gym)
+
+
+def fixed_cost(inp: PlanInput, c: Commute) -> float:
+    """课、考试、会议和必做习惯一定会花掉的精力（分钟）。"""
+    cost = inp.energy.cost
+    on_bus = _english_on_bus(inp, c, inp.habits)
+    total = sum(e.end - e.start for e in inp.fixed if e.kind in FOCUS_KINDS) * cost["class"]
+    for h in inp.habits:
+        total += h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h is on_bus else 1)
+    return total
+
+
+def day_capacity(inp: PlanInput, c: Commute) -> int:
+    """给紧迫度算松弛用的每天可用分钟：没算出像样的数就退回 240。"""
+    cap = int(max(0, energy_cap(inp, False) - fixed_cost(inp, c)))
+    return cap if cap >= POMODORO_MIN else 240
 
 
 def _why(t: Task, inp: PlanInput, cap: int) -> str:
@@ -208,7 +229,11 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     # 人在学校的时段：到 Campus 2 到离开教学楼。
     away = away_spans[0] if c.out and c.back else None
     campus = (c.out.arrive_campus, c.back.leave_building) if c.out and c.back else None
-    cap = daily_cap(inp)
+    cap = day_capacity(inp, c)
+    spent = round(100 * fixed_cost(inp, c))
+    allow = [max(0, round(100 * energy_cap(inp, g)) - spent) for g in (False, True)]
+    cost = inp.energy.cost
+    gym_p, flex_cost = 0, []
     full_day = class_minutes(inp) >= 360
     durations, presences = [], []
     optional = []  # (block, start, dur, presence)
@@ -281,11 +306,15 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         busy.append(m.NewOptionalIntervalVar(s, f.minutes, s + f.minutes, p, f"{f.id}-iv"))
         gapped.append(m.NewOptionalIntervalVar(s, f.minutes + pad, s + f.minutes + pad, p, f"{f.id}-g"))
         objective.append(FLEX_WEIGHT * 1440 * f.minutes * p)
+        if f.id == GYM_ID:
+            gym_p = p
+        flex_cost.append(round(100 * cost.get(f.id, 0) * f.minutes) * p)
         d = m.NewConstant(f.minutes)
         optional.append((Block(f.id, f.title, 0, 0, "flex"), s, d, p))
 
+    m.Add(round(100 * cost["project"]) * sum(durations) + sum(flex_cost)
+          <= allow[0] + (allow[1] - allow[0]) * gym_p)  # 精力总账：课和必做先扣，剩下的才给项目和健身
     if durations:
-        m.Add(sum(durations) <= cap)
         m.Add(sum(presences) <= MAX_PROJECT_BLOCKS)
     if len(home_ivs) > 1:
         m.AddNoOverlap(home_ivs)
@@ -318,7 +347,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
                 b.pomodoros, b.progress_min = n, block_progress(eff, n, inp.energy.pomodoro_decay)
     for i, b in enumerate(sorted(projects, key=lambda b: b.start)):
         b.slot = f"p{i + 1}"
-    return DayPlan(inp.day, sorted(blocks, key=lambda b: b.start))
+    used = spent / 100 + sum((b.end - b.start) * (cost["project"] if b.kind == "proj" else cost.get(b.id, 0))
+                             for b in blocks if b.kind in ("proj", "flex"))
+    gym = any(b.id == GYM_ID for b in blocks)
+    return DayPlan(inp.day, sorted(blocks, key=lambda b: b.start), energy_used=used, energy_cap=energy_cap(inp, gym))
 
 
 def _diagnose(inp: PlanInput, c: Commute) -> str:
@@ -338,7 +370,9 @@ def solve_day(inp: PlanInput) -> DayPlan:
     plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
     if plan is None:
         raise PlanInfeasible(_diagnose(inp, c))
-    plan.warnings = _warnings(inp, daily_cap(inp)) + [
+    plan.warnings = _warnings(inp, day_capacity(inp, c)) + [
         f"{e.title}：路上时间按单程 {inp.rules.other_travel_min} 分钟估算，以实际为准"
         for e in inp.fixed if e.where == "other"]
+    if plan.energy_cap - fixed_cost(inp, c) < POMODORO_MIN:
+        plan.warnings.append(f"今天课和必做已经用掉 {fixed_cost(inp, c) / 60:.1f} 小时精力，晚上不排项目")
     return plan
