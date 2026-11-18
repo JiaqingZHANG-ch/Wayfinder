@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .model import PlanInput, to_hhmm
-from .solve import DayPlan
+from .solve import FOCUS_KINDS, GYM_ID, ON_BUS_COST, POMODORO_MIN, DayPlan
 
 SLEEP_MIN = 8 * 60
 
@@ -62,4 +62,49 @@ def check_plan(inp: PlanInput, plan: DayPlan) -> list[str]:
             problems.append(f"{b.title}（{to_hhmm(b.start)}–{to_hhmm(b.end)}）超出了起床到睡觉的时间")
     if inp.wake + 1440 - inp.sleep < SLEEP_MIN:
         problems.append(f"睡觉 {to_hhmm(inp.sleep)} 到起床 {to_hhmm(inp.wake)} 不足 8 小时")
+    problems += _check_energy(inp, plan)
+    return problems
+
+
+def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
+    """精力账、放松间隔、自由时间、番茄块：只看输入和方案，不调求解器的函数。"""
+    e, cost, problems = inp.energy, inp.energy.cost, []
+    bus = next((b for b in plan.blocks if b.id == "bus-out"), None)
+    by_hid = {b.id: b for b in plan.blocks}
+    on_bus = {h.id for h in inp.habits if h.can_be_on_bus and bus and h.id in by_hid
+              and by_hid[h.id].start < bus.end and bus.start < by_hid[h.id].end}
+    proj = [b for b in plan.blocks if b.kind == "proj"]
+
+    fixed = sum(x.end - x.start for x in inp.fixed if x.kind in FOCUS_KINDS) * cost["class"]
+    fixed += sum(h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h.id in on_bus else 1) for h in inp.habits)
+    optional = sum((b.end - b.start) * cost["project"] for b in proj)
+    optional += sum((b.end - b.start) * cost.get(b.id, 0) for b in plan.blocks if b.kind == "flex")
+    gym = any(b.id == GYM_ID for b in plan.blocks)
+    cap = e.load * (e.base_min + e.gym_bonus_min * gym)
+    if optional > max(0, cap - fixed) + 1e-6:
+        problems.append(f"精力超了：项目和健身要 {optional:.0f}，上限 {cap:.0f} 减固定 {fixed:.0f} 只剩 {max(0, cap - fixed):.0f}")
+
+    focus = [(b.start, b.end, b.id, False) for b in proj]
+    focus += [(b.start, b.end, b.id, False) for b in plan.blocks if b.kind == "must" and b.id not in on_bus]
+    focus += [(x.start, x.end, x.id, True) for x in inp.fixed if x.kind in FOCUS_KINDS]
+    focus.sort()
+    for (s1, e1, i1, f1), (s2, e2, i2, f2) in zip(focus, focus[1:]):
+        if f1 and f2:
+            continue  # 课表自己定的间隔不查
+        if i1 in inp.habit_block and i2 in inp.habit_block and s2 == e1:
+            continue  # 习惯块里首尾相接算一段
+        if s2 - e1 < e.rest_after_focus_min:
+            problems.append(f"没放松：{i1}（到 {to_hhmm(e1)}）和 {i2}（{to_hhmm(s2)} 起）隔不到 {e.rest_after_focus_min} 分钟")
+
+    free = [b.end - b.start for b in plan.blocks if b.id.startswith("free-")]
+    if any(d < 30 for d in free) or sum(free) < e.min_free_min:
+        problems.append(f"自由时间不够：共 {sum(free)} 分钟（每段至少 30，总共至少 {e.min_free_min}）")
+
+    edges = [end for end, _ in e.periods[:-1]]
+    for b in proj:
+        d = b.end - b.start
+        if d % POMODORO_MIN or d > POMODORO_MIN * len(e.pomodoro_decay):
+            problems.append(f"{b.title}（{to_hhmm(b.start)}）不是整数个番茄：{d} 分钟")
+        if any(b.start < x < b.end for x in edges):
+            problems.append(f"{b.title}（{to_hhmm(b.start)}–{to_hhmm(b.end)}）跨时段")
     return problems

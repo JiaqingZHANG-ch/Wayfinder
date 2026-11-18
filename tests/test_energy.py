@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from planner.check import check_plan
 from planner.errors import PlanInfeasible
 from planner.model import Flex, FixedEvent, load_input, to_hhmm, to_min
 from planner.solve import FREE_TITLE, Block, block_progress, free_blocks, solve_day
@@ -161,3 +162,43 @@ def test_no_room_for_free_time_says_so():  # Review Focus 5
     inp.energy.min_free_min = 900
     with pytest.raises(PlanInfeasible, match="自由时间"):
         solve_day(inp)
+
+
+def bad(home_day, mutate):
+    plan = solve_day(home_day)
+    mutate(plan, proj(plan)[0])
+    return check_plan(home_day, plan)
+
+
+def test_check_energy(home_day):
+    plan = solve_day(home_day)
+    home_day.energy.base_min = 100      # 上限变成 80，可选部分超了
+    assert any("精力" in p for p in check_plan(home_day, plan))
+
+
+def test_check_free_time(home_day):
+    plan = solve_day(home_day)
+    home_day.energy.min_free_min = 2000
+    assert any("自由时间" in p for p in check_plan(home_day, plan))
+
+
+def test_check_block_not_pomodoro(home_day):
+    assert any("番茄" in p for p in bad(home_day, lambda plan, b: setattr(b, "end", b.end - 10)))
+
+
+def test_check_block_crosses_period(home_day):
+    def m(plan, b):
+        b.start, b.end = to_min("11:30"), to_min("12:30")
+    assert any("跨时段" in p for p in bad(home_day, m))
+
+
+def test_check_rest(home_day):
+    def m(plan, b):
+        k = by_id(plan, "calligraphy")
+        b.start, b.end = k.end + 10, k.end + 10 + (b.end - b.start)
+    assert any("放松" in p for p in bad(home_day, m))
+
+
+def test_check_passes_new_days(home_day, light_day):
+    for inp in (home_day, light_day):
+        assert check_plan(inp, solve_day(inp)) == []
