@@ -17,6 +17,8 @@ BLOCKS_PER_TASK = 2
 EVENING = 18 * 60
 FLEX_WEIGHT = 5
 NEW_BLOCK_PENALTY = 50
+POMODORO_MIN = 30  # 一个番茄：25 分钟专注 + 5 分钟小歇
+FOCUS_MIN = 25
 
 
 @dataclass
@@ -29,6 +31,13 @@ class Block:
     task_id: str | None = None
     slot: str | None = None
     why: str | None = None
+    pomodoros: int | None = None  # 只有 proj 块有
+    progress_min: int | None = None
+
+
+def block_progress(eff: float, n: int, decay: list[float]) -> int:
+    """一块 n 个番茄的有效进度（分钟）：时段效率 × 专注时长，后面的番茄按 decay 递减。"""
+    return round(FOCUS_MIN * eff * sum(decay[:n]))
 
 
 @dataclass
@@ -203,29 +212,42 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     full_day = class_minutes(inp) >= 360
     durations, presences = [], []
     optional = []  # (block, start, dur, presence)
+    fills = []  # (proj 块, [(效率, 番茄数, 选中变量)])
 
     for t in tasks:
         if t.where == "campus" and not campus:
             continue
-        ub = min(t.max_block, need_min(t))
-        lb = min(t.min_block, ub)
-        if ub <= 0:
+        if need_min(t) <= 0:
             continue
         w = weight(t, inp.day, cap)
         a, z = (campus if t.where == "campus" else (work_lo, hi))
         if t.heavy and full_day:
             z = min(z, EVENING)
-        if z - a < lb:
+        decay = inp.energy.pomodoro_decay
+        N = len(decay)  # 一块最多几个番茄
+        lb_n = 2 if t.heavy and need_min(t) >= 60 else 1
+        if z - a < POMODORO_MIN * lb_n:
             continue
-        task_durs, prev = [], None
+        starts = [0] + [end for end, _ in inp.energy.periods[:-1]]
+        periods = [(st, end, eff) for st, (end, eff) in zip(starts, inp.energy.periods)]
+        prev, progs, lasts = None, [], []
         for k in range(BLOCKS_PER_TASK):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
-            d = m.NewIntVar(0, ub, f"{t.id}-{k}-dur")
-            s = m.NewIntVar(a, z - lb, f"{t.id}-{k}-start")
+            d = m.NewIntVar(0, POMODORO_MIN * N, f"{t.id}-{k}-dur")
+            s = m.NewIntVar(a, z - POMODORO_MIN * lb_n, f"{t.id}-{k}-start")
             e = m.NewIntVar(a, z, f"{t.id}-{k}-end")
             m.Add(e == s + d)
-            m.Add(d >= lb).OnlyEnforceIf(p)
-            m.Add(d == 0).OnlyEnforceIf(~p)
+            # 每块恰好落在一个时段、含 n 个番茄；不跨时段
+            y = {(j, n): m.NewBoolVar(f"{t.id}-{k}-y{j}-{n}") for j in range(len(periods)) for n in range(lb_n, N + 1)}
+            m.Add(sum(y.values()) == p)
+            m.Add(d == POMODORO_MIN * sum(n * v for (j, n), v in y.items()))
+            for (j, n), v in y.items():
+                m.Add(s >= periods[j][0]).OnlyEnforceIf(v)
+                m.Add(e <= periods[j][1]).OnlyEnforceIf(v)
+            prog = sum(block_progress(periods[j][2], n, decay) * v for (j, n), v in y.items())
+            lasts.append(sum((block_progress(periods[j][2], n, decay) - block_progress(periods[j][2], n - 1, decay)) * v
+                             for (j, n), v in y.items()))
+            progs.append(prog)
             if prev:  # 第 k 块只在第 k-1 块存在时才用，并且排在它后面：编号和时间顺序一致
                 pp, pe = prev
                 m.AddImplication(p, pp)
@@ -235,12 +257,18 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
             if t.where == "home" and away_spans:
                 home_ivs.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-home"))
-            objective += [w * 1440 * d, -w * s, -NEW_BLOCK_PENALTY * 1440 * p]
-            task_durs.append(d)
+            objective += [-w * s, -NEW_BLOCK_PENALTY * 1440 * p]
+            durations.append(d)
             presences.append(p)
-            optional.append((Block(f"{t.id}-{k}", t.title, 0, 0, "proj", task_id=t.id, why=_why(t, inp, cap)), s, d, p))
-        m.Add(sum(task_durs) <= need_min(t))
-        durations += task_durs
+            blk = Block(f"{t.id}-{k}", t.title, 0, 0, "proj", task_id=t.id, why=_why(t, inp, cap))
+            optional.append((blk, s, d, p))
+            fills.append((blk, [(periods[j][2], n, v) for (j, n), v in y.items()]))
+        total = sum(progs)
+        credited = m.NewIntVar(0, need_min(t), f"{t.id}-credited")  # 超出还差的进度不算分，免得为凑分多排几块
+        m.Add(credited <= total)
+        objective.append(w * 1440 * credited)
+        for p, last in zip(presences[-BLOCKS_PER_TASK:], lasts):  # 去掉最后一个番茄就够了：不许多排
+            m.Add(total - last <= need_min(t) - 1).OnlyEnforceIf(p)
 
     for f in flex:
         clash = any(e.start < f.window_end and f.window_start < e.end for e in inp.fixed)
@@ -284,6 +312,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             blocks.append(b)
             if b.kind == "proj":
                 projects.append(b)
+    for b, ys in fills:
+        for eff, n, v in ys:
+            if solver.Value(v):
+                b.pomodoros, b.progress_min = n, block_progress(eff, n, inp.energy.pomodoro_decay)
     for i, b in enumerate(sorted(projects, key=lambda b: b.start)):
         b.slot = f"p{i + 1}"
     return DayPlan(inp.day, sorted(blocks, key=lambda b: b.start))

@@ -3,7 +3,7 @@
   "day": "2026-11-16",
   "wake": "06:00",
   "sleep": "22:00",
-  "rules": {"leave_after_class_min": 20, "walk_to_stop_min": 10, "min_gap_min": 5, "heavy_min_block": 120, "light_min_block": 30},
+  "rules": {"leave_after_class_min": 20, "walk_to_stop_min": 10, "min_gap_min": 5},
   "fixed": [
     {"id": "cm-parallele", "title": "CM 并行与分布式编程", "start": "08:00", "end": "10:00", "where": "campus", "kind": "class"},
     {"id": "cc2", "title": "CC2 考试", "start": "10:15", "end": "12:15", "where": "campus", "kind": "exam"},

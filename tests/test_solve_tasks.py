@@ -77,7 +77,7 @@ def test_heavy_task_remainder_block():
     inp.tasks[0].remaining_min = 40
     plan = solve_day(inp)
     gnn = proj_blocks(plan, "gnn")
-    assert len(gnn) == 1 and minutes(gnn) == 40
+    assert len(gnn) == 1 and minutes(gnn) == 30 and gnn[0].progress_min == 50  # 不到 60 分钟的 heavy 任务只排 1 个番茄
 
 
 def test_solve_under_10s():
