@@ -183,7 +183,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         spans.append((b.start, end, b.id))
     starts = sorted(s for s, _, _ in spans)
     ends = sorted(e for _, e, _ in spans)
-    busy, gapped = [], []
+    busy, gapped, focus_ivs = [], [], []
+    rest = inp.energy.rest_after_focus_min
+    focus_starts = sorted(e.start for e in inp.fixed if e.kind in FOCUS_KINDS)
     for s, e, name in spans:
         nxt = min((x for x in starts if x >= e), default=e + pad)
         e2 = e + min(pad, nxt - e)
@@ -195,6 +197,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         else:
             busy.append(m.NewFixedSizeIntervalVar(s, e - s, name))
             gapped.append(m.NewFixedSizeIntervalVar(s, e2 - s, name + "-g"))
+    for e in inp.fixed:  # 课表自己定的间隔照实际留，最多留 rest
+        if e.kind in FOCUS_KINDS:
+            nxt = min((x for x in focus_starts if x >= e.end), default=e.end + rest)
+            focus_ivs.append(m.NewFixedSizeIntervalVar(e.start, e.end + min(rest, nxt - e.end) - e.start, e.id + "-f"))
     extra = []
     if on_bus:
         extra.append(Block(on_bus.id, on_bus.title, c.out.leave_home, c.out.leave_home + on_bus.minutes, "must"))
@@ -203,7 +209,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 
     objective = []
 
-    def add(block: Block, minutes: int, ws: int, we: int, padded: bool, at_home: bool = False) -> bool:
+    def add(block: Block, minutes: int, ws: int, we: int, padded: bool, at_home: bool = False, focus: bool = False) -> bool:
         a, z = max(lo if block.kind == "life" else work_lo, ws), min(hi, we) - minutes
         if a > z:
             return False
@@ -211,6 +217,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         busy.append(m.NewIntervalVar(s, minutes, s + minutes, block.id + "-iv"))
         if padded:
             gapped.append(m.NewIntervalVar(s, minutes + pad, s + minutes + pad, block.id + "-g"))
+        if focus:
+            focus_ivs.append(m.NewIntervalVar(s, minutes + rest, s + minutes + rest, block.id + "-f"))
         if at_home:
             home_ivs.append(m.NewIntervalVar(s, minutes, s + minutes, block.id + "-home"))
         objective.append(-s)  # 同样可行时往早放，结果稳定可复现
@@ -224,7 +232,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     members = [by_hid[i] for i in inp.habit_block if i in by_hid]
     block_start, block_min = None, sum(h.minutes for h in members)
     if len(members) >= 2:  # 习惯成块：一整段，不分开排；只剩 0–1 项就走各自的窗口
-        if not add(Block("habit-block", "", 0, 0, "must"), block_min, work_lo, hi, True, any(h.where == "home" for h in members)):
+        if not add(Block("habit-block", "", 0, 0, "must"), block_min, work_lo, hi, True, any(h.where == "home" for h in members), True):
             return None
         block_start = movables.pop().start
         blocked = {h.id for h in members}
@@ -233,7 +241,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for h in habits:
         if h is on_bus or h.id in blocked:
             continue
-        if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True, h.where == "home"):
+        if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True, h.where == "home", True):
             return None
 
     # 人在学校的时段：到 Campus 2 到离开教学楼。
@@ -290,6 +298,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             prev = (p, e)
             busy.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-iv"))
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
+            focus_ivs.append(m.NewOptionalIntervalVar(s, d + rest, e + rest, p, f"{t.id}-{k}-f"))
             if t.where != "campus" and block_start is not None:  # 在家的项目等习惯块做完；落在学校空档里的不受限
                 in_gap = m.NewBoolVar(f"{t.id}-{k}-gap")
                 if campus and t.where == "any":
@@ -338,6 +347,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         m.AddNoOverlap(home_ivs)
     m.AddNoOverlap(busy)
     m.AddNoOverlap(gapped)
+    m.AddNoOverlap(focus_ivs)  # 两段专注之间放松 rest 分钟；吃饭、通勤可以落在里面
     if objective:
         m.Maximize(sum(objective))
     solver = cp_model.CpSolver()

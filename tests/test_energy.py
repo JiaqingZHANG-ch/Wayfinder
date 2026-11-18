@@ -120,3 +120,23 @@ def test_habit_block_unknown_id_ignored(home_day):       # Review Focus 4
     home_day.habit_block = ["english", "nope", "reading"]
     plan = solve_day(home_day)
     assert by_id(plan, "english").end == by_id(plan, "reading").start
+
+
+def focus(plan, inp):   # 项目块和必做；车上听的英语不算
+    bus = next((b for b in plan.blocks if b.id == "bus-out"), None)
+    return sorted((b for b in plan.blocks if b.kind in ("proj", "must") and not (bus and b.start < bus.end and bus.start < b.end)),
+                  key=lambda b: b.start)
+
+
+def test_rest_between_focus(home_day):
+    f = focus(solve_day(home_day), home_day)
+    assert len(f) >= 5
+    for x, y in zip(f, f[1:]):
+        if not (x.id in home_day.habit_block and y.id in home_day.habit_block):
+            assert y.start - x.end >= 30, (x.id, y.id)
+
+
+def test_rest_around_class(home_day):
+    home_class(home_day, "09:00", "10:00")
+    for b in focus(solve_day(home_day), home_day):
+        assert b.end <= to_min("08:30") or b.start >= to_min("10:30"), b.id
