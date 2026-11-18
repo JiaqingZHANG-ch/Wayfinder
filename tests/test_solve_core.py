@@ -21,13 +21,16 @@ def overlaps(a, b):
 
 
 def test_monday_core_feasible():
-    plan = solve_day(core_input())
+    inp = core_input()
+    plan = solve_day(inp)
     for hid, minutes in HABITS.items():
         found = [b for b in plan.blocks if b.id == hid]
         assert len(found) == 1, hid
         assert found[0].end - found[0].start == minutes
     busy = sorted((b for b in plan.blocks if b.kind != "life"), key=lambda b: b.start)
     for x, y in zip(busy, busy[1:]):
+        if x.id in inp.habit_block and y.id in inp.habit_block:
+            continue  # 习惯成块：块内相邻的两项首尾相接
         assert y.start - x.end >= 5, (x.id, y.id)
     assert all(to_min("06:00") <= b.start and b.end <= to_min("22:00") for b in plan.blocks)
 

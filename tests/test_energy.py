@@ -88,3 +88,34 @@ def test_full_day_no_heavy_evening(home_day):
     plan = solve_day(home_day)
     heavy = {t.id for t in home_day.tasks if t.heavy}
     assert proj(plan) and all(b.end <= to_min("18:00") for b in proj(plan) if b.task_id in heavy)
+
+
+def by_id(plan, i):
+    return next(b for b in plan.blocks if b.id == i)
+
+
+def test_habit_block_contiguous_at_home(home_day):
+    home_day.tasks = []                                  # 没有项目时，块往早排
+    plan = solve_day(home_day)
+    e, r, k = (by_id(plan, i) for i in ("english", "reading", "calligraphy"))
+    assert e.end == r.start and r.end == k.start and (e.end - e.start, r.end - r.start, k.end - k.start) == (30, 30, 20)
+    assert k.end <= to_min("12:00")                      # 越早越好，窗口不再是各自的
+
+
+def test_habit_block_shrinks_when_english_on_bus():      # 11-16：英语在车上，块只剩看书 → 练字，落在到家之后
+    plan = solve_day(load_input(EXAMPLE))
+    r, k = by_id(plan, "reading"), by_id(plan, "calligraphy")
+    assert r.end == k.start and r.start >= to_min("18:16")
+    assert by_id(plan, "english").start == to_min("07:11")
+
+
+def test_habit_block_before_home_projects(home_day):     # 用户 11-18：习惯先做完，再做项目（硬约束）
+    plan = solve_day(home_day)                           # home_day 带项目任务
+    k = by_id(plan, "calligraphy")
+    assert all(b.start >= k.end for b in plan.blocks if b.kind == "proj")
+
+
+def test_habit_block_unknown_id_ignored(home_day):       # Review Focus 4
+    home_day.habit_block = ["english", "nope", "reading"]
+    plan = solve_day(home_day)
+    assert by_id(plan, "english").end == by_id(plan, "reading").start

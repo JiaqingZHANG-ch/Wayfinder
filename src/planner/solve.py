@@ -220,8 +220,18 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for meal in meals:
         if not add(Block(meal.id, meal.title, 0, 0, "life"), meal.minutes, meal.window_start, meal.window_end, False):
             return None
+    by_hid = {h.id: h for h in habits if h is not on_bus}
+    members = [by_hid[i] for i in inp.habit_block if i in by_hid]
+    block_start, block_min = None, sum(h.minutes for h in members)
+    if len(members) >= 2:  # 习惯成块：一整段，不分开排；只剩 0–1 项就走各自的窗口
+        if not add(Block("habit-block", "", 0, 0, "must"), block_min, work_lo, hi, True, any(h.where == "home" for h in members)):
+            return None
+        block_start = movables.pop().start
+        blocked = {h.id for h in members}
+    else:
+        blocked = set()
     for h in habits:
-        if h is on_bus:
+        if h is on_bus or h.id in blocked:
             continue
         if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True, h.where == "home"):
             return None
@@ -280,6 +290,14 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             prev = (p, e)
             busy.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-iv"))
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
+            if t.where != "campus" and block_start is not None:  # 在家的项目等习惯块做完；落在学校空档里的不受限
+                in_gap = m.NewBoolVar(f"{t.id}-{k}-gap")
+                if campus and t.where == "any":
+                    m.Add(s >= campus[0]).OnlyEnforceIf(in_gap)
+                    m.Add(e <= campus[1]).OnlyEnforceIf(in_gap)
+                else:
+                    m.Add(in_gap == 0)
+                m.Add(s >= block_start + block_min).OnlyEnforceIf([p, in_gap.Not()])
             if t.where == "home" and away_spans:
                 home_ivs.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-home"))
             objective += [-w * s, -NEW_BLOCK_PENALTY * 1440 * p]
@@ -333,6 +351,11 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         s = solver.Value(mv.start)
         mv.block.start, mv.block.end = s, s + mv.minutes
         blocks.append(mv.block)
+    if block_start is not None:  # 按顺序切成各成员自己的块，首尾相接
+        t0 = solver.Value(block_start)
+        for h in members:
+            blocks.append(Block(h.id, h.title, t0, t0 + h.minutes, "must"))
+            t0 += h.minutes
     projects = []
     for b, s, d, p in optional:
         if solver.Value(p):

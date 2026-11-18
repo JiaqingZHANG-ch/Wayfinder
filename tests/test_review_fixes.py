@@ -40,6 +40,7 @@ def test_other_event_gets_travel(tmp_path):  # C1
 
 def test_home_habit_not_on_campus(tmp_path):  # I1：练字只能在家，窗口却全在人在学校的时段
     def change(raw):
+        raw.pop("habit_block")  # 不成块的习惯仍守自己的窗口和地点
         habit(raw, "calligraphy").update(window=["13:00", "15:30"], where="home")
     with pytest.raises(PlanInfeasible, match="练字"):
         solve_day(load_input(variant(tmp_path, change)))

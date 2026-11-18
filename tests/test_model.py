@@ -29,7 +29,7 @@ def test_energy_defaults_when_absent():
     inp = load_input(EXAMPLE)  # 例子里此时还没有 energy / habit_block
     assert inp.energy.base_min == 480 and inp.energy.load == 0.8
     assert inp.energy.periods == [(720, 2.0), (1080, 1.5), (1440, 1.0)]
-    assert inp.habit_block == []
+    assert inp.habit_block == ["english", "reading", "calligraphy"]  # 例子里 Task 4 起带 habit_block
 
 
 def test_energy_overrides(tmp_path):
