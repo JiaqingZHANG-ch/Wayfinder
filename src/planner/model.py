@@ -23,10 +23,23 @@ def to_hhmm(m: int) -> str:
 
 
 @dataclass
+class Energy:
+    base_min: int = 480
+    gym_bonus_min: int = 120
+    load: float = 0.8
+    periods: list[tuple[int, float]] = field(default_factory=lambda: [(720, 2.0), (1080, 1.5), (1440, 1.0)])  # (结束分钟, 效率)
+    cost: dict[str, float] = field(default_factory=lambda: {"class": 1.0, "project": 1.0, "habit": 1.0, "calligraphy": 0.5})
+    pomodoro_decay: list[float] = field(default_factory=lambda: [1.0, 0.85, 0.7])  # 长度 = 一块最多几个番茄
+    rest_after_focus_min: int = 30
+    min_free_min: int = 120
+
+
+@dataclass
 class Rules:
     leave_after_class_min: int = 20
     walk_to_stop_min: int = 10
     min_gap_min: int = 5
+    # 第二步起求解器不再用，留着是为了旧输入能读
     heavy_min_block: int = 120
     light_min_block: int = 30
     getup_min: int = 15  # 起床后先洗漱，不贴着闹钟开工
@@ -113,6 +126,8 @@ class PlanInput:
     tasks: list[Task]
     bus_to_campus: list[BusToCampus]
     bus_to_home: list[BusToHome]
+    energy: Energy = field(default_factory=Energy)
+    habit_block: list[str] = field(default_factory=list)
 
 
 def _window(d: dict) -> tuple[int, int]:
@@ -151,10 +166,21 @@ def _validate(inp: PlanInput) -> None:
     for t in inp.tasks:
         need(t.where in PLACE, f"{t.title} 的 where 只能是 {sorted(PLACE)}，现在是 {t.where!r}")
         need(t.remaining_min >= 0, f"{t.title} 的剩余时间不能是负数")
+    en = inp.energy
+    ends = [end for end, _ in en.periods]
+    need(bool(ends) and ends == sorted(set(ends)) and ends[-1] >= inp.sleep,
+         "energy.periods 的结束时间要严格升序，且最后一个要覆盖到睡觉时间")
+    need(0 < en.load <= 1, f"energy.load 要在 (0, 1] 之间，现在是 {en.load}")
+    need(bool(en.pomodoro_decay), "energy.pomodoro_decay 不能是空的")
 
 
 def _load(raw: dict) -> PlanInput:
     rules = Rules(**raw.get("rules", {}))
+    ej = dict(raw.get("energy", {}))
+    if "periods" in ej:
+        ej["periods"] = [(to_min(end), float(eff)) for end, eff in ej["periods"]]
+    ej["cost"] = {**Energy().cost, **ej.get("cost", {})}
+    energy = Energy(**ej)
 
     def task(t: dict) -> Task:
         heavy = bool(t.get("heavy", False))
@@ -186,4 +212,6 @@ def _load(raw: dict) -> PlanInput:
         tasks=[task(t) for t in raw.get("tasks", [])],
         bus_to_campus=[BusToCampus(to_min(a), to_min(b)) for a, b in raw.get("bus_to_campus", [])],
         bus_to_home=[BusToHome(to_min(a), to_min(b)) for a, b in raw.get("bus_to_home", [])],
+        energy=energy,
+        habit_block=list(raw.get("habit_block", [])),
     )
