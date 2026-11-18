@@ -22,6 +22,8 @@ FOCUS_MIN = 25
 GYM_ID = "gym"  # 这个 id 的 flex 排上了，当天精力上限加 gym_bonus_min
 ON_BUS_COST = 0.5  # 车上听的习惯只算一半精力
 FOCUS_KINDS = ("class", "exam", "meeting")
+FREE_TITLE = "自由时间：刷视频、看动漫都行"
+FREE_MIN_GAP = 30  # 自由时间至少连续这么久才算
 
 
 @dataclass
@@ -161,8 +163,18 @@ def _warnings(inp: PlanInput, cap: int) -> list[str]:
     return out
 
 
+def free_blocks(inp: PlanInput, blocks: list[Block]) -> list[Block]:
+    """空档（≥ FREE_MIN_GAP）就是自由时间；下一块是回家的车，那段是等车，不算。"""
+    out, cur = [], inp.wake + inp.rules.getup_min
+    for b in sorted(blocks, key=lambda b: b.start) + [Block("end", "", inp.sleep, inp.sleep, "life")]:
+        if b.start - cur >= FREE_MIN_GAP and b.id != "bus-back":
+            out.append(Block(f"free-{len(out)}", FREE_TITLE, cur, b.start, "life"))
+        cur = max(cur, b.end)
+    return out
+
+
 def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
-           tasks: list[Task] = (), flex: list[Flex] = ()) -> DayPlan | None:
+           tasks: list[Task] = (), flex: list[Flex] = (), relax: bool = False) -> DayPlan | None:
     m = cp_model.CpModel()
     pad = inp.rules.min_gap_min
     lo, hi = inp.wake, inp.sleep
@@ -345,9 +357,27 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         m.Add(sum(presences) <= MAX_PROJECT_BLOCKS)
     if len(home_ivs) > 1:
         m.AddNoOverlap(home_ivs)
-    m.AddNoOverlap(busy)
     m.AddNoOverlap(gapped)
-    m.AddNoOverlap(focus_ivs)  # 两段专注之间放松 rest 分钟；吃饭、通勤可以落在里面
+    free_ivs = []
+    if not relax:  # relax 只给 _diagnose 用：去掉放松间隔和自由时间，看是不是它们造成的排不下
+        m.AddNoOverlap(focus_ivs)  # 两段专注之间放松 rest 分钟；吃饭、通勤可以落在里面
+        # 模型里预留自由时间的空档来保证下限，它们不进输出；输出的自由块由 free_blocks 从空档里算
+        floor, prev_end, ds = inp.energy.min_free_min, work_lo, []
+        for k in range(-(-floor // FREE_MIN_GAP)):
+            p, d, s = m.NewBoolVar(f"free{k}-p"), m.NewIntVar(0, floor, f"free{k}-d"), m.NewIntVar(work_lo, hi, f"free{k}-s")
+            m.Add(d >= FREE_MIN_GAP).OnlyEnforceIf(p)
+            m.Add(d == 0).OnlyEnforceIf(p.Not())
+            e = m.NewIntVar(work_lo, hi, f"free{k}-e")
+            m.Add(e == s + d)
+            m.Add(s >= prev_end)  # 第 k 段排在第 k-1 段之后，去掉对称解
+            free_ivs.append(m.NewOptionalIntervalVar(s, d, e, p, f"free{k}-iv"))
+            prev_end = e
+            ds.append(d)
+        m.Add(sum(ds) >= floor)
+        if c.back:  # 等车不算自由时间
+            wait = m.NewFixedSizeIntervalVar(c.campus_end, c.back.leave_building - c.campus_end, "wait-bus")
+            m.AddNoOverlap(free_ivs + [wait])
+    m.AddNoOverlap(busy + free_ivs)
     if objective:
         m.Maximize(sum(objective))
     solver = cp_model.CpSolver()
@@ -387,7 +417,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 
 
 def _diagnose(inp: PlanInput, c: Commute) -> str:
-    alone_fail = [h.title for h in inp.habits if _solve(inp, c, [h], []) is None]
+    if _solve(inp, c, inp.habits, inp.meals, relax=True) is not None:
+        return f"必做和三餐排得下，但留不出专注后的放松间隔和 {inp.energy.min_free_min} 分钟自由时间"
+    alone_fail =[h.title for h in inp.habits if _solve(inp, c, [h], []) is None]
     if alone_fail:
         return "必做事项排不下：" + "、".join(alone_fail)
     if _solve(inp, c, [], inp.meals) is None:
@@ -403,6 +435,7 @@ def solve_day(inp: PlanInput) -> DayPlan:
     plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
     if plan is None:
         raise PlanInfeasible(_diagnose(inp, c))
+    plan.blocks = sorted(plan.blocks + free_blocks(inp, plan.blocks), key=lambda b: b.start)
     plan.warnings = _warnings(inp, day_capacity(inp, c)) + [
         f"{e.title}：路上时间按单程 {inp.rules.other_travel_min} 分钟估算，以实际为准"
         for e in inp.fixed if e.where == "other"]

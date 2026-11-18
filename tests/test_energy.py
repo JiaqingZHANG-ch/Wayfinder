@@ -2,8 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from planner.model import Flex, FixedEvent, load_input, to_min
-from planner.solve import block_progress, solve_day
+from planner.errors import PlanInfeasible
+from planner.model import Flex, FixedEvent, load_input, to_hhmm, to_min
+from planner.solve import FREE_TITLE, Block, block_progress, free_blocks, solve_day
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "2026-11-16.json"
 
@@ -140,3 +141,23 @@ def test_rest_around_class(home_day):
     home_class(home_day, "09:00", "10:00")
     for b in focus(solve_day(home_day), home_day):
         assert b.end <= to_min("08:30") or b.start >= to_min("10:30"), b.id
+
+
+def test_free_blocks_from_gaps(home_day):
+    B = lambda i, a, z, kind="class": Block(i, i, to_min(a), to_min(z), kind)
+    got = free_blocks(home_day, [B("c", "08:00", "10:00"), B("bus-back", "10:40", "11:00", "life"),
+                                 B("x", "13:00", "14:00", "must"), B("y", "14:20", "15:00", "must")])
+    assert [(to_hhmm(b.start), to_hhmm(b.end)) for b in got] == [("06:15", "08:00"), ("11:00", "13:00"), ("15:00", "22:00")]
+    assert all(b.kind == "life" and b.title == FREE_TITLE for b in got)
+
+
+def test_free_time_floor(home_day):
+    free = [b for b in solve_day(home_day).blocks if b.id.startswith("free-")]
+    assert all(b.end - b.start >= 30 for b in free) and sum(b.end - b.start for b in free) >= 120
+
+
+def test_no_room_for_free_time_says_so():  # Review Focus 5
+    inp = load_input(EXAMPLE)
+    inp.energy.min_free_min = 900
+    with pytest.raises(PlanInfeasible, match="自由时间"):
+        solve_day(inp)

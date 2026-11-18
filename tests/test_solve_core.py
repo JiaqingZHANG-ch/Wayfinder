@@ -39,7 +39,8 @@ def test_commute_has_transition_buffer():
     # 用户 11-16 指出：吃完饭到出门、到家到下一件事都要留转场
     plan = solve_day(core_input())
     bus = [b for b in plan.blocks if b.id.startswith("bus-")]
-    others = [b for b in plan.blocks if not b.id.startswith("bus-") and b.id != "english" and b.kind != "class"]
+    others = [b for b in plan.blocks if not b.id.startswith("bus-") and b.id != "english" and b.kind != "class"
+              and not b.id.startswith("free-")]
     for x in bus:
         for y in others:
             assert y.end <= x.start - 5 or y.start >= x.end + 5, (x.id, y.id)
