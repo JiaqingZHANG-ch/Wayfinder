@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .model import PlanInput, to_hhmm
-from .solve import FOCUS_KINDS, GYM_ID, ON_BUS_COST, POMODORO_MIN, DayPlan
+from .solve import FOCUS_KINDS, FREE_MIN_GAP, GYM_ID, ON_BUS_COST, POMODORO_MIN, DayPlan
 
 SLEEP_MIN = 8 * 60
 
@@ -97,8 +97,8 @@ def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
             problems.append(f"没放松：{i1}（到 {to_hhmm(e1)}）和 {i2}（{to_hhmm(s2)} 起）隔不到 {e.rest_after_focus_min} 分钟")
 
     free = [b.end - b.start for b in plan.blocks if b.id.startswith("free-")]
-    if any(d < 30 for d in free) or sum(free) < e.min_free_min:
-        problems.append(f"自由时间不够：共 {sum(free)} 分钟（每段至少 30，总共至少 {e.min_free_min}）")
+    if any(d < FREE_MIN_GAP for d in free) or sum(free) < e.min_free_min:
+        problems.append(f"自由时间不够：共 {sum(free)} 分钟（每段至少 {FREE_MIN_GAP}，总共至少 {e.min_free_min}）")
 
     edges = [end for end, _ in e.periods[:-1]]
     for b in proj:

@@ -172,6 +172,12 @@ def _validate(inp: PlanInput) -> None:
          "energy.periods 的结束时间要严格升序，且最后一个要覆盖到睡觉时间")
     need(0 < en.load <= 1, f"energy.load 要在 (0, 1] 之间，现在是 {en.load}")
     need(bool(en.pomodoro_decay), "energy.pomodoro_decay 不能是空的")
+    from .solve import FREE_MIN_GAP  # 局部导入：solve 依赖 model
+    for name in ("min_free_min", "rest_after_focus_min"):
+        v = getattr(en, name)
+        need(type(v) is int and v >= 0, f"energy.{name} 要是非负整数，现在是 {v!r}")
+    need(en.min_free_min == 0 or en.min_free_min >= FREE_MIN_GAP, f"energy.min_free_min 要是 0 或至少 {FREE_MIN_GAP}")
+    need(len(inp.habit_block) == len(set(inp.habit_block)), "habit_block 有重复的 id")
 
 
 def _load(raw: dict) -> PlanInput:

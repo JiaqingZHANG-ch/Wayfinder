@@ -269,6 +269,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     optional = []  # (block, start, dur, presence)
     fills = []  # (proj 块, [(效率, 番茄数, 选中变量)])
 
+    period_starts = [0] + [end for end, _ in inp.energy.periods[:-1]]
+    periods = [(st, end, eff) for st, (end, eff) in zip(period_starts, inp.energy.periods)]
     for t in tasks:
         if t.where == "campus" and not campus:
             continue
@@ -280,11 +282,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             z = min(z, EVENING)
         decay = inp.energy.pomodoro_decay
         N = len(decay)  # 一块最多几个番茄
-        lb_n = 2 if t.heavy and need_min(t) >= 60 else 1
+        lb_n = 2 if t.heavy and need_min(t) >= 2 * POMODORO_MIN else 1
         if z - a < POMODORO_MIN * lb_n:
             continue
-        starts = [0] + [end for end, _ in inp.energy.periods[:-1]]
-        periods = [(st, end, eff) for st, (end, eff) in zip(starts, inp.energy.periods)]
         prev, progs, lasts = None, [], []
         for k in range(BLOCKS_PER_TASK):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
@@ -419,10 +419,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 def _diagnose(inp: PlanInput, c: Commute) -> str:
     if _solve(inp, c, inp.habits, inp.meals, relax=True) is not None:
         return f"必做和三餐排得下，但留不出专注后的放松间隔和 {inp.energy.min_free_min} 分钟自由时间"
-    alone_fail =[h.title for h in inp.habits if _solve(inp, c, [h], []) is None]
+    alone_fail = [h.title for h in inp.habits if _solve(inp, c, [h], [], relax=True) is None]
     if alone_fail:
         return "必做事项排不下：" + "、".join(alone_fail)
-    if _solve(inp, c, [], inp.meals) is None:
+    if _solve(inp, c, [], inp.meals, relax=True) is None:
         return "三餐排不下：固定事件把吃饭的时间占满了"
     return "必做事项和三餐加在一起排不下：" + "、".join(h.title for h in inp.habits)
 

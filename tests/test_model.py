@@ -51,10 +51,19 @@ def test_energy_overrides(tmp_path):
     {"periods": [["12:00", 2.0], ["18:00", 1.5]]},   # 没覆盖到 22:00 睡觉
     {"periods": [["18:00", 2.0], ["12:00", 1.5], ["24:00", 1.0]]},  # 不是升序
     {"load": 0}, {"pomodoro_decay": []},
+    {"min_free_min": 90.0}, {"min_free_min": 20}, {"rest_after_focus_min": -5},
 ])
 def test_bad_energy_rejected(tmp_path, energy):
     raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     raw["energy"] = energy
+    p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(InputError):
+        load_input(p)
+
+
+def test_duplicate_habit_block_rejected(tmp_path):
+    raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    raw["habit_block"] = ["reading", "reading"]
     p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(InputError):
         load_input(p)

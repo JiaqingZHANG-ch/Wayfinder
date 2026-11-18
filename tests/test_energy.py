@@ -80,6 +80,7 @@ def test_over_budget_day_keeps_musts():           # 11-16：课和考试 360 + �
     inp = load_input(EXAMPLE)
     plan = solve_day(inp)
     assert proj(plan) == [] and any("不排项目" in w for w in plan.warnings)
+    assert plan.energy_used == pytest.approx(445)      # 360 课 + 公交英语 15 + 法语 30 + 阅读 30 + 书法 10
     assert {h.id for h in inp.habits} <= {b.id for b in plan.blocks}
 
 
