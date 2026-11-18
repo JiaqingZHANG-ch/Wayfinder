@@ -31,3 +31,12 @@ def test_to_r2_shape(light_day):
     first = next(r for r in proj if r[4] == "p1")
     assert out["p1"]["task_id"] == first[5]
     assert out["p1"]["s"]  # 带上任务的步骤
+
+
+def test_to_r2_energy_fields(light_day):
+    plan = solve_day(light_day); out = to_r2(plan, light_day)
+    b = next(b for b in plan.blocks if b.slot == "p1")
+    assert out["p1"]["h"].endswith(f"番茄 ×{b.pomodoros}（25+5）")
+    assert out["p1"]["pomodoros"] == b.pomodoros and out["p1"]["progress_min"] == b.progress_min
+    assert out["energy"] == {"used": round(plan.energy_used), "cap": round(plan.energy_cap)}
+    assert any(r[2] and r[2].startswith("自由时间") and r[3] == "life" for r in out["rows"])
