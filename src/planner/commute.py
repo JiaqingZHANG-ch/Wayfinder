@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from .errors import PlanInfeasible
 from .model import BusToCampus, BusToHome, PlanInput, to_hhmm
 
-ARRIVE_BEFORE_MIN = 5  # 到 Campus 2 后走到教室、坐下
+ARRIVE_BEFORE_MIN = 10  # 在 Campus 2 下车后走到教室（用户 11-19：约 10 分钟）
 
 
 @dataclass
