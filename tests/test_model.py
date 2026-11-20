@@ -110,3 +110,62 @@ def test_from_env_missing_key():
 
 def test_from_env_uses_key():
     assert isinstance(DeepSeekModel.from_env({"DEEPSEEK_API_KEY": KEY}), DeepSeekModel)
+
+
+# ---- 本机 Ollama、假模型、模型出口 ----
+from mentor.model import FakeModel, OllamaModel, make_model
+
+
+def ollama_reply(content) -> bytes:
+    return json.dumps({"message": {"role": "assistant", "content": content}}).encode("utf-8")
+
+
+def test_ollama_sends_schema_and_returns_content():
+    opener = RecordingOpener(ollama_reply('{"date": "2026-11-20"}'))
+    schema = {"type": "object", "properties": {"date": {"type": "string"}}}
+    out = OllamaModel("qwen3:14b", opener=opener).complete_json(MESSAGES, schema=schema)
+    assert out == '{"date": "2026-11-20"}'
+    req, _ = opener.requests[0]
+    assert req.full_url == "http://127.0.0.1:11434/api/chat"
+    body = json.loads(req.data)
+    assert body["model"] == "qwen3:14b" and body["messages"] == MESSAGES
+    assert body["format"] == schema and body["stream"] is False
+    assert "think" not in body
+
+
+def test_ollama_without_schema_asks_for_plain_json():
+    opener = RecordingOpener(ollama_reply("{}"))
+    OllamaModel(opener=opener).complete_json(MESSAGES, think=True)
+    body = json.loads(opener.requests[0][0].data)
+    assert body["format"] == "json" and body["think"] is True
+
+
+@pytest.mark.parametrize("error", [urllib.error.URLError("refused"), TimeoutError()])
+def test_ollama_not_running_becomes_model_error(error):
+    with pytest.raises(ModelError, match="Ollama"):
+        OllamaModel(opener=RecordingOpener(error=error)).complete_json(MESSAGES)
+
+
+@pytest.mark.parametrize("payload", [b"not json", b'{"nope": 1}', ollama_reply(3)])
+def test_ollama_bad_shape_becomes_model_error(payload):
+    with pytest.raises(ModelError):
+        OllamaModel(opener=RecordingOpener(payload)).complete_json(MESSAGES)
+
+
+def test_fake_model_replays_and_records():
+    fake = FakeModel(['{"a": 1}'])
+    assert fake.complete_json(MESSAGES, schema={"type": "object"}) == '{"a": 1}'
+    assert fake.calls[0]["schema"] == {"type": "object"}
+    with pytest.raises(ModelError):
+        fake.complete_json(MESSAGES)
+
+
+def test_make_model_picks_by_env():
+    assert isinstance(make_model({}), FakeModel)
+    assert isinstance(make_model({"MODEL": "ollama"}), OllamaModel)
+    assert "qwen2.5:7b" in repr(make_model({"MODEL": "Ollama", "OLLAMA_MODEL": "qwen2.5:7b"}))
+    assert isinstance(make_model({"MODEL": "deepseek", "DEEPSEEK_API_KEY": KEY}), DeepSeekModel)
+    with pytest.raises(ModelError):
+        make_model({"MODEL": "deepseek"})
+    with pytest.raises(ModelError, match="MODEL 只能是"):
+        make_model({"MODEL": "gpt"})

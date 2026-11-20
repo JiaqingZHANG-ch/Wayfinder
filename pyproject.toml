@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "成长导师：会记住你、每天对账、每周复盘的 AI 导师（本机单人版）"
 requires-python = ">=3.12"
 dependencies = [
+    "daily-planner",
+    "fastapi>=0.162.7",
     "nicegui>=4.0.0",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.pytest.ini_options]
@@ -12,7 +15,11 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "--basetemp=.pytest_tmp"
 
+[tool.uv.sources]
+daily-planner = { path = "../daily-planner", editable = true }
+
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.2.0",
 ]
