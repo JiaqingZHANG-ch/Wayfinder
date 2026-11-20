@@ -1,14 +1,15 @@
 """用 CP-SAT 排一天：固定事件、通勤、三餐、必做四样必须排上。"""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from ortools.sat.python import cp_model
 
 from .commute import Commute, pick_commute
-from .errors import PlanInfeasible
-from .model import Flex, Habit, Meal, PlanInput, Task, to_hhmm
+from .errors import InputError, PlanInfeasible
+from .model import Flex, Habit, Meal, PlanInput, Task, to_hhmm, to_min
 from .urgency import need_min, slack_days, weight
 
 SOLVE_SECONDS = 10.0
@@ -288,6 +289,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             continue
         w = weight(t, inp.day, cap)
         a, z = (campus if t.where == "campus" else (work_lo, hi))
+        a = max(a, work_lo)  # 只重排今晚时 work_lo 是现在，学校的空档也不能排到过去
         if t.heavy and full_day:
             z = min(z, EVENING)
         decay = inp.energy.pomodoro_decay
@@ -350,10 +352,11 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         clash = any(e.start < f.window_end and f.window_start < e.end for e in inp.fixed)
         if clash or any(a < f.window_end and f.window_start < z for a, z in away_spans):
             continue  # 窗口里有课或人不在家就不排，不另约
-        if f.window_end - f.window_start < f.minutes:
+        ws = max(f.window_start, work_lo)
+        if f.window_end - ws < f.minutes:
             continue
         p = m.NewBoolVar(f"{f.id}-on")
-        s = m.NewIntVar(f.window_start, f.window_end - f.minutes, f"{f.id}-start")
+        s = m.NewIntVar(ws, f.window_end - f.minutes, f"{f.id}-start")
         busy.append(m.NewOptionalIntervalVar(s, f.minutes, s + f.minutes, p, f"{f.id}-iv"))
         gapped.append(m.NewOptionalIntervalVar(s, f.minutes + pad, s + f.minutes + pad, p, f"{f.id}-g"))
         objective.append(FLEX_WEIGHT * 1440 * f.minutes * p)
@@ -454,3 +457,80 @@ def solve_day(inp: PlanInput) -> DayPlan:
     if plan.energy_cap - fixed_cost(inp, c) < POMODORO_MIN and not any(b.kind == "proj" for b in plan.blocks):
         plan.warnings.append(f"今天课和必做已经用掉 {fixed_cost(inp, c) / 60:.1f} 小时精力，晚上不排项目")
     return plan
+
+
+def _block_cost(inp: PlanInput, b: Block) -> float:
+    cost = inp.energy.cost
+    if b.kind == "proj":
+        return (b.end - b.start) * task_cost(inp, b.task_id)
+    if b.kind == "must":
+        return (b.end - b.start) * cost.get(b.id, cost["habit"])
+    return (b.end - b.start) * cost.get(b.id, 0) if b.kind == "flex" else 0
+
+
+def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
+    """只重排今晚（C27）：now 之前开始的块原样保留，done_ids 里的事不再排，剩下的从 now 起重排。
+
+    「之前的块」取自同一份输入的原计划；求解器固定随机种子、单线程，同样输入排出同样的计划。
+    """
+    t = to_min(now)
+    unknown = set(done_ids) - {x.id for x in [*inp.habits, *inp.meals, *inp.flex, *inp.tasks]}
+    if unknown:
+        raise InputError(f"输入有误：done_ids 里有不认识的 id：{sorted(unknown)}")
+    before = solve_day(inp)
+    keep = [b for b in before.blocks
+            if b.start < t and b.kind != "class" and not b.id.startswith(("free-",) + MOVE_PREFIXES)]
+    rest_min = inp.energy.rest_after_focus_min
+    # 正在做的那块做完再说；专注块做完还要放松 rest 分钟（保守：这段里吃饭也往后推）
+    cutoff = max([t] + [b.end + (rest_min if _block_cost(inp, b) > 0 else 0) for b in keep])
+    drop = {b.id for b in keep} | set(done_ids)
+
+    progress: dict[str, int] = {}
+    for b in keep:
+        if b.kind == "proj":
+            progress[b.task_id] = progress.get(b.task_id, 0) + (b.progress_min or 0)
+    tasks = [replace(x, remaining_min=max(0, x.remaining_min - math.ceil(progress.get(x.id, 0) / x.est_factor)))
+             for x in inp.tasks if x.id not in drop]
+
+    block_on = sum(h.id in inp.habit_block for h in inp.habits) >= 2
+    # 原计划里成块排的习惯不看自己的窗口；块里只剩一项时求解器会改回看窗口，所以把窗口放宽到整天
+    habits = [replace(h, window_start=inp.wake, window_end=inp.sleep) if block_on and h.id in inp.habit_block else h
+              for h in inp.habits if h.id not in drop]
+    meals = [x for x in inp.meals if x.id not in drop]
+
+    def fits(x) -> bool:
+        return x.window_end - max(x.window_start, cutoff) >= x.minutes
+
+    late = [x.title for x in habits + meals if not fits(x)]
+    habits, meals = [h for h in habits if fits(h)], [x for x in meals if fits(x)]
+
+    cost = inp.energy.cost
+    past_cost = sum(_block_cost(inp, b) for b in keep)
+    kept_ids = {b.id for b in keep}
+    # 提前做完的必做和健身也花了精力；没保留在计划里的按标准时长记
+    past_cost += sum(h.minutes * cost.get(h.id, cost["habit"]) for h in inp.habits if h.id in done_ids and h.id not in kept_ids)
+    past_cost += sum(f.minutes * cost.get(f.id, 0) for f in inp.flex if f.id in done_ids and f.id not in kept_ids)
+    gym_done = GYM_ID in kept_ids or GYM_ID in done_ids
+    en = inp.energy
+    past_free = sum(min(b.end, t) - b.start for b in before.blocks if b.id.startswith("free-") and b.start < t)
+    free_left = min(max(0, en.min_free_min - past_free), max(0, inp.sleep - cutoff))
+    energy = replace(en, base_min=en.base_min + en.gym_bonus_min * gym_done - past_cost / en.load,
+                     min_free_min=free_left if free_left >= FREE_MIN_GAP else 0)
+    ids = {h.id for h in habits}
+    rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=0), habits=habits, meals=meals,
+                   flex=[f for f in inp.flex if f.id not in drop], tasks=tasks, energy=energy,
+                   habit_block=[i for i in inp.habit_block if i in ids])
+    after = solve_day(rest)
+
+    new = [b for b in after.blocks if not b.id.startswith("free-")]
+    for b in new:
+        if b.id in kept_ids:  # 同一个项目上午排过 x-0，晚上新排的也叫 x-0：改名免得日历同步认错
+            b.id += "-r"
+    blocks = keep + new
+    projects = sorted((b for b in blocks if b.kind == "proj"), key=lambda b: b.start)
+    for i, b in enumerate(projects):
+        b.slot = f"p{i + 1}"  # shortcut: 上午已有项目块时可能出现 p4，网页只显示 p1–p3；做 API 时再定怎么显示
+    blocks = sorted(blocks + free_blocks(inp, blocks), key=lambda b: b.start)
+    gym = any(b.id == GYM_ID for b in blocks)
+    warnings = after.warnings + [f"来不及排了：{x}" for x in late]
+    return DayPlan(inp.day, blocks, warnings, energy_used=after.energy_used + past_cost, energy_cap=energy_cap(inp, gym))
