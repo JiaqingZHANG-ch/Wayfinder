@@ -21,6 +21,7 @@ export function PlanView({ plan, from }: { plan: Plan; from?: string }) {
       {plan.warnings.map((w) => (
         <Text key={w} style={styles.warning}>{w}</Text>
       ))}
+      {from && blocks.length === 0 && <Text style={styles.sub}>今天已经没有剩下的安排了，早点休息。</Text>}
       {blocks.map((b) => (
         <View key={b.id} style={[styles.row, { borderLeftColor: KIND_COLOR[b.kind] }]}>
           <Text style={styles.time}>{b.start}–{b.end}</Text>

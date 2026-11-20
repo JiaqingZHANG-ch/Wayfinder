@@ -84,6 +84,13 @@ def test_checkin_with_buttons_saves_log_and_quote(setup):
     assert week["projects"] == [{"id": "exam-prep", "title": "高数期末复习", "less": 1, "same": 0, "more": 0}]
 
 
+def test_checkin_takes_energy_reported_today(setup):
+    client, db, _ = setup
+    client.post("/energy", json={"level": 2, "now": "18:00"})
+    r = client.post("/checkin", json={"result": {"items": {"english": {"status": "floor"}}}}).json()
+    assert r["saved"]["energy_after_class"] == 2
+
+
 def test_checkin_without_note_closes_plainly(setup):
     r = setup[0].post("/checkin", json={"result": {"items": {"english": {"status": "skip"}}}}).json()
     assert r["closing"] == "今天记下了"

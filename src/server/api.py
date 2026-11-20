@@ -207,7 +207,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             [v for k in ("note", "blocker", "tomorrow_task") if isinstance(v := body.result.get(k), str)]
         if any(len(t) > MAX_INPUT for t in texts):
             raise HTTPException(422, f"一次最多 {MAX_INPUT} 字")
-        items = _items(today_plan(day)["plan"])
+        stored = today_plan(day)
+        items = _items(stored["plan"])
 
         if body.sentence is not None:
             outcome, result = parse_sentence(model, body.sentence, day, items)
@@ -228,6 +229,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 raise HTTPException(422, str(e)) from None
             said = quote = result["note"]
 
+        if result["energy_after_class"] is None:  # 没说电量就用今天报过的
+            result["energy_after_class"] = stored["energy_level"]
         db.save_log(USER_ID, result)
         if said:
             mid = db.add_message(USER_ID, day, "对账", "user", said)
