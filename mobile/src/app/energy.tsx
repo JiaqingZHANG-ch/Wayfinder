@@ -24,6 +24,7 @@ export default function EnergyScreen() {
     setLevel(n);
     setBusy(true);
     setMessage(null);
+    setCrisis(null);
     try {
       const res = await postEnergy(n);
       if (isCrisis(res)) setCrisis(res.message);

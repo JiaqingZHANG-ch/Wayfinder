@@ -27,7 +27,7 @@ export function PlanView({ plan, from }: { plan: Plan; from?: string }) {
           {plan.confirmed ? " · 已确认" : ""}
         </Small>
         <View style={{ height: 6, borderRadius: radius.pill, backgroundColor: c.sunken, overflow: "hidden" }}
-          accessibilityLabel={`精力已安排 ${Math.round(used * 100)}%`}>
+          accessible accessibilityRole="progressbar" accessibilityLabel={`精力已安排 ${Math.round(used * 100)}%`}>
           <View style={{ width: `${used * 100}%`, height: "100%", backgroundColor: c.kind.must, borderRadius: radius.pill }} />
         </View>
       </View>
@@ -38,13 +38,13 @@ export function PlanView({ plan, from }: { plan: Plan; from?: string }) {
           const quiet = b.kind === "life";
           return (
             <View key={b.id} style={{ flexDirection: "row", gap: space.md, minHeight: 44 }}
-              accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}`}>
+              accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}`}>
               <Text style={[type.small, { width: 48, color: c.muted, fontVariant: ["tabular-nums"], paddingTop: 2 }]}>
                 {b.start}
               </Text>
               <View style={{ alignItems: "center", width: 12 }}>
                 <View style={{ width: quiet ? 8 : 12, height: quiet ? 8 : 12, borderRadius: radius.pill, marginTop: quiet ? 8 : 6,
-                  backgroundColor: quiet ? c.line : c.kind[b.kind] }} />
+                  backgroundColor: c.kind[b.kind] }} />
                 {i < blocks.length - 1 && <View style={{ flex: 1, width: 2, backgroundColor: c.line, marginVertical: 2 }} />}
               </View>
               <View style={{ flex: 1, paddingBottom: space.md, gap: 2 }}>

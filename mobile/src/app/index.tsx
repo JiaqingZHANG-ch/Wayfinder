@@ -1,7 +1,6 @@
 import { Href, Link, Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
 import { Consent } from "@/components/consent";
@@ -23,7 +22,6 @@ export default function Today() {
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [review, setReview] = useState<Week["review"]>(null);
   const [me, setMe] = useState<Me | null>(null);
-  const top = useSafeAreaInsets().top;
 
   useEffect(() => {
     getToday().then((p) => {
@@ -37,22 +35,22 @@ export default function Today() {
   if (error instanceof ApiError && error.status === 409) return <Redirect href="/onboarding" />; // 还没建档
   if (error) {
     return (
-      <Screen scroll={false}>
+      <Screen scroll={false} safeTop>
         <Title>没连上</Title>
         <Body muted>没拿到今天的计划：{error.message}。后端开着吗？</Body>
         <Button label="再试一次" variant="secondary" onPress={() => router.replace("/")} />
       </Screen>
     );
   }
-  if (!plan) return <Loading text="正在排今天的计划……" />;
+  if (!plan) return <Loading text="正在排今天的计划……" safeTop />;
   if (me && !me.consented) {
     // 隐私说明换了新版本：老用户先看完再用
-    return <Screen><Consent me={me} onDone={setMe} /></Screen>;
+    return <Screen safeTop><Consent me={me} onDone={setMe} /></Screen>;
   }
 
   return (
-    <Screen>
-      <View style={{ paddingTop: top + space.lg, gap: space.xs }}>
+    <Screen safeTop>
+      <View style={{ gap: space.xs }}>
         <Small muted>{dayLabel(plan.day)}</Small>
         <Display>{greeting(new Date().getHours())}</Display>
       </View>

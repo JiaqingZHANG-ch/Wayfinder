@@ -51,7 +51,14 @@ export default function ReviewScreen() {
     }
   }
 
-  if (crisis) return <Screen><CrisisCard message={crisis} /></Screen>;
+  if (crisis) {
+    return (
+      <Screen>
+        <CrisisCard message={crisis} />
+        {review && <Button label="继续" variant="secondary" onPress={() => setCrisis(null)} />}
+      </Screen>
+    );
+  }
   if (!review) return message ? <Screen><Notice tone="error">{message}</Notice></Screen> : <Loading text="正在看这 7 天的记录……" />;
 
   return (

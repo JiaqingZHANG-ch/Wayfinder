@@ -9,7 +9,7 @@ export function EnergyPick({ value, onChange }: { value: Energy | null; onChange
   return (
     <Row>
       {(Object.keys(ENERGY_LABELS) as Energy[]).map((k) => (
-        <Chip key={k} label={ENERGY_LABELS[k]} on={value === k} onPress={() => onChange(value === k ? null : k)} />
+        <Chip key={k} label={ENERGY_LABELS[k]} role="checkbox" on={value === k} onPress={() => onChange(value === k ? null : k)} />
       ))}
     </Row>
   );

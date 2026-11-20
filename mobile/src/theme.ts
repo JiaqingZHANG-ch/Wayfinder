@@ -18,7 +18,7 @@ const light = {
   onSoft: "#8A3F27", // 6.0:1
   danger: "#A63A32", // 6.0:1
   // 计划里每类事情的颜色：课、习惯、项目、可选、生活
-  kind: { class: "#A39A8F", must: "#6F8F72", proj: "#5B7A99", flex: "#D9A441", life: "#E8DFD3" },
+  kind: { class: "#A39A8F", must: "#6F8F72", proj: "#5B7A99", flex: "#D9A441", life: "#C4B8AA" },
 };
 
 const dark: typeof light = {
@@ -33,7 +33,7 @@ const dark: typeof light = {
   soft: "#4A3027",
   onSoft: "#F3C9B6", // 7.9:1
   danger: "#F0918A", // 6.9:1
-  kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#3D3631" },
+  kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
 };
 
 export type Colors = typeof light;

@@ -1,5 +1,6 @@
 /** 公共组件：页面、卡片、文字、按钮、选项、输入框、提示。页面只拼这些，不自己写样式数值。 */
 import { ReactNode } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pressable, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 
 import { radius, space, type, useColors } from "@/theme";
@@ -7,9 +8,11 @@ import { radius, space, type, useColors } from "@/theme";
 const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
 const TOUCH = 44; // 可点区域至少 44pt（Apple HIG）
 
-export function Screen({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
+/** safeTop：页面没有标题栏时（首页）让出状态栏的高度。 */
+export function Screen({ children, scroll = true, safeTop }: { children: ReactNode; scroll?: boolean; safeTop?: boolean }) {
   const c = useColors();
-  const inner = { padding: space.lg, paddingBottom: space.xxl, gap: space.lg, maxWidth: MAX_WIDTH,
+  const top = useSafeAreaInsets().top;
+  const inner = { padding: space.lg, paddingTop: safeTop ? top + space.xxl : space.lg, paddingBottom: space.xxl, gap: space.lg, maxWidth: MAX_WIDTH,
     width: "100%" as const, alignSelf: "center" as const };
   return scroll ? (
     <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={inner}
@@ -109,7 +112,7 @@ export function Field({ label, error, style, ...input }: TextInputProps & { labe
 export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "error" }) {
   const c = useColors();
   return (
-    <View accessibilityLiveRegion="polite" style={{ backgroundColor: tone === "error" ? "transparent" : c.soft,
+    <View aria-live="polite" style={{ backgroundColor: tone === "error" ? "transparent" : c.soft,
       borderRadius: radius.md, padding: tone === "error" ? 0 : space.md }}>
       <Text style={[type.small, { color: tone === "error" ? c.danger : c.onSoft }]}>{children}</Text>
     </View>
@@ -122,6 +125,6 @@ export function CrisisCard({ message }: { message: string }) {
 }
 
 /** 读数据时的占位。 */
-export function Loading({ text }: { text: string }) {
-  return <Screen scroll={false}><Body muted center>{text}</Body></Screen>;
+export function Loading({ text, safeTop }: { text: string; safeTop?: boolean }) {
+  return <Screen scroll={false} safeTop={safeTop}><Body muted center>{text}</Body></Screen>;
 }
