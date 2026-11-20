@@ -149,6 +149,7 @@ export function checkinItems(plan: Plan): CheckinItem[] {
   const items = new Map<string, CheckinItem>();
   for (const b of plan.blocks) {
     if (b.kind === "must" || b.kind === "flex") items.set(b.id, { id: b.id, title: b.title, project: false });
+    else if (b.task_id === "one-thing") items.set(b.task_id, { id: b.task_id, title: `昨晚定的一件事：${b.title}`, project: false });
     else if (b.kind === "proj" && b.task_id) items.set(b.task_id, { id: b.task_id, title: b.title, project: true });
   }
   return [...items.values()];

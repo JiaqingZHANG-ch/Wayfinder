@@ -580,3 +580,22 @@ def test_review_asks_still_right_for_old_profile(setup):
     model.replies.append(REVIEW)
     r = client.post("/review", json={}).json()
     assert r["still_right"]["id"] == pid and r["still_right"]["question"] == "上次你说「想做能帮人理清方向的产品」，现在还对吗？"
+
+
+def test_last_nights_one_thing_is_planned_today_and_answers_yesterday_done(setup):
+    client, db, _ = setup
+    db.save_log(1, {"date": "2026-11-19", "energy_after_class": None, "items": {}, "blocker": "", "note": "",
+                    "tomorrow_task": "把 EGG 的图画完", "yesterday_done": None})
+    plan = client.post("/energy", json={"level": 4, "now": "18:00"}).json()
+    one = [b for b in plan["blocks"] if b.get("task_id") == "one-thing"]
+    assert one and one[0]["title"] == "把 EGG 的图画完"
+    r = client.post("/checkin", json={"result": {"items": {"one-thing": {"status": "done"}}}}).json()
+    assert r["saved"]["yesterday_done"] is True
+
+
+def test_no_one_thing_when_last_night_left_it_empty(setup):
+    client, db, _ = setup
+    db.save_log(1, {"date": "2026-11-19", "energy_after_class": None, "items": {}, "blocker": "", "note": "",
+                    "tomorrow_task": "", "yesterday_done": None})
+    plan = client.post("/energy", json={"level": 4, "now": "18:00"}).json()
+    assert not any(b.get("task_id") == "one-thing" for b in plan["blocks"])

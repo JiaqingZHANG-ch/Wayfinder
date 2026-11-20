@@ -53,8 +53,8 @@ def week_stats(logs: list[dict], habits: list[dict], tasks: list[dict]) -> dict:
 
 def allowed_numbers(stats: dict) -> set[str]:
     # shortcut: 只查「这个数字统计里有没有」，查不出把 5 天写成 6 天这种张冠李戴；要更严就让模型按占位符写、程序填数
-    """统计里出现过的每个数字（包括日期里的年、月、日），复盘正文里的数字只能从这里来。"""
-    return set(re.findall(r"\d+", json.dumps(stats, ensure_ascii=False)))
+    """统计里出现过的每个数字（包括日期里的年、月、日，和用户原话里的「十分钟」），复盘正文里的数字只能从这里来。"""
+    return numbers_in(json.dumps(stats, ensure_ascii=False))
 
 
 def build_messages(stats: dict, habits: list[dict]) -> list[dict[str, str]]:
@@ -85,25 +85,25 @@ def _check_adjustments(raw: object, habits: list[dict]) -> list[dict] | None:
         return None
     ids = {h["id"]: h for h in habits}
     out = []
-    for a in raw:
+    for a in raw:  # 不合格的那一条丢掉，其余照给（复盘正文不受影响）
         if not isinstance(a, dict) or a.get("kind") not in ADJUST_KINDS:
-            return None
+            continue
         value, why = a.get("value"), a.get("why")
         if type(value) is not int or not 1 <= value <= 180 or not isinstance(why, str) or banned_hits(why):
-            return None
+            continue
         if a["kind"] == "add_habit":
             title = a.get("title")
             added = sum(x["kind"] == "add_habit" for x in out)
             if not isinstance(title, str) or not 0 < len(title.strip()) <= 20 or len(habits) + added >= MAX_HABITS:
-                return None
+                continue
             out.append({"kind": "add_habit", "title": title.strip(), "value": value, "why": why.strip()})
             continue
         h = ids.get(a.get("habit_id"))
         if h is None:
-            return None
+            continue
         floor, minutes = h.get("floor_min", h["minutes"]), h["minutes"]
         if (a["kind"] == "minutes" and value < floor) or (a["kind"] == "floor_min" and value > minutes):
-            return None  # 改了以后保底版不能比标准版长
+            continue  # 改了以后保底版不能比标准版长
         out.append({"kind": a["kind"], "habit_id": h["id"], "title": h["title"], "value": value, "why": why.strip()})
     return out
 
@@ -137,6 +137,8 @@ def _summary_ok(text: object, stats: dict) -> bool:
     if not isinstance(text, str) or not text.strip() or banned_hits(text):
         return False
     if not numbers_in(text) <= allowed_numbers(stats):
+        return False
+    if any(x["id"] in text for x in stats["habits"] + stats["projects"]):  # 写成了 english、habit-1 这种内部 id
         return False
     names = {h["title"] for h in stats["habits"]} | {p["title"] for p in stats["projects"]}
     for m in re.finditer(r"「([^」]*)」", text):

@@ -82,6 +82,9 @@ def _plan_json(plan: DayPlan) -> dict:
             "energy_used": round(plan.energy_used), "energy_cap": round(plan.energy_cap)}
 
 
+ONE_THING = "one-thing"  # 昨晚说的「明天的一件事」在第二天计划里的任务 id
+
+
 def _items(plan: dict) -> dict[str, Item]:
     """对账能记哪些事：习惯和可选项按块 id，项目按任务 id（一个任务可能排了几块）。"""
     items = {}
@@ -89,6 +92,8 @@ def _items(plan: dict) -> dict[str, Item]:
         mins = to_min(b["end"]) - to_min(b["start"])
         if b["kind"] in ("must", "flex"):
             items[b["id"]] = Item(b["title"], minutes=mins)
+        elif b.get("task_id") == ONE_THING:  # 只问做没做，不问比预想多还是少
+            items[ONE_THING] = Item(f"昨晚定的一件事：{b['title']}", minutes=mins)
         elif b["kind"] == "proj":
             old = items.get(b["task_id"])
             items[b["task_id"]] = Item(b["title"], project=True, minutes=mins + (old.minutes if old else 0))
@@ -114,12 +119,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def clock() -> datetime:
         return now(ZoneInfo(db.user_timezone(USER_ID)))
 
+    def day_raw(raw: dict, day) -> dict:
+        """这一天的求解器输入：课表里这天的课，加上昨晚说的「明天的一件事」（一块，截止今天，求解器会先排它）。"""
+        d = for_day(raw, day)
+        last = db.logs_between(USER_ID, day - timedelta(days=1), day - timedelta(days=1))
+        if last and (t := last[0]["tomorrow_task"].strip()):
+            d["tasks"] = [*d.get("tasks", []), {"id": ONE_THING, "project": "昨晚定的一件事", "title": t[:40],
+                                                "remaining_min": 30, "deadline": day.isoformat()}]
+        return d
+
     def replan_today(day, raw: dict) -> tuple[DayPlan, int | None]:
         """按新设置重排今天。今天报过电量就沿用：现在之前照原计划，之后按电量排（和报电量一样）。"""
         latest, t = db.latest_plan(USER_ID, day), clock()
         level = latest["energy_level"] if latest and t.date() == day else None  # 凌晨还算昨天，昨天没有「之后」了
         try:
-            inp = input_from_dict({**for_day(raw, day), **({"energy_level": level} if level else {})})
+            inp = input_from_dict({**day_raw(raw, day), **({"energy_level": level} if level else {})})
         except InputError as e:
             raise HTTPException(422, str(e)) from None
         if level:
@@ -130,7 +144,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         raw = db.plan_input(USER_ID)
         if raw is None:
             raise HTTPException(409, "还没有设置，先完成建档")
-        raw = for_day(raw, day)
+        raw = day_raw(raw, day)
         if energy_level is not None:
             raw["energy_level"] = energy_level
         try:
@@ -246,6 +260,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             result = {**old, **{k: v for k, v in result.items() if v not in (None, "")},
                       "items": {**old["items"], **result["items"]}}
 
+        if ONE_THING in result["items"]:  # 昨晚定的那件事今天做到没有
+            result["yesterday_done"] = result["items"][ONE_THING]["status"] != "skip"
         if result["energy_after_class"] is None:  # 没说电量就用今天报过的
             result["energy_after_class"] = stored["energy_level"]
         db.save_log(USER_ID, result)

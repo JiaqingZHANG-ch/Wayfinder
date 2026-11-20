@@ -149,4 +149,13 @@ def test_chinese_numbers_from_stats_pass():
 def test_cannot_add_past_three_habits_in_one_review():
     adds = [{"kind": "add_habit", "title": t, "value": 20, "why": "稳"} for t in ("散步", "拉伸")]
     _, out = write_review(FakeModel([reply(GOOD, adds)] * 2), week_stats(WEEK, HABITS, TASKS), HABITS)
-    assert out["adjustments"] == []  # 已经 2 个习惯，一次只能再加 1 个
+    assert [a["title"] for a in out["adjustments"]] == ["散步"]  # 已经 2 个习惯，一次只能再加 1 个，多的丢掉
+
+
+def test_numbers_from_users_own_words_are_allowed_but_ids_are_not():
+    stats = week_stats(WEEK, HABITS, TASKS)
+    ok = "「背单词」有 3 天没做，2026-11-20 只背了 10 分钟。"
+    _, out = write_review(FakeModel([reply(ok)]), stats, HABITS)
+    assert out["summary"] == ok
+    _, out = write_review(FakeModel([reply("english 有 3 天没做。")] * 2), stats, HABITS)
+    assert out["summary"] == fallback_summary(stats)
