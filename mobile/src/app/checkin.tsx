@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
+import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInRight, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -43,10 +43,12 @@ export default function Checkin() {
   const [crisis, setCrisis] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reader, setReader] = useState(false); // 开着读屏时不自动翻页，让人听完再点「下一步」
 
   useEffect(() => {
     getToday().then((plan) => setItems(checkinItems(plan)), (e: Error) => setMessage(e.message));
     getWeek().then((w) => setLogged(w.logged_days), () => {});
+    AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
     return () => { if (advance.current) clearTimeout(advance.current); };
   }, []);
 
@@ -59,12 +61,20 @@ export default function Checkin() {
   steps.push({ t: "note" }, { t: "tomorrow" });
   const step = steps[Math.min(idx, steps.length - 1)];
 
-  /** 点了一个选项：记下，轻触感，停一下让人看到选中，再翻到下一屏。 */
+  /** 换到第 i 屏：先取消还没到点的自动翻页，清掉上一屏的提示。 */
+  function go(i: number) {
+    if (advance.current) clearTimeout(advance.current);
+    advance.current = null;
+    setMessage(null);
+    setIdx(i);
+  }
+
+  /** 点了一个选项：记下，轻触感，停一下让人看到选中，再翻到下一屏（开着读屏时不自动翻）。 */
   function pick(id: string, ch: Choice) {
     haptic.select();
     setChoices((all) => ({ ...all, [id]: { ...all[id], ...ch } }));
     if (advance.current) clearTimeout(advance.current);
-    advance.current = setTimeout(() => setIdx((i) => i + 1), 320);
+    if (!reader) advance.current = setTimeout(() => go(idx + 1), 320);
   }
 
   async function send(body: Parameters<typeof postCheckin>[0]) {
@@ -133,7 +143,7 @@ export default function Checkin() {
       </View>,
       <>
         <Button label="回到今天" onPress={leave} />
-        <Button label="再改一下" variant="quiet" onPress={() => { setDone(null); setIdx(0); }} />
+        <Button label="再改一下" variant="quiet" onPress={() => { setDone(null); go(0); }} />
       </>,
     );
   }
@@ -141,13 +151,15 @@ export default function Checkin() {
   const top = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.md }}>
       {idx > 0 && !sentenceMode
-        ? <IconButton name="chevron-back" label="上一步" onPress={() => setIdx(idx - 1)} />
-        : <IconButton name="close" label="关闭" onPress={sentenceMode ? () => setSentenceMode(false) : leave} />}
+        ? <IconButton name="chevron-back" label="上一步" onPress={() => go(idx - 1)} />
+        : sentenceMode
+          ? <IconButton name="chevron-back" label="回到逐项对账" onPress={() => { setMessage(null); setSentenceMode(false); }} />
+          : <IconButton name="close" label="关闭" onPress={leave} />}
       <View style={{ flex: 1 }}>
         {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} />}
       </View>
       {!sentenceMode && (
-        <Pressy onPress={() => setSentenceMode(true)} accessibilityRole="button" accessibilityLabel="改成一句话说完"
+        <Pressy onPress={() => { go(idx); setSentenceMode(true); }} accessibilityRole="button" accessibilityLabel="改成一句话说完"
           style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm }}>
           <Text style={[type.small, { color: c.primary, fontWeight: "600" }]}>一句话说完</Text>
         </Pressy>
@@ -198,7 +210,9 @@ export default function Checkin() {
         </View>
       </>
     );
-    bottom = <Button label="先不记这件" variant="quiet" onPress={() => setIdx(idx + 1)} />;
+    bottom = reader && cur
+      ? <Button label="下一步" onPress={() => go(idx + 1)} />
+      : <Button label="先不记这件" variant="quiet" onPress={() => go(idx + 1)} />;
   } else if (step.t === "vs") {
     const cur = choices[step.item.id]?.vs_plan;
     body = (
@@ -213,7 +227,7 @@ export default function Checkin() {
         </View>
       </>
     );
-    bottom = <Button label="跳过" variant="quiet" onPress={() => setIdx(idx + 1)} />;
+    bottom = <Button label={reader && cur ? "下一步" : "跳过"} variant={reader && cur ? "primary" : "quiet"} onPress={() => go(idx + 1)} />;
   } else if (step.t === "note") {
     body = (
       <>
@@ -223,7 +237,7 @@ export default function Checkin() {
         <Field label="今天卡在哪" placeholder="可不填" value={blocker} onChangeText={setBlocker} />
       </>
     );
-    bottom = <Button label={note || blocker ? "下一步" : "跳过"} variant={note || blocker ? "primary" : "secondary"} onPress={() => setIdx(idx + 1)} />;
+    bottom = <Button label={note || blocker ? "下一步" : "跳过"} variant={note || blocker ? "primary" : "secondary"} onPress={() => go(idx + 1)} />;
   } else {
     body = (
       <>

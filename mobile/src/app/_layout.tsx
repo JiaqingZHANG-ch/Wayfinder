@@ -33,6 +33,7 @@ export default function RootLayout() {
         <Stack.Screen name="checkin" options={{ headerShown: false, presentation: "fullScreenModal",
           animation: "slide_from_bottom", title: "晚间对账" }} />
         <Stack.Screen name="onboarding" options={{ title: "认识一下" }} />
+        <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false, title: "隐私说明" }} />
         <Stack.Screen name="review" options={{ title: "每周复盘" }} />
         <Stack.Screen name="data" options={{ title: "我的数据" }} />
         <Stack.Screen name="settings" options={{ title: "设置" }} />

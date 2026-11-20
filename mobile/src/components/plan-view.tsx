@@ -89,8 +89,9 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
   const c = useColors();
   const quiet = b.kind === "life";
   const live = state === "now";
+  const past = state === "past";
   return (
-    <View style={{ flexDirection: "row", gap: space.md, minHeight: 48, opacity: state === "past" ? 0.45 : 1 }}
+    <View style={{ flexDirection: "row", gap: space.md, minHeight: 48 }}
       accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${live ? "，正在进行" : ""}`}>
       <Text style={[type.small, { width: 44, color: live ? c.primary : c.muted, fontWeight: live ? "600" : "400",
         fontVariant: ["tabular-nums"], paddingTop: live ? space.sm + 2 : 2 }]}>
@@ -98,13 +99,13 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
       </Text>
       <View style={{ alignItems: "center", width: 14 }}>
         <View style={{ width: quiet ? 8 : 14, height: quiet ? 8 : 14, borderRadius: radius.pill,
-          marginTop: live ? space.sm + 6 : quiet ? 8 : 5, backgroundColor: c.kind[b.kind],
+          marginTop: live ? space.sm + 6 : quiet ? 8 : 5, backgroundColor: c.kind[b.kind], opacity: past ? 0.45 : 1,
           borderWidth: live ? 3 : 0, borderColor: c.soft }} />
         {!last && <View style={{ flex: 1, width: 2, backgroundColor: c.line, marginVertical: 3 }} />}
       </View>
       <View style={[{ flex: 1, marginBottom: space.sm, gap: 2 },
         live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
-        <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }] : [type.label, { color: live ? c.onSoft : c.text }]}>
+        <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }] : [type.label, { color: live ? c.onSoft : past ? c.muted : c.text }]}>
           {b.title}
         </Text>
         {(!quiet || live) && (

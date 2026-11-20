@@ -1,10 +1,9 @@
-import { Redirect, router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
-import { Consent } from "@/components/consent";
 import { enter, Pressy, Ring, Skeleton } from "@/components/motion";
 import { dayLabel, kindIcon, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
 import { Body, Button, Card, Display, Eyebrow, Icon, IconName, Screen, Small, Title } from "@/components/ui";
@@ -35,6 +34,7 @@ export default function Today() {
   const [refreshing, setRefreshing] = useState(false);
   const now = useNow();
   const c = useColors();
+  const navigation = useNavigation();
 
   const load = useCallback(() => {
     getWeek().then(setWeek, () => {}); // 复盘入口和本周记录拿不到就不显示
@@ -46,14 +46,10 @@ export default function Today() {
     }, setError);
   }, []);
 
-  // 一打开就拿（从提醒直接进报电量面板时，这页在下面但没有焦点，也要有内容）；
-  // 之后每次回到这一页再拿一次：报完电量、对完账回来，看到的就是新计划
-  const seen = useRef(false);
-  useEffect(() => { load(); }, [load]);
-  useFocusEffect(useCallback(() => {
-    if (seen.current) load();
-    seen.current = true;
-  }, [load]));
+  // 每次回到这一页都重新拿：报完电量、对完账回来，看到的就是新计划。
+  // 从提醒直接进报电量面板时，这页垫在下面、没有焦点，就在打开时先拿一次。
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useEffect(() => { if (!navigation.isFocused()) load(); }, [load, navigation]);
 
   async function refresh() {
     setRefreshing(true);
@@ -62,7 +58,7 @@ export default function Today() {
   }
 
   if (error instanceof ApiError && error.status === 409) return <Redirect href="/onboarding" />; // 还没建档
-  if (error) {
+  if (error && !plan) { // 已经有计划时，刷新失败就保留原来的，不整页换成「没连上」
     return (
       <Screen scroll={false} safeTop>
         <View style={{ alignItems: "center", gap: space.md, paddingTop: space.xxl }}>
@@ -75,10 +71,7 @@ export default function Today() {
     );
   }
   if (!plan) return <TodaySkeleton />;
-  if (me && !me.consented) {
-    // 隐私说明换了新版本：老用户先看完再用
-    return <Screen safeTop><Consent me={me} onDone={setMe} /></Screen>;
-  }
+  if (me && !me.consented) return <Redirect href="/consent" />; // 隐私说明换了新版本：老用户先看完再用
 
   const evening = now >= EVENING;
   return (
@@ -169,7 +162,7 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
       <Text style={[type.display, { color: fg, fontSize: 26, lineHeight: 34 }]} numberOfLines={2}>{title}</Text>
       <Text style={[type.small, { color: fg }]}>{sub}</Text>
       {progress !== null && (
-        <View style={{ height: 6, borderRadius: radius.pill, backgroundColor: "rgba(255,255,255,0.28)", overflow: "hidden" }}>
+        <View style={{ height: 6, borderRadius: radius.pill, backgroundColor: c.primaryTrack, overflow: "hidden" }}>
           <View style={{ width: `${Math.round(progress * 100)}%`, height: "100%", borderRadius: radius.pill, backgroundColor: fg }} />
         </View>
       )}
@@ -194,7 +187,7 @@ function Action({ icon, title, sub, strong, onPress }: {
       style={{ flex: 1, minHeight: 112, borderRadius: radius.lg, padding: space.lg, justifyContent: "space-between",
         backgroundColor: strong ? c.primary : c.soft }}>
       <View style={{ width: 36, height: 36, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
-        backgroundColor: strong ? "rgba(255,255,255,0.2)" : c.card }}>
+        backgroundColor: strong ? c.primaryTrack : c.card }}>
         <Icon name={icon} size={20} color={fg} />
       </View>
       <View>

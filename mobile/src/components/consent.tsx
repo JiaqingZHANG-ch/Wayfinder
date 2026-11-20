@@ -39,7 +39,7 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
         ))}
       </Row>
       <Row>
-        <Chip role="checkbox" label={`${adult ? "✓ " : ""}我已经年满 18 岁`} on={adult} onPress={() => setAdult(!adult)} />
+        <Chip role="checkbox" label="我已经年满 18 岁" on={adult} onPress={() => setAdult(!adult)} />
       </Row>
       {error && <Notice tone="error">{error}</Notice>}
       <Button label="同意，开始" busyLabel={busy ? "……" : undefined} onPress={agree} />

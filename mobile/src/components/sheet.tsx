@@ -21,6 +21,7 @@ export function Sheet({ children }: { children: (close: () => void) => ReactNode
   const { height } = useWindowDimensions();
   const y = useSharedValue(height);
   const fade = useSharedValue(0);
+  const closing = useSharedValue(false); // 关的动画开始后，再点再拖都不管
 
   useEffect(() => {
     y.set(withSpring(0, motion.sheet));
@@ -28,13 +29,16 @@ export function Sheet({ children }: { children: (close: () => void) => ReactNode
   }, [y, fade]);
 
   const close = useCallback(() => {
+    if (closing.get()) return;
+    closing.set(true);
     fade.set(withTiming(0, { duration: motion.base }));
-    y.set(withTiming(height, { duration: motion.base }, (done) => { if (done) scheduleOnRN(leave); }));
-  }, [fade, y, height]);
+    y.set(withTiming(height, { duration: motion.base }, () => scheduleOnRN(leave)));
+  }, [fade, y, height, closing]);
 
   const drag = usePanGesture({
-    onUpdate: (e) => { y.set(Math.max(0, e.translationY)); },
+    onUpdate: (e) => { if (!closing.get()) y.set(Math.max(0, e.translationY)); },
     onDeactivate: (e) => {
+      if (closing.get()) return;
       if (e.translationY > 120 || e.velocityY > 900) scheduleOnRN(close);
       else y.set(withSpring(0, motion.sheet));
     },

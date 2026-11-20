@@ -20,6 +20,7 @@ const light = {
   danger: "#A63A32", // 6.0:1
   ok: "#4F7A55", // 完成的绿；白字 4.9:1
   onWarm: "#2E2A26", // 琥珀色（kind.flex）上的字 6.3:1
+  primaryTrack: "rgba(255, 255, 255, 0.28)", // 陶土色底上的进度槽、图标圆
   overlay: "rgba(46, 42, 38, 0.36)", // 底部面板后面的遮罩
   shadow: "0 8px 24px rgba(90, 58, 40, 0.10), 0 1px 3px rgba(90, 58, 40, 0.06)",
   // 计划里每类事情的颜色：课、习惯、项目、可选、生活
@@ -41,6 +42,7 @@ const dark: typeof light = {
   danger: "#F0918A", // 6.9:1
   ok: "#8DBE93", // 上面用 onPrimary（深色字）8.3:1
   onWarm: "#1C1916",
+  primaryTrack: "rgba(28, 25, 22, 0.18)",
   overlay: "rgba(0, 0, 0, 0.55)",
   shadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
   kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },

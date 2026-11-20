@@ -52,7 +52,7 @@ export default function DataScreen() {
   const doDelete = () =>
     run(async () => {
       await deleteMe();
-      router.replace("/"); // 首页会带你回到同意和建档
+      router.dismissTo("/"); // 回到今天：首页会带你去建档
     });
 
   if (!me) return message ? <Screen><Notice tone="error">{message.text}</Notice></Screen> : <Loading text="……" />;

@@ -61,7 +61,7 @@ function TabItem({ title, icon, on, onPress }: { title: string; icon: IconName; 
       <Animated.View style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
         borderRadius: radius.pill, backgroundColor: c.soft }, pill]} />
       <Icon name={icon} size={22} color={on ? c.onSoft : c.muted} />
-      <Text style={[type.small, { fontSize: 11, lineHeight: 14, fontWeight: on ? "600" : "400", color: on ? c.onSoft : c.muted }]}>
+      <Text style={[type.small, { fontSize: 12, lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.onSoft : c.muted }]}>
         {title}
       </Text>
     </Pressy>
