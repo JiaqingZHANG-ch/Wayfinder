@@ -111,4 +111,26 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ⑤ 用假数据走一遍复盘（`tests/test_api.py` 里的 `seed_week` 可以照抄）。
 - ⑥ 自己写「每个习惯做了几天 / 记录了几天」的 SQL（`day_logs.items` 是 JSON，SQLite 用 `json_each`），和 `week_stats` 的结果对上。
 
+## 第 7 周：搬到 Supabase 的准备（还没装 Docker）
+
+已经备好、但都还没在真的 Postgres 上跑过：
+
+| 文件 | 做什么 |
+|---|---|
+| `supabase/migrations/20261120000000_init.sql` | 建表（user_id 换成登录账号的 uuid，JSON 换 jsonb）+ 每张表打开 RLS + 「只能看和改自己」 |
+| `supabase/tests/database/isolation.test.sql` | 隔离测试：A、B 两个账号互相看不到、改不了、删不了；没登录什么都看不到 |
+| `src/server/migrate_pg.py` | 把 SQLite 里一个用户的数据写成 Postgres 的 INSERT（`tests/test_migrate_pg.py` 管：加了新表忘了搬会红） |
+| `src/mentor/model.py` 的 `RecordingModel`、`replay` | 循环 ⑤：每次调模型记一条到 `model_calls`（发了什么、回了什么、哪个模型、多少毫秒），能用假模型原样回放 |
+
+两个 SQL 文件用 Postgres 的解析器（pglast）检查过语法；外键、RLS 实际效果要等 `supabase test db`。
+
+后端现在仍然用 SQLite、只有一个本机用户（`USER_ID = 1`）。换成「App 用 Supabase 登录、后端按登录的人取 user_id、数据存 Postgres」要等 Docker 装好再做。
+
+留给你的循环：
+- ① 装 Docker（数据目录放 U 盘），`supabase init` 后把上面的 `supabase/` 文件放进去，`supabase start` 能起。装 Docker 会改系统设置，这一步你自己来。
+- ② Supabase 的 React Native Auth：本地账号能登录。
+- ③ 在迁移文件末尾写 `user_quotes` 的「只能看自己」规则 → `supabase test db` 全绿；故意写错（比如 `using (true)`）→ 看「A 只看到自己的 user_quotes」变红。
+- ④ `uv run python -m server.migrate_pg var/app.db <你的 uuid> > var/migrate.sql`，用 psql 导入，挑一天对一下数据。
+- ⑤ 挑一条 `model_calls` 记录，用 `replay(记录)` 当模型重跑一次（`tests/test_api.py` 的 `test_every_model_call_is_recorded_and_can_be_replayed` 是样子），结果一样。
+
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。
