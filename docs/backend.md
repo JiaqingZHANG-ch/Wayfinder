@@ -35,7 +35,7 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 
 - ② 给 `GET /today` 加一个字段：在 `api.py` 的 `out()` 里加，`/docs` 里看到它。
 - ③ 在 `db.py` 的 `days_with_note` 里写一条 SELECT，删掉 `tests/test_db.py` 里 `test_loop3_days_with_note` 上面的 skip，跑到变绿。
-- ⑤ 装好 Ollama、下好模型后：`$env:MODEL_TEST='ollama'; uv run pytest tests/test_checkin.py -k real`。
+- ⑤ Ollama 和 qwen3:14b 已经装在 U 盘。先另开一个窗口运行 `AI工作空间\工具与运行环境\Ollama-启动.ps1`，再在这里：`$env:MODEL_TEST='ollama'; uv run pytest tests/test_checkin.py -k real`。
 - ⑦ 在 `tests/test_tone.py` 的 `BAD` 里加 3 条坏示范，先红，再去 `tone.py` 的 `BANNED` 补说法，变绿。
 
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。
