@@ -195,7 +195,10 @@ class Db:
 
     def days_with_note(self, user_id: int, start: date, end: date) -> list[str]:
         """这段时间里哪几天写了一句话（note 不是空的），按日期排好。"""
-        raise NotImplementedError("循环 ③：家庆来写这条 SQL 查询")
+        rows = self._run(lambda c: c.execute(
+            "SELECT day FROM day_logs WHERE user_id = ? AND day BETWEEN ? AND ? AND note != '' ORDER BY day",
+            (user_id, start.isoformat(), end.isoformat())).fetchall())
+        return [d for (d,) in rows]
 
     # 对话和原话
     def add_message(self, user_id: int, day: date, mode: str, role: str, content: str) -> int:
@@ -255,7 +258,15 @@ class Db:
 
     def stalest_profile(self, user_id: int, today: date) -> dict | None:
         """已确认、且最久没再确认的那条；离上次确认不到 14 天就是 None（第 6 周复盘问「还对吗」用）。"""
-        raise NotImplementedError("第 4 周循环 ⑥：家庆来写这条 SQL 查询")
+        # confirmed_at 是 UTC 时间，date() 取它的日期；和 today 差 14 天及以上才算「该问一下」
+        row = self._run(lambda c: c.execute(
+            "SELECT id, level, content, confirmed_at, source FROM profiles WHERE user_id = ? "
+            "AND confirmed_at IS NOT NULL AND date(confirmed_at) <= date(?, '-14 days') "
+            "ORDER BY confirmed_at, id LIMIT 1", (user_id, today.isoformat())).fetchone())
+        if row is None:
+            return None
+        i, lv, ct, ca, s = row
+        return {"id": i, "level": lv, "content": ct, "confirmed_at": ca, "source": s}
 
     # 每周复盘
     def add_review(self, user_id: int, week_end: date, review: dict) -> None:

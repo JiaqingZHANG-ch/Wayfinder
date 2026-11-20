@@ -531,3 +531,16 @@ def test_ids_survive_edits_so_history_stays_attached(new_user):
     # 再加一个新习惯：拿到一个没在用的 id
     third = client.put("/settings", json={**two, "habits": [reading, {"title": "跑步", "minutes": 30, "floor_min": 10}]}).json()
     assert len({h["id"] for h in third["habits"]}) == 2
+
+
+def test_review_asks_still_right_for_old_profile(setup):
+    import sqlite3
+    client, db, model = setup
+    seed_week(db)
+    pid = db.propose_profile(1, "方向", "想做能帮人理清方向的产品", "建档")
+    db.confirm_profile(1, pid)
+    with sqlite3.connect(db._path) as c:
+        c.execute("UPDATE profiles SET confirmed_at = '2026-10-01T10:00:00+00:00' WHERE id = ?", (pid,))
+    model.replies.append(REVIEW)
+    r = client.post("/review", json={}).json()
+    assert r["still_right"]["id"] == pid and r["still_right"]["question"] == "上次你说「想做能帮人理清方向的产品」，现在还对吗？"

@@ -288,10 +288,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if outcome == "crisis":
                 db.log_crisis(USER_ID, day, "（每周复盘的模型输出）")
                 return crisis_reply()
-            try:
-                stale = db.stalest_profile(USER_ID, day)
-            except NotImplementedError:  # 第 4 周循环 ⑥ 写好之前，复盘不问「还对吗」
-                stale = None
+            stale = db.stalest_profile(USER_ID, day)
             db.add_review(USER_ID, day, {"stats": stats, **written, "still_right": stale and stale["id"]})
             return review_view(db.reviews(USER_ID)[0])
 

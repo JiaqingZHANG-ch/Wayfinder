@@ -36,6 +36,7 @@ export default function Today() {
       <View style={styles.links}>
         <Link href="/energy" style={styles.link}>下课了，报电量 →</Link>
         <Link href="/checkin" style={styles.link}>晚间对账 →</Link>
+        <Link href="/settings" style={styles.link}>设置：作息、习惯、课表、项目 →</Link>
         <Link href="/data" style={styles.link}>我的数据 →</Link>
         {review && <Link href="/review" style={styles.link}>{review === "due" ? "满 7 天了，每周复盘 →" : "这周的复盘 →"}</Link>}
       </View>

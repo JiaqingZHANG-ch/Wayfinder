@@ -12,6 +12,7 @@ export default function RootLayout() {
       <Stack.Screen name="onboarding" options={{ title: "认识一下" }} />
       <Stack.Screen name="review" options={{ title: "每周复盘" }} />
       <Stack.Screen name="data" options={{ title: "我的数据" }} />
+      <Stack.Screen name="settings" options={{ title: "设置" }} />
     </Stack>
   );
 }

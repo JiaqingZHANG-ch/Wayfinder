@@ -73,8 +73,6 @@ def test_crisis_logged_per_user(db):
     assert db.crisis_count(1) == 1 and db.crisis_count(2) == 0
 
 
-# 循环 ③：在 db.py 的 days_with_note 里写一条 SELECT，然后删掉下面这行 skip，跑到变绿
-@pytest.mark.skip(reason="循环 ③：等家庆写 days_with_note 的查询")
 def test_loop3_days_with_note(db):
     db.save_log(1, log("2026-11-18", note="今天读得很顺"))
     db.save_log(1, log("2026-11-19"))
@@ -107,8 +105,6 @@ def test_messages_by_mode(db):
     assert [m["content"] for m in db.messages(1, "建档")] == ["答一"]
 
 
-# 第 4 周循环 ⑥：在 db.py 的 stalest_profile 里写查询，然后删掉下面这行 skip
-@pytest.mark.skip(reason="第 4 周循环 ⑥：等家庆写 stalest_profile 的查询")
 def test_loop6_stalest_profile(db):
     import sqlite3
     a = db.propose_profile(1, "方向", "旧的", "建档")

@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { confirmProfile, getMe, isCrisis, Me, postOnboarding, Profile, putSettings } from "@/api";
+import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings } from "@/api";
+import { EnergyPick } from "@/components/chips";
 import { Consent } from "@/components/consent";
 
 type Step = "consent" | "chat" | "confirm" | "form";
@@ -112,19 +113,18 @@ export default function Onboarding() {
   );
 }
 
-type FormValues = { wake: string; sleep: string; title: string; minutes: string; floor_min: string };
+type FormValues = { wake: string; sleep: string; title: string; minutes: string; floor_min: string; energy: Energy | null };
 
 function SettingsForm({ onError, onCrisis }: { onError: (m: string) => void; onCrisis: (m: string) => void }) {
   const { control, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
-    defaultValues: { wake: "07:30", sleep: "23:00", title: "", minutes: "30", floor_min: "10" },
+    defaultValues: { wake: "07:30", sleep: "23:00", title: "", minutes: "30", floor_min: "10", energy: null },
   });
 
   async function onSubmit(v: FormValues) {
     try {
       const res = await putSettings({
         wake: v.wake, sleep: v.sleep,
-        // 第 4 周循环 ②：把下面的 energy 换成表单里能量地图三选一的值（love／recharge／drain）
-        habits: [{ title: v.title, minutes: Number(v.minutes), floor_min: Number(v.floor_min), energy: null }],
+        habits: [{ title: v.title, minutes: Number(v.minutes), floor_min: Number(v.floor_min), energy: v.energy }],
       });
       if (isCrisis(res)) return onCrisis(res.message);
       router.replace("/");
@@ -146,7 +146,11 @@ function SettingsForm({ onError, onCrisis }: { onError: (m: string) => void; onC
       <Field control={control} name="minutes" label="精神好的时候做几分钟" rules={minutes} error={errors.minutes?.message} />
       <Field control={control} name="floor_min" label="没电的时候至少做几分钟（保底版）" rules={minutes}
         error={errors.floor_min?.message} />
-      {/* 第 4 周循环 ②：在这里加能量地图三选一：做这件事是 热爱／累但回血／擅长但耗能（labels.ts 的 ENERGY_LABELS） */}
+      <View style={styles.field}>
+        <Text style={styles.label}>做这件事对你来说是（可不选）</Text>
+        <Controller control={control} name="energy"
+          render={({ field }) => <EnergyPick value={field.value} onChange={field.onChange} />} />
+      </View>
       <Button label={isSubmitting ? "……" : "排第一张计划"} onPress={handleSubmit(onSubmit)} disabled={isSubmitting} />
     </View>
   );
@@ -154,7 +158,7 @@ function SettingsForm({ onError, onCrisis }: { onError: (m: string) => void; onC
 
 function Field({ control, name, label, rules, error }: {
   control: ReturnType<typeof useForm<FormValues>>["control"];
-  name: keyof FormValues;
+  name: Exclude<keyof FormValues, "energy">;
   label: string;
   rules: object;
   error?: string;
@@ -164,7 +168,7 @@ function Field({ control, name, label, rules, error }: {
       <Text style={styles.label}>{label}</Text>
       <Controller control={control} name={name} rules={rules}
         render={({ field }) => (
-          <TextInput style={styles.input} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} />
+          <TextInput style={styles.input} value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur} />
         )} />
       {error && <Text style={styles.error}>{error}</Text>}
     </View>
