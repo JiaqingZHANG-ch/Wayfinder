@@ -92,3 +92,12 @@ def test_duplicate_habit_block_rejected(tmp_path):
     p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(InputError):
         load_input(p)
+
+
+def test_input_from_dict_same_as_file():
+    from planner.model import input_from_dict
+    path = Path(__file__).parent.parent / "examples" / "users" / "学生.json"
+    assert input_from_dict(json.loads(path.read_text(encoding="utf-8"))) == load_input(path)
+    for bad in ([], {"day": "2026-11-20"}, {"day": "x", "wake": "07:00", "sleep": "23:00"}):
+        with pytest.raises(InputError):
+            input_from_dict(bad)

@@ -147,10 +147,19 @@ def _window(d: dict) -> tuple[int, int]:
 def load_input(path: Path) -> PlanInput:
     """读输入并检查；任何格式或取值错误都变成 InputError（消息以「输入有误」开头）。"""
     try:
-        inp = _load(json.loads(Path(path).read_text(encoding="utf-8")))
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except ValueError as e:
+        raise InputError(f"输入有误：{type(e).__name__}: {e}") from e
+    return input_from_dict(raw)
+
+
+def input_from_dict(raw: dict) -> PlanInput:
+    """和 load_input 一样，只是输入已经是读好的 dict（后端从数据库取出来的设置）。"""
+    try:
+        inp = _load(raw)
     except InputError:
         raise
-    except (KeyError, TypeError, ValueError, IndexError) as e:
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError) as e:
         raise InputError(f"输入有误：{type(e).__name__}: {e}") from e
     _validate(inp)
     return inp
