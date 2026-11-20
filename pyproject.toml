@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "daily-planner",
     "fastapi>=0.162.7",
+    "google-api-python-client>=2.202.0",
+    "google-auth-oauthlib>=1.5.0",
     "nicegui>=4.0.0",
     "uvicorn>=0.54.0",
 ]

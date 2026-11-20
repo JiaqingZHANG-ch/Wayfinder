@@ -25,6 +25,7 @@ from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
 from planner.solve import DayPlan, replan_from, solve_day
 
+from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
 from .settings import SettingsIn, from_plan_input, to_plan_input
 
@@ -84,7 +85,7 @@ def _items(plan: dict) -> dict[str, Item]:
     return items
 
 
-def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
+def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calendar: CalendarPort | None = None,
                now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
     db.ensure_user(USER_ID)
     if db.plan_input(USER_ID) is None and template is not None:
@@ -161,14 +162,24 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         db.add_plan(USER_ID, day, plan, body.level)
         return out(day, db.latest_plan(USER_ID, day))
 
-    @app.post("/plan/confirm", summary="确认计划（第 6 周起同时写入「Wayfinder 计划」日历）")
+    @app.post("/plan/confirm", summary="确认计划，再写入「Wayfinder 计划」日历；calendar：off / written / reconnect / failed")
     def post_confirm(body: ConfirmIn):
         day = logical_date(clock())
         stored = db.latest_plan(USER_ID, day)
         if stored is None or stored["version"] != body.version:
             raise HTTPException(409, "这不是今天最新的计划，刷新后再确认")
         db.confirm_plan(USER_ID, day, body.version)
-        return out(day, db.latest_plan(USER_ID, day))
+        status = "off"
+        if calendar is not None:
+            try:
+                calendar.write_day(day, stored["plan"]["blocks"], db.user_timezone(USER_ID))
+                db.mark_in_calendar(USER_ID, day, body.version)
+                status = "written"
+            except CalendarAuthError:
+                status = "reconnect"  # App 提示用户重新连；计划照样算确认了
+            except CalendarError:
+                status = "failed"
+        return {**out(day, db.latest_plan(USER_ID, day)), "calendar": status}
 
     @app.post("/checkin", summary="晚间对账：按钮结果或一句话 → 校验 → 写入 day_logs")
     def post_checkin(body: CheckinIn):
@@ -364,4 +375,5 @@ def app_from_env(env=os.environ) -> FastAPI:
     """PLAN_TEMPLATE 设成一份求解器输入（比如 daily-planner 的假用户）就跳过建档；不设就从建档开始。"""
     path = env.get("PLAN_TEMPLATE")
     template = json.loads(Path(path).read_text(encoding="utf-8")) if path else None
-    return create_app(Db(env.get("APP_DB") or "var/app.db"), make_model(env), template=template)
+    return create_app(Db(env.get("APP_DB") or "var/app.db"), make_model(env), template=template,
+                      calendar=make_calendar(env))

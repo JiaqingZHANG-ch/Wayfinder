@@ -120,6 +120,10 @@ class Db:
             (_now(), user_id, day.isoformat(), version)))
         return cur.rowcount == 1
 
+    def mark_in_calendar(self, user_id: int, day: date, version: int) -> None:
+        self._run(lambda c: c.execute("UPDATE day_plans SET in_calendar = 1 WHERE user_id = ? AND day = ? AND version = ?",
+                                      (user_id, day.isoformat(), version)))
+
     # 对账
     def save_log(self, user_id: int, result: dict) -> None:
         """result 是 mentor.checkin.validate_checkin 校验过的格式。同一天再记一次就覆盖。"""

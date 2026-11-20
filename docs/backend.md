@@ -25,7 +25,7 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 
 | 文件 | 做什么 |
 |---|---|
-| `src/server/api.py` | 五个接口：`/today` `/energy` `/plan/confirm` `/checkin` `/week` |
+| `src/server/api.py` | 全部接口，打开 `/docs` 看 |
 | `src/server/db.py` | 建表（每张都带 `user_id`）和读写 |
 | `src/mentor/tone.py` | 说话规则、禁用说法、`quote_is_verbatim` |
 | `src/mentor/checkin.py` | 对账格式校验、一句话解析 |
@@ -90,5 +90,25 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ② 在任意页面临时加一条 1 分钟后的通知（`scheduleNotificationAsync` 的 `TIME_INTERVAL`），手机收到后删掉。
 - ③ 设置页里加两条提醒的时间和开关（`Settings.reminders`），改 `reminders.py` 文案时 `tests/test_reminders.py` 保持绿；到点收到，点开直达。
 - ④ Android Studio 模拟器（SDK 目录放 U 盘）里跑一次。
+
+## 第 6 周：每周复盘、「Wayfinder 计划」日历
+
+**每周复盘**（`POST /review`）：最早一条对账满 6 天前、且 7 天内没复盘过，首页出现「满 7 天了，每周复盘 →」（`GET /week` 的 `review` 字段）。
+
+- 数字全由 `src/mentor/review.py` 的 `week_stats` 从 `day_logs` 算；模型只写成话。正文里每个数字都得在统计里出现，「」里的话得是用户某天的原话（或事项名、规律里的卡点），否则重来一次，再不行用程序拼的几句事实。
+- 调整最多 3 条（改标准版／改保底版／加一个习惯），点「好」才写进设置，今天的计划跟着换新版本；点过不能改口。
+- 「还对吗」用 `db.stalest_profile`，它是你的循环 ⑥，写好之前复盘不问这一句。
+- 带进下周的问题存在 `weekly_reviews.question`，下次复盘页顶上显示。
+- 真模型（qwen3:14b）试了 3 次，2 次直接通过，1 次退回兜底句。模型偶尔会提方向不对的调整（比如说「保底太长」却把保底加长），格式合法就会出现，靠用户点「先不改」。
+
+**日历**：`CALENDAR=off`（默认）／`fake`／`google`。确认计划后写入「Wayfinder 计划」日历，只写习惯、项目和可选项（课和吃饭不写），同一天再确认就整天换掉。授权失效时计划照样确认，App 提示重连。代码在 `src/server/calendar.py`，权限只要 `calendar.app.created`（只能动这个 App 自己建的日历）。
+
+留给你的循环：
+- ① 画 OAuth 授权流程。
+- ② Google Cloud 建测试项目 → 打开 Calendar API → 建「桌面应用」OAuth 客户端 → 把 `credentials.json` 放到 `var/google/` → `uv run python -m server.calendar` 授权一次。
+- ③ `$env:CALENDAR = 'google'; .\serve.ps1`，网页版报一次电量并点「就这样」，Google 日历里出现「Wayfinder 计划」。
+- ④ 在 Google 账号里撤销授权，再确认一次：App 提示要重连；重新跑 ② 的最后一步。
+- ⑤ 用假数据走一遍复盘（`tests/test_api.py` 里的 `seed_week` 可以照抄）。
+- ⑥ 自己写「每个习惯做了几天 / 记录了几天」的 SQL（`day_logs.items` 是 JSON，SQLite 用 `json_each`），和 `week_stats` 的结果对上。
 
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。

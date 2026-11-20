@@ -361,3 +361,30 @@ def test_review_falls_back_when_model_misbehaves(setup):
     model.replies += [REVIEW.replace("7 天。", "8 天。")] * 2  # 改了数字，两次都不合格
     r = client.post("/review", json={}).json()
     assert r["adjustments"] == [] and r["summary"].startswith("这 7 天记录了 7 天。「看书」做了 7 天。")
+
+
+def test_confirm_writes_calendar_once_per_day(tmp_path):
+    from server.calendar import FakeCalendar
+    db, cal = Db(tmp_path / "app.db"), FakeCalendar()
+    client = TestClient(create_app(db, FakeModel(), template=TEMPLATE, calendar=cal, now=at("17:00")))
+    assert client.get("/today").json()["version"] == 1
+    assert cal.days == {}  # 没确认不写
+    assert client.post("/plan/confirm", json={"version": 1}).json()["calendar"] == "written"
+    first = cal.days["2026-11-20"]
+    assert first and {e["summary"] for e in first} >= {"看书", "背单词"}
+    assert all(e["start"]["timeZone"] == "Europe/Paris" for e in first)
+    assert not any(e["summary"] in ("数学", "物理") for e in first)  # 课不写
+    client.post("/energy", json={"level": 2, "now": "18:00"})
+    client.post("/plan/confirm", json={"version": 2})
+    v2 = [b for b in client.get("/today").json()["blocks"] if b["kind"] in ("must", "proj", "flex")]
+    assert list(cal.days) == ["2026-11-20"] and len(cal.days["2026-11-20"]) == len(v2)  # 同一天整个换掉，不叠
+    cal.auth_ok = False
+    client.post("/energy", json={"level": 4, "now": "18:30"})
+    r = client.post("/plan/confirm", json={"version": 3}).json()
+    assert r["confirmed"] and r["calendar"] == "reconnect"  # 授权没了：计划照样确认，提示重连
+
+
+def test_calendar_off_by_default(setup):
+    client = setup[0]
+    client.get("/today")
+    assert client.post("/plan/confirm", json={"version": 1}).json()["calendar"] == "off"

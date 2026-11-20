@@ -33,8 +33,10 @@ export default function EnergyScreen() {
   async function confirm() {
     if (!plan) return;
     try {
-      await confirmPlan(plan.version);
-      router.replace("/");
+      const res = await confirmPlan(plan.version);
+      if (res.calendar === "reconnect") setMessage("计划确认好了。Google 日历的授权失效了，要在电脑上重新连一次才会写进日历。");
+      else if (res.calendar === "failed") setMessage("计划确认好了，但这次没写进日历。");
+      else router.replace("/");
     } catch (e) {
       setMessage((e as Error).message);
     }

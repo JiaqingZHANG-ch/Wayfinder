@@ -24,6 +24,7 @@ export type Plan = {
   energy_used: number;
   energy_cap: number;
   reminders?: Reminder[]; // 只有 GET /today 带
+  calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
 };
 
 export type Week = { start: string; end: string; logged_days: number; review?: "due" | "today" | null };
