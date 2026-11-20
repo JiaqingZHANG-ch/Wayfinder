@@ -70,7 +70,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # shortcut: 第 4 周做建档和设置页之前，用模板当设置
 
-    app = FastAPI(title="合并版 App 后端", version="0.1.0")
+    app = FastAPI(title="Wayfinder 后端", version="0.1.0")
     # Expo 网页版开在 8081，和后端不同源，浏览器要后端明说放行；手机上的 App 不受这条限制
     app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST"],
                        allow_headers=["Content-Type"])
@@ -139,7 +139,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         db.add_plan(USER_ID, day, plan, body.level)
         return out(day, db.latest_plan(USER_ID, day))
 
-    @app.post("/plan/confirm", summary="确认计划（第 6 周起同时写入「余能计划」日历）")
+    @app.post("/plan/confirm", summary="确认计划（第 6 周起同时写入「Wayfinder 计划」日历）")
     def post_confirm(body: ConfirmIn):
         day = logical_date(clock())
         stored = db.latest_plan(USER_ID, day)
