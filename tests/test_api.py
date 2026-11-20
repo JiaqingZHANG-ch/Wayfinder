@@ -251,13 +251,14 @@ def test_new_user_goes_from_onboarding_to_first_plan(new_user):
     assert [p["content"] for p in got["confirmed"]] == ["把法语练到能面试"] and got["pending"] == []
     assert client.post("/onboarding", json={"answer": "再答一次"}).json()["done"]  # 问完了不再问
 
-    assert client.put("/settings", json=SETTINGS).json() == {
-        **SETTINGS, "habits": [{"id": "habit-1", **SETTINGS["habits"][0]}], "timetable": [], "projects": [],
-        "reminders": {"after_class": True, "evening": "21:00"}}
+    saved = client.put("/settings", json=SETTINGS).json()
+    hid = saved["habits"][0]["id"]
+    assert saved == {**SETTINGS, "habits": [{"id": hid, **SETTINGS["habits"][0]}], "timetable": [], "projects": [],
+                     "reminders": {"after_class": True, "evening": "21:00"}}
     plan = client.get("/today").json()
     assert any(b["title"] == "练法语" for b in plan["blocks"])
     raw = db.plan_input(1)
-    assert raw["energy"]["cost"]["habit-1"] == 0.5 and raw["habits"][0]["floor_min"] == 10
+    assert raw["energy"]["cost"][hid] == 0.5 and raw["habits"][0]["floor_min"] == 10
 
 
 def test_settings_change_replaces_todays_plan_and_keeps_other_parts(setup):
@@ -530,14 +531,42 @@ def test_ids_survive_edits_so_history_stays_attached(new_user):
     got = client.put("/settings", json=two).json()
     reading = got["habits"][1]
     proj = got["projects"][0]
-    assert reading["id"] == "habit-2" and proj["id"] == "proj-1" and proj["hours_left"] == 40
+    first = got["habits"][0]["id"]
+    assert reading["id"].startswith("habit-") and proj["id"].startswith("proj-") and proj["hours_left"] == 40
     # 删掉第一个习惯、改项目剩余时间：剩下的 id 不变
     after = client.put("/settings", json={**two, "habits": [reading], "projects": [{**proj, "hours_left": 35.5}]}).json()
-    assert [h["id"] for h in after["habits"]] == ["habit-2"]
-    assert after["projects"][0]["id"] == "proj-1" and db.plan_input(1)["tasks"][0]["remaining_min"] == 2130
-    # 再加一个新习惯：拿到一个没在用的 id
+    assert [h["id"] for h in after["habits"]] == [reading["id"]]
+    assert after["projects"][0]["id"] == proj["id"] and db.plan_input(1)["tasks"][0]["remaining_min"] == 2130
+    # 再加一个新习惯：不会拿到刚删掉那个的 id（不然它的旧记录会算到新习惯头上）
     third = client.put("/settings", json={**two, "habits": [reading, {"title": "跑步", "minutes": 30, "floor_min": 10}]}).json()
-    assert len({h["id"] for h in third["habits"]}) == 2
+    ids = [h["id"] for h in third["habits"]]
+    assert len(set(ids)) == 2 and first not in ids
+
+
+def test_saving_settings_does_not_round_away_project_minutes(new_user):
+    client, db, _ = new_user
+    got = client.put("/settings", json={**SETTINGS, "projects": [{"title": "论文", "hours_left": 1.25}]}).json()
+    assert got["projects"][0]["hours_left"] == 1.25
+    client.put("/settings", json={**SETTINGS, "habits": [{**got["habits"][0], "minutes": 40}], "projects": got["projects"]})
+    assert db.plan_input(1)["tasks"][0]["remaining_min"] == 75
+
+
+def test_saving_settings_keeps_todays_energy_report(setup):
+    client, _, _ = setup
+    client.post("/energy", json={"level": 2, "now": "18:00"})
+    client.put("/settings", json=client.get("/settings").json())
+    assert client.get("/today").json()["energy_level"] == 2  # 之后按电量 2 排（C26 由 daily-planner 的测试管）
+    r = client.post("/checkin", json={"result": {"items": {"english": {"status": "floor"}}}}).json()
+    assert r["saved"]["energy_after_class"] == 2
+
+
+def test_button_checkin_does_not_wipe_earlier_entries(setup):
+    client, _, _ = setup
+    client.post("/checkin", json={"result": {"note": "今天读得很顺", "items": {"english": {"status": "done"}}}})
+    r = client.post("/checkin", json={"result": {"items": {"reading": {"status": "floor"}}}}).json()
+    assert r["saved"]["items"] == {"english": {"status": "done"}, "reading": {"status": "floor"}}
+    assert r["saved"]["note"] == "今天读得很顺"
+    assert client.post("/checkin", json={"result": {"items": {}}}).status_code == 422
 
 
 def test_review_asks_still_right_for_old_profile(setup):

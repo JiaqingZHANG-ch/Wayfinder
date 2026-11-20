@@ -6,6 +6,8 @@ import { Chip, EnergyPick } from "@/components/chips";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const MAX_HABITS = 3; // 和后端 mentor/review.py 的 MAX_HABITS 一致
+// 还没保存的新项先用临时 id 当 key（删掉中间一项时输入框不串）；后端不认识它，会发正式 id
+const tempId = () => `new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 /** 设置：作息、习惯和保底版、每周课表、项目、提醒。保存时后端先试排今天，排得出来才存。 */
 export default function SettingsScreen() {
@@ -67,7 +69,7 @@ export default function SettingsScreen() {
       ))}
       {s.habits.length < MAX_HABITS && (
         <Add label="加一个习惯" onPress={() =>
-          setS({ ...s, habits: [...s.habits, { title: "", minutes: 20, floor_min: 10, energy: null }] })} />
+          setS({ ...s, habits: [...s.habits, { id: tempId(), title: "", minutes: 20, floor_min: 10, energy: null }] })} />
       )}
 
       <Text style={styles.heading}>每周课表</Text>
@@ -113,7 +115,7 @@ export default function SettingsScreen() {
         </View>
       ))}
       <Add label="加一个项目" onPress={() => setS({
-        ...s, projects: [...projects, { title: "", hours_left: 10, deadline: null, heavy: false, energy: null }],
+        ...s, projects: [...projects, { id: tempId(), title: "", hours_left: 10, deadline: null, heavy: false, energy: null }],
       })} />
 
       <Text style={styles.heading}>提醒（手机上）</Text>
@@ -142,6 +144,11 @@ function Time({ value, onChange }: { value: string; onChange: (v: string) => voi
 
 function Num({ value, onChange, decimal }: { value: number; onChange: (v: number) => void; decimal?: boolean }) {
   const [text, setText] = useState(String(value));
+  const [prev, setPrev] = useState(value);
+  if (value !== prev) {  // 保存后服务器返回的值不一样（比如取整）时，框里跟着变；打字时不打断
+    setPrev(value);
+    if (Number(text) !== value) setText(String(value));
+  }
   return (
     <TextInput style={[styles.input, styles.short]} value={text} keyboardType={decimal ? "decimal-pad" : "number-pad"}
       onChangeText={(t) => {

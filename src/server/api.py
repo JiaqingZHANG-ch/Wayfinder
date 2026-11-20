@@ -114,6 +114,18 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def clock() -> datetime:
         return now(ZoneInfo(db.user_timezone(USER_ID)))
 
+    def replan_today(day, raw: dict) -> tuple[DayPlan, int | None]:
+        """按新设置重排今天。今天报过电量就沿用：现在之前照原计划，之后按电量排（和报电量一样）。"""
+        latest, t = db.latest_plan(USER_ID, day), clock()
+        level = latest["energy_level"] if latest and t.date() == day else None  # 凌晨还算昨天，昨天没有「之后」了
+        try:
+            inp = input_from_dict({**for_day(raw, day), **({"energy_level": level} if level else {})})
+        except InputError as e:
+            raise HTTPException(422, str(e)) from None
+        if level:
+            return solved(lambda: replan_from(inp, to_hhmm(t.hour * 60 + t.minute), [])), level
+        return solved(lambda: solve_day(inp)), None
+
     def plan_input(day, energy_level=None):
         raw = db.plan_input(USER_ID)
         if raw is None:
@@ -220,16 +232,19 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if outcome == "bad":  # 什么都不存，让用户点按钮补
                 raise HTTPException(422, "这句话我没整理出来，请点按钮补上")
             said, quote = body.sentence, result["note"]
-            if earlier := db.logs_between(USER_ID, day, day):  # 一句话只补它提到的，不冲掉按钮记过的
-                old = earlier[0]
-                result = {**old, **{k: v for k, v in result.items() if v not in (None, "")},
-                          "items": {**old["items"], **result["items"]}}
         else:
             try:
                 result = validate_checkin(body.result, day, items)
             except ValueError as e:
                 raise HTTPException(422, str(e)) from None
+            if not result["items"] and result["energy_after_class"] is None and \
+                    not any(result[k] for k in ("note", "blocker", "tomorrow_task")):
+                raise HTTPException(422, "还什么都没记：点一下做没做，或者写一句")
             said = quote = result["note"]
+        if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
+            old = earlier[0]
+            result = {**old, **{k: v for k, v in result.items() if v not in (None, "")},
+                      "items": {**old["items"], **result["items"]}}
 
         if result["energy_after_class"] is None:  # 没说电量就用今天报过的
             result["energy_after_class"] = stored["energy_level"]
@@ -313,16 +328,12 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 raw = apply_adjustments(db.plan_input(USER_ID) or {}, [adjustments[body.index]])
                 if len(raw.get("habits", [])) > MAX_HABITS:
                     raise HTTPException(409, f"已经有 {MAX_HABITS} 个习惯了，先在设置里去掉一个")
-                try:
-                    inp = input_from_dict(for_day(raw, day))
-                except InputError as e:
-                    raise HTTPException(422, str(e)) from None
-                plan = solved(lambda: solve_day(inp))
+                plan, level = replan_today(day, raw)
             if not db.answer_adjustment(USER_ID, body.id, body.index, "好" if body.accept else "先不改"):
                 raise HTTPException(409, "这条已经回答过了")
             if raw is not None:
                 db.set_plan_input(USER_ID, raw)
-                db.add_plan(USER_ID, day, plan, None)
+                db.add_plan(USER_ID, day, plan, level)
         return review_view(db.reviews(USER_ID)[0])
 
     @app.post("/onboarding", summary="建档对话的一轮：一次只问一个问题，最后提一条「方向」等用户确认")
@@ -384,13 +395,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         if crisis := screen(body, day):
             return crisis
         raw = to_plan_input(body, db.plan_input(USER_ID))
-        try:
-            inp = input_from_dict(for_day(raw, day))
-        except InputError as e:
-            raise HTTPException(422, str(e)) from None
-        plan = solved(lambda: solve_day(inp))
+        plan, level = replan_today(day, raw)
         db.set_plan_input(USER_ID, raw)
-        db.add_plan(USER_ID, day, plan, None)
+        db.add_plan(USER_ID, day, plan, level)
         return from_plan_input(raw)
 
     @app.get("/me", summary="国家、是否成年、隐私说明和有没有同意过这一版")

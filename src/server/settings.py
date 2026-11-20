@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from mentor.review import MAX_HABITS
+from mentor.review import MAX_HABITS, new_id
 
 HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 # 能量地图三选一 → 每分钟消耗（合并版设计 六之四 第 3 步）：热爱 0、累但回血 0.5、擅长但耗能 1
@@ -89,20 +89,10 @@ class SettingsIn(BaseModel):
 
 
 def _keep_ids(items: list, old: list[dict], prefix: str) -> list[str]:
-    """表单里带了旧 id 且确实存在的就沿用；其余的（新加的、乱填的）发一个没用过的 prefix-N。"""
-    known, used, out = {o["id"] for o in old}, set(), []
+    """表单里带了旧 id 且确实存在的就沿用；其余的（新加的、乱填的）发一个新 id。"""
+    known, out = {o["id"] for o in old}, []
     for x in items:
-        keep = x.id if x.id in known and x.id not in used else None
-        out.append(keep)
-        used.add(keep)
-    n = 1
-    for i, v in enumerate(out):
-        while v is None:
-            cand = f"{prefix}-{n}"
-            n += 1
-            if cand not in known and cand not in used:
-                v = out[i] = cand
-                used.add(v)
+        out.append(x.id if x.id in known and x.id not in out else new_id(prefix))
     return out
 
 
@@ -128,8 +118,12 @@ def to_plan_input(s: SettingsIn, base: dict | None) -> dict:
         pairs += [(c["id"], x.energy) for c, x in zip(raw["timetable"], s.timetable)]
     if s.projects is not None:
         old = {t["id"]: t for t in old_tasks}
+        def minutes(i, hours):  # 没改小时数就沿用原来的分钟数，不让显示时的取整一次次累积
+            o = old.get(i)
+            return o["remaining_min"] if o and round(o["remaining_min"] / 60, 2) == hours else max(1, round(hours * 60))
+
         raw["tasks"] = [{**old.get(i, {}), "id": i, "project": p.title, "title": p.title,
-                         "remaining_min": round(p.hours_left * 60), "heavy": p.heavy,
+                         "remaining_min": minutes(i, p.hours_left), "heavy": p.heavy,
                          "deadline": p.deadline and p.deadline.isoformat()}
                         for i, p in zip(_keep_ids(s.projects, old_tasks, "proj"), s.projects)]
         changed |= set(old)
@@ -157,7 +151,7 @@ def from_plan_input(raw: dict) -> dict:
                        for h in raw.get("habits", [])],
             "timetable": [{**{k: c[k] for k in ("title", "weekday", "start", "end", "where")}, "energy": en(c["id"])}
                           for c in raw.get("timetable", [])],
-            "projects": [{"id": t["id"], "title": t["title"], "hours_left": round(t["remaining_min"] / 60, 1),
+            "projects": [{"id": t["id"], "title": t["title"], "hours_left": round(t["remaining_min"] / 60, 2),
                           "deadline": t.get("deadline"), "heavy": bool(t.get("heavy")), "energy": en(t["id"])}
                          for t in raw.get("tasks", [])],
             "reminders": RemindersIn(**raw.get("reminders", {})).model_dump()}

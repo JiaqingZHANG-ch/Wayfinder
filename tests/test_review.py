@@ -116,8 +116,9 @@ def test_apply_adjustments_returns_new_input():
                                   {"kind": "add_habit", "title": "散步", "value": 20, "why": ""}])
     assert raw["habits"][1]["minutes"] == 20  # 原来的不动
     assert new["habits"][1]["minutes"] == 15
-    assert new["habits"][2] == {"id": "habit-1", "title": "散步", "minutes": 20, "floor_min": 10,
+    assert new["habits"][2] == {"id": new["habits"][2]["id"], "title": "散步", "minutes": 20, "floor_min": 10,
                                 "window": ["07:00", "23:00"]}
+    assert new["habits"][2]["id"].startswith("habit-")
 
 
 def test_blocker_from_patterns_can_be_quoted():

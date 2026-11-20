@@ -7,6 +7,7 @@ import json
 import re
 from collections import Counter
 from typing import Literal
+from uuid import uuid4
 
 from .model import ModelError, ModelPort
 from .safety import model_output_is_crisis
@@ -187,14 +188,18 @@ def write_review(model: ModelPort, stats: dict, habits: list[dict]
     return "ok", {"summary": fallback_summary(stats), "adjustments": [], "question": FALLBACK_QUESTION}
 
 
+def new_id(prefix: str) -> str:
+    """新习惯／项目的 id。随机后缀：删掉的 id 不会再发给新加的，旧记录不会算到别的事头上。"""
+    return f"{prefix}-{uuid4().hex[:8]}"
+
+
 def apply_adjustments(raw: dict, adjustments: list[dict]) -> dict:
     """把用户点了「好」的调整写进求解器输入，返回新的一份（原来的不动）。"""
     raw = json.loads(json.dumps(raw))
     habits = raw.setdefault("habits", [])
     for a in adjustments:
         if a["kind"] == "add_habit":
-            n = 1 + max([int(h["id"].split("-")[1]) for h in habits if h["id"].startswith("habit-")] or [0])
-            habits.append({"id": f"habit-{n}", "title": a["title"], "minutes": a["value"], "floor_min": min(10, a["value"]),
+            habits.append({"id": new_id("habit"), "title": a["title"], "minutes": a["value"], "floor_min": min(10, a["value"]),
                            "window": [raw["wake"], raw["sleep"]]})
             continue
         for h in habits:

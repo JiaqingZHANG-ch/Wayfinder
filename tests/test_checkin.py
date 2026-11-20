@@ -101,3 +101,9 @@ def test_energy_dropped_when_sentence_never_mentions_it():
     assert r["energy_after_class"] is None
     _, r = parse_sentence(FakeModel(replies=[reply]), "今天电量3", DAY, ITEMS)
     assert r["energy_after_class"] == 3
+
+
+def test_energy_words_ignore_computer_and_film():
+    from mentor.checkin import ENERGY_WORDS
+    assert not ENERGY_WORDS.search("在电脑上背了单词，看了场电影")
+    assert all(ENERGY_WORDS.search(t) for t in ("电量3", "今天没电了", "精力还行", "只剩两格"))

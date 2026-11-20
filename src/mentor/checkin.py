@@ -1,5 +1,6 @@
 """晚间对账（合并版设计 六、七）：按钮结果和一句话解析共用一个格式，存进 day_logs 之前都要过这里的校验。"""
 import json
+import re
 from datetime import date
 from typing import Literal, NamedTuple
 
@@ -113,11 +114,14 @@ def parse_sentence(model: ModelPort, sentence: str, day: date,
         result = validate_checkin({**json.loads(raw), "date": day.isoformat()}, day, items)
     except (ValueError, TypeError, RecursionError):  # TypeError：模型回的不是对象
         return "bad", None
-    if not any(w in sentence for w in ("电", "精力")):  # 2026-11-20 实测 qwen3:14b 偶尔自己编一个电量
+    if not ENERGY_WORDS.search(sentence):  # 2026-11-20 实测 qwen3:14b 偶尔自己编一个电量
         result["energy_after_class"] = None
     if not quote_is_verbatim(result["note"], sentence):
         result["note"] = ""  # 模型改了字就不当原话用
     return "ok", result
+
+
+ENERGY_WORDS = re.compile(r"电量|精力|没电|满电|[1-5一二两三四五]格")
 
 
 def closing_line(note: str) -> str:
