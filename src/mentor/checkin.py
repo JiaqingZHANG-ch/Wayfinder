@@ -15,6 +15,7 @@ TEXT_FIELDS = ("blocker", "note", "tomorrow_task")
 class Item(NamedTuple):
     title: str
     project: bool = False
+    minutes: int = 0  # 今天计划做多久；给模型判断「做了」还是「做了保底」
 
 
 def validate_checkin(obj: object, day: date, items: dict[str, Item]) -> dict:
@@ -78,11 +79,14 @@ def schema_for(items: dict[str, Item]) -> dict:
 
 
 def _prompt(items: dict[str, Item]) -> str:
-    listed = "、".join(f"{k}（{v.title}{'，项目' if v.project else ''}）" for k, v in items.items())
+    listed = "、".join(f"{k}（{v.title}{'，项目' if v.project else ''}{f'，计划 {v.minutes} 分钟' if v.minutes else ''}）"
+                      for k, v in items.items())
     return (
         "你把用户晚上说的一句话整理成对账记录，只回 JSON。\n"
-        f"今天计划里的事项：{listed}。items 的键只能用这些 id，用户没提到的事项不要写。\n"
+        f"今天计划里的事项：{listed}。items 的键只能用这些 id，用户没提到的事项不要写；"
+        "只在「明天要做」里提到的事项，也不要写进 items。\n"
         "status：done = 做了，floor = 做了保底（做了一点、少做了），skip = 今天没做。\n"
+        "用户说的时长比计划少（比如计划 30 分钟只做了 10 分钟），就是 floor，不是 done。\n"
         "项目可以加 vs_plan：less = 比预想少，same = 差不多，more = 比预想多；没说就不写。\n"
         "energy_after_class：用户说的电量（1–5），没说就 null。\n"
         "note：从用户的话里原样摘一句他对今天的感受，一个字都不改；没有就写空字符串。\n"
@@ -109,6 +113,8 @@ def parse_sentence(model: ModelPort, sentence: str, day: date,
         result = validate_checkin({**json.loads(raw), "date": day.isoformat()}, day, items)
     except (ValueError, TypeError, RecursionError):  # TypeError：模型回的不是对象
         return "bad", None
+    if not any(w in sentence for w in ("电", "精力")):  # 2026-11-20 实测 qwen3:14b 偶尔自己编一个电量
+        result["energy_after_class"] = None
     if not quote_is_verbatim(result["note"], sentence):
         result["note"] = ""  # 模型改了字就不当原话用
     return "ok", result

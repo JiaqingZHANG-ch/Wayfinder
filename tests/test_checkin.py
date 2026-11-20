@@ -85,3 +85,19 @@ def test_real_ollama_parses_example_sentence():
     assert outcome == "ok"
     assert result["energy_after_class"] == 3
     assert result["items"] == PARSED["items"]
+
+
+def test_prompt_gives_planned_minutes_so_short_sessions_count_as_floor():
+    from mentor.checkin import _prompt
+    p = _prompt({"english": Item("英语", minutes=30), "exam-prep": Item("高数复习", project=True, minutes=50)})
+    assert "english（英语，计划 30 分钟）" in p and "exam-prep（高数复习，项目，计划 50 分钟）" in p
+    assert "就是 floor" in p
+
+
+def test_energy_dropped_when_sentence_never_mentions_it():
+    from mentor.model import FakeModel
+    reply = '{"energy_after_class": 3, "items": {}, "blocker": "", "note": "", "tomorrow_task": "", "yesterday_done": null}'
+    _, r = parse_sentence(FakeModel(replies=[reply]), "今天上完课很累", DAY, ITEMS)
+    assert r["energy_after_class"] is None
+    _, r = parse_sentence(FakeModel(replies=[reply]), "今天电量3", DAY, ITEMS)
+    assert r["energy_after_class"] == 3

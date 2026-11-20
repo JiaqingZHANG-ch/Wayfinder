@@ -23,7 +23,7 @@ from mentor.reminders import todays_reminders
 from mentor.review import MAX_HABITS, apply_adjustments, week_stats, write_review
 from mentor.safety import all_strings, crisis_message, is_crisis
 from planner.errors import InputError, PlanInfeasible
-from planner.model import input_from_dict, to_hhmm
+from planner.model import input_from_dict, to_hhmm, to_min
 from planner.solve import DayPlan, replan_from, solve_day
 
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
@@ -86,10 +86,12 @@ def _items(plan: dict) -> dict[str, Item]:
     """对账能记哪些事：习惯和可选项按块 id，项目按任务 id（一个任务可能排了几块）。"""
     items = {}
     for b in plan["blocks"]:
+        mins = to_min(b["end"]) - to_min(b["start"])
         if b["kind"] in ("must", "flex"):
-            items[b["id"]] = Item(b["title"])
+            items[b["id"]] = Item(b["title"], minutes=mins)
         elif b["kind"] == "proj":
-            items[b["task_id"]] = Item(b["title"], project=True)
+            old = items.get(b["task_id"])
+            items[b["task_id"]] = Item(b["title"], project=True, minutes=mins + (old.minutes if old else 0))
     return items
 
 
