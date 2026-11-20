@@ -1,9 +1,10 @@
 """DeepSeek 客户端。写法沿用 warehouse-night-desk 的 polish.py：不跟随重定向，报错里不带密钥。"""
 import http.client
 import json
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Protocol
 
 
@@ -115,6 +116,31 @@ class FakeModel:
         if not self.replies:
             raise ModelError("假模型没有准备回答")
         return self.replies.pop(0)
+
+
+class RecordingModel:
+    """包一层：每次调模型记一条（发了什么、回了什么、哪个模型、用了多久、出了什么错），事后能用 replay 原样重放。"""
+
+    def __init__(self, inner: ModelPort, record: Callable[[dict], None]) -> None:
+        self.inner, self.record = inner, record
+
+    def complete_json(self, messages: list[dict[str, str]], *, think: bool = False,
+                      schema: dict | None = None) -> str:
+        start, reply, error = time.monotonic(), None, None
+        try:
+            reply = self.inner.complete_json(messages, think=think, schema=schema)
+            return reply
+        except ModelError as e:
+            error = str(e)
+            raise
+        finally:
+            self.record({"model": repr(self.inner), "messages": messages, "think": think, "schema": schema,
+                         "reply": reply, "error": error, "ms": round((time.monotonic() - start) * 1000)})
+
+
+def replay(call: dict) -> "FakeModel":
+    """拿一条调用记录造一个假模型：同样的输入走一遍，模型这一步回的还是当时那句。"""
+    return FakeModel([] if call["reply"] is None else [call["reply"]])
 
 
 def make_model(env: Mapping[str, str]) -> ModelPort:

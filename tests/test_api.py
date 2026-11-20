@@ -388,3 +388,21 @@ def test_calendar_off_by_default(setup):
     client = setup[0]
     client.get("/today")
     assert client.post("/plan/confirm", json={"version": 1}).json()["calendar"] == "off"
+
+
+def test_every_model_call_is_recorded_and_can_be_replayed(setup):
+    from mentor.checkin import parse_sentence
+    from mentor.model import replay
+    from server.api import _items
+    client, db, model = setup
+    model.replies.append(json.dumps({"items": {"reading": {"status": "done"}}, "note": "今天看书感觉不错"}))
+    first = client.post("/checkin", json={"sentence": "今天看书感觉不错"}).json()
+    client.post("/checkin", json={"sentence": "背了单词"})  # 假模型没准备回答：记下错误
+    calls = db.model_calls(1)
+    assert [c["error"] is None for c in calls] == [True, False] and "FakeModel" in calls[0]["model"]
+    assert calls[0]["messages"] == model.calls[0]["messages"] and calls[1]["reply"] is None and calls[1]["error"]
+    # 回放：同样的输入、同样的模型回答 → 同样的结果
+    from datetime import date
+    items = _items(db.latest_plan(1, date(2026, 11, 20))["plan"])
+    again = parse_sentence(replay(calls[0]), "今天看书感觉不错", date(2026, 11, 20), items)
+    assert again == ("ok", first["saved"])

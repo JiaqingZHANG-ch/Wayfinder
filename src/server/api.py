@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.mentor import MAX_INPUT, logical_date
-from mentor.model import ModelPort, make_model
+from mentor.model import ModelPort, RecordingModel, make_model
 from mentor.onboarding import QUESTIONS, run_round
 from mentor.reminders import todays_reminders
 from mentor.review import apply_adjustments, week_stats, write_review
@@ -88,6 +88,7 @@ def _items(plan: dict) -> dict[str, Item]:
 def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calendar: CalendarPort | None = None,
                now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
     db.ensure_user(USER_ID)
+    model = RecordingModel(model, lambda call: db.add_model_call(USER_ID, call))
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 

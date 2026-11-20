@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS weekly_reviews (
     week_end TEXT NOT NULL, stats TEXT NOT NULL, summary TEXT NOT NULL, adjustments TEXT NOT NULL,
     question TEXT NOT NULL, still_right INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL, UNIQUE (user_id, week_end));
+-- 每次调模型一条：事后查怪答案、用假模型回放。也是用户数据，导出和删除都要带上
+CREATE TABLE IF NOT EXISTS model_calls (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL, model TEXT NOT NULL, request TEXT NOT NULL, reply TEXT, error TEXT, ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -243,6 +247,21 @@ class Db:
                       (json.dumps(adjustments, ensure_ascii=False), review_id))
             return True
         return self._run(go)
+
+    # 模型调用记录
+    def add_model_call(self, user_id: int, call: dict) -> None:
+        request = {k: call[k] for k in ("messages", "think", "schema")}
+        self._run(lambda c: c.execute(
+            "INSERT INTO model_calls (user_id, created_at, model, request, reply, error, ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, _now(), call["model"], json.dumps(request, ensure_ascii=False), call["reply"], call["error"],
+             call["ms"])))
+
+    def model_calls(self, user_id: int) -> list[dict]:
+        rows = self._run(lambda c: c.execute(
+            "SELECT id, created_at, model, request, reply, error, ms FROM model_calls WHERE user_id = ? ORDER BY id",
+            (user_id,)).fetchall())
+        return [{"id": i, "created_at": t, "model": m, **json.loads(rq), "reply": rp, "error": e, "ms": ms}
+                for i, t, m, rq, rp, e, ms in rows]
 
     # 危机
     def log_crisis(self, user_id: int, day: date, text: str) -> None:
