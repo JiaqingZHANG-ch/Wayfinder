@@ -589,6 +589,7 @@ def test_last_nights_one_thing_is_planned_today_and_answers_yesterday_done(setup
     plan = client.post("/energy", json={"level": 4, "now": "18:00"}).json()
     one = [b for b in plan["blocks"] if b.get("task_id") == "one-thing"]
     assert one and one[0]["title"] == "把 EGG 的图画完"
+    assert not any("把 EGG" in w for w in plan["warnings"])  # 排上了就不该报截止日
     r = client.post("/checkin", json={"result": {"items": {"one-thing": {"status": "done"}}}}).json()
     assert r["saved"]["yesterday_done"] is True
 

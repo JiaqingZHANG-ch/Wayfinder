@@ -120,12 +120,13 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return now(ZoneInfo(db.user_timezone(USER_ID)))
 
     def day_raw(raw: dict, day) -> dict:
-        """这一天的求解器输入：课表里这天的课，加上昨晚说的「明天的一件事」（一块，截止今天，求解器会先排它）。"""
+        """这一天的求解器输入：课表里这天的课，加上昨晚说的「明天的一件事」（一块，求解器会先排它）。"""
         d = for_day(raw, day)
         last = db.logs_between(USER_ID, day - timedelta(days=1), day - timedelta(days=1))
         if last and (t := last[0]["tomorrow_task"].strip()):
             d["tasks"] = [*d.get("tasks", []), {"id": ONE_THING, "project": "昨晚定的一件事", "title": t[:40],
-                                                "remaining_min": 30, "deadline": day.isoformat()}]
+                                                "remaining_min": 30,  # 截止写成明天：权重照样最高一档，又不会报「截止日已到」
+                                                "deadline": (day + timedelta(days=1)).isoformat()}]
         return d
 
     def replan_today(day, raw: dict) -> tuple[DayPlan, int | None]:
