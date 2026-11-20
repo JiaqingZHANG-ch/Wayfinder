@@ -46,6 +46,10 @@ def validate_checkin(obj: object, day: date, items: dict[str, Item]) -> dict:
         value = obj.get(name) or ""
         if not isinstance(value, str):
             raise ValueError(f"{name} 要是文字")
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:  # 比如单独的代理字符，数据库存不进去
+            raise ValueError(f"{name} 里有无法识别的字符") from None
         out[name] = value.strip()
     done = obj.get("yesterday_done")
     if done is not None and not isinstance(done, bool):

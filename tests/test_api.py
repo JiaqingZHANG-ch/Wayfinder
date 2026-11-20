@@ -140,3 +140,63 @@ def test_no_settings_and_no_template(tmp_path):
     client = TestClient(create_app(Db(tmp_path / "app.db"), FakeModel(), now=at("08:00")))
     r = client.get("/today")
     assert r.status_code == 409 and "建档" in r.json()["detail"]
+
+
+# ---- 审阅后补的 ----
+def test_energy_after_midnight_is_refused(tmp_path):
+    from datetime import datetime as dt
+    client = TestClient(create_app(Db(tmp_path / "a.db"), FakeModel(), template=TEMPLATE,
+                                   now=lambda tz: dt(2026, 11, 21, 1, 0, tzinfo=tz)))
+    assert client.post("/energy", json={"level": 2}).status_code == 409
+
+
+@pytest.mark.parametrize("now", ["99:99", "24:00", "18:60"])
+def test_energy_rejects_impossible_time(setup, now):
+    assert setup[0].post("/energy", json={"level": 2, "now": now}).status_code == 422
+
+
+def test_lone_surrogate_is_422_not_500(setup):
+    client = setup[0]
+    body = '{"result": {"items": {}, "note": "\\ud800"}}'
+    r = client.post("/checkin", content=body, headers={"Content-Type": "application/json"})
+    assert r.status_code == 422
+
+
+def test_model_output_with_lone_surrogate_saves_nothing(setup):
+    client, _, model = setup
+    model.replies.append('{"items": {}, "note": "", "blocker": "\\ud800"}')
+    assert client.post("/checkin", json={"sentence": "英语完成"}).status_code == 422
+    assert client.get("/week").json()["logged_days"] == 0
+
+
+def test_sentence_adds_to_earlier_buttons_instead_of_replacing(setup):
+    client, db, model = setup
+    client.post("/checkin", json={"result": {"energy_after_class": 3, "note": "按钮那次写的",
+                                             "items": {"english": {"status": "done"}}}})
+    model.replies.append(json.dumps({"items": {"reading": {"status": "done"}}, "note": "今天看书感觉不错"}))
+    r = client.post("/checkin", json={"sentence": "今天看书感觉不错"}).json()
+    assert r["saved"]["items"] == {"english": {"status": "done"}, "reading": {"status": "done"}}
+    assert r["saved"]["energy_after_class"] == 3 and r["closing"] == "「今天看书感觉不错」"
+    model.replies.append(json.dumps({"items": {}, "note": ""}))  # 这次没有原话：不引用旧的
+    assert client.post("/checkin", json={"sentence": "就这样"}).json()["closing"] == "今天记下了"
+    assert [q["text"] for q in db.quotes(1)] == ["按钮那次写的", "今天看书感觉不错"]
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/checkin", {"result": {"items": {"我想死": {"status": "done"}}}}),
+    ("/energy", {"level": 2, "now": "18:00", "done_ids": ["不想活了"]}),
+])
+def test_crisis_words_anywhere_in_request(setup, path, body):
+    client, db, model = setup
+    assert client.post(path, json=body).json() == {"crisis": True, "message": CRISIS_MESSAGE}
+    assert db.crisis_count(1) == 1 and model.calls == []
+
+
+def test_first_plan_of_the_day_is_not_duplicated(tmp_path):
+    from datetime import date
+    db = Db(tmp_path / "a.db")
+    db.ensure_user(1)
+    day = date(2026, 11, 20)
+    assert db.add_plan(1, day, {"blocks": []}, None, only_if_none=True) == 1
+    assert db.add_plan(1, day, {"blocks": [1]}, None, only_if_none=True) == 1
+    assert db.latest_plan(1, day)["plan"] == {"blocks": []}

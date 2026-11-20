@@ -30,7 +30,7 @@ DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "daily-planner" / "exam
 
 class EnergyIn(BaseModel):
     level: int = Field(ge=1, le=5, description="电量几格（1–5）")
-    now: str | None = Field(None, pattern=r"^\d{2}:\d{2}$", description="从几点开始重排，不填 = 现在")
+    now: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="从几点开始重排，不填 = 现在")
     done_ids: list[str] = Field(default_factory=list, description="今天已经做完的事项 id")
 
 
@@ -99,9 +99,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         stored = db.latest_plan(USER_ID, day)
         if stored is None:
             inp = plan_input(day)
-            db.add_plan(USER_ID, day, solved(lambda: solve_day(inp)), None)
+            db.add_plan(USER_ID, day, solved(lambda: solve_day(inp)), None, only_if_none=True)
             stored = db.latest_plan(USER_ID, day)
         return stored
+
+    def screen(body: BaseModel, day) -> dict | None:
+        """请求里用户写的任何文字：编码不了就 422；有危机字眼就记下并返回危机话术（不交给模型）。"""
+        text = json.dumps(body.model_dump(), ensure_ascii=False)
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            raise HTTPException(422, "文字里有无法识别的字符") from None
+        if is_crisis(text):
+            db.log_crisis(USER_ID, day, text)
+            return {"crisis": True, "message": CRISIS_MESSAGE}
+        return None
 
     @app.get("/today", summary="今日计划，没有就生成")
     def get_today():
@@ -112,6 +124,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
     def post_energy(body: EnergyIn):
         t = clock()
         day = logical_date(t)
+        if crisis := screen(body, day):
+            return crisis
+        if body.now is None and t.date() != day:  # 凌晨 4 点前还算昨天，但昨天已经没有「今晚」可排了
+            raise HTTPException(409, "今天已经过完了，早上再看新的计划")
         inp = plan_input(day, body.level)
         # shortcut: 总是从当天的原始计划重排，不在上一次重排的结果上叠；一天报两次电量时，第二次之前的手动改动会丢
         plan = solved(lambda: replan_from(inp, body.now or to_hhmm(t.hour * 60 + t.minute), body.done_ids))
@@ -132,14 +148,13 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         if (body.result is None) == (body.sentence is None):
             raise HTTPException(422, "result 和 sentence 只填一个")
         day = logical_date(clock())
-        items = _items(today_plan(day)["plan"])
+        if crisis := screen(body, day):  # 用户的话先查危机，不交给模型
+            return crisis
         texts = [body.sentence] if body.sentence is not None else \
             [v for k in ("note", "blocker", "tomorrow_task") if isinstance(v := body.result.get(k), str)]
         if any(len(t) > MAX_INPUT for t in texts):
             raise HTTPException(422, f"一次最多 {MAX_INPUT} 字")
-        if any(is_crisis(t) for t in texts):  # 用户的话先查危机，不交给模型
-            db.log_crisis(USER_ID, day, "\n".join(texts))
-            return {"crisis": True, "message": CRISIS_MESSAGE}
+        items = _items(today_plan(day)["plan"])
 
         if body.sentence is not None:
             outcome, result = parse_sentence(model, body.sentence, day, items)
@@ -148,20 +163,24 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
                 return {"crisis": True, "message": CRISIS_MESSAGE}
             if outcome == "bad":  # 什么都不存，让用户点按钮补
                 raise HTTPException(422, "这句话我没整理出来，请点按钮补上")
-            said = body.sentence
+            said, quote = body.sentence, result["note"]
+            if earlier := db.logs_between(USER_ID, day, day):  # 一句话只补它提到的，不冲掉按钮记过的
+                old = earlier[0]
+                result = {**old, **{k: v for k, v in result.items() if v not in (None, "")},
+                          "items": {**old["items"], **result["items"]}}
         else:
             try:
                 result = validate_checkin(body.result, day, items)
             except ValueError as e:
                 raise HTTPException(422, str(e)) from None
-            said = result["note"]
+            said = quote = result["note"]
 
         db.save_log(USER_ID, result)
         if said:
             mid = db.add_message(USER_ID, day, "对账", "user", said)
-            if result["note"]:
-                db.add_quote(USER_ID, mid, result["note"], "对账", day)
-        return {"crisis": False, "saved": result, "closing": closing_line(result["note"])}
+            if quote:  # 只引用这一次说的话
+                db.add_quote(USER_ID, mid, quote, "对账", day)
+        return {"crisis": False, "saved": result, "closing": closing_line(quote)}
 
     @app.get("/week", summary="近 7 天：每个习惯做了几天 / 记录了几天，项目比预想多还是少")
     def get_week():

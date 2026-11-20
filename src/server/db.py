@@ -77,10 +77,15 @@ class Db:
             (user_id, json.dumps(raw, ensure_ascii=False))))
 
     # 计划：每次重排加一个新版本，旧版本留着
-    def add_plan(self, user_id: int, day: date, plan: dict, energy_level: int | None) -> int:
+    def add_plan(self, user_id: int, day: date, plan: dict, energy_level: int | None,
+                 *, only_if_none: bool = False) -> int:
+        """存一个新版本，返回版本号。only_if_none：这天已经有计划就不存（两个请求同时生成当天计划时用）。"""
         def go(c):
+            c.execute("BEGIN IMMEDIATE")  # 先拿写锁再读版本号，两个请求同时来也不会撞号
             (latest,) = c.execute("SELECT COALESCE(MAX(version), 0) FROM day_plans WHERE user_id = ? AND day = ?",
                                   (user_id, day.isoformat())).fetchone()
+            if only_if_none and latest:
+                return latest
             c.execute("INSERT INTO day_plans (user_id, day, version, plan, energy_level) VALUES (?, ?, ?, ?, ?)",
                       (user_id, day.isoformat(), latest + 1, json.dumps(plan, ensure_ascii=False), energy_level))
             return latest + 1
