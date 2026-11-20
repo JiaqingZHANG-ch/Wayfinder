@@ -26,7 +26,27 @@ export type Plan = {
   reminders?: Reminder[]; // 只有 GET /today 带
 };
 
-export type Week = { start: string; end: string; logged_days: number };
+export type Week = { start: string; end: string; logged_days: number; review?: "due" | "today" | null };
+
+/** 复盘里的一条调整：answer 是 null（还没点）、"好" 或 "先不改"。 */
+export type Adjustment = {
+  kind: "minutes" | "floor_min" | "add_habit";
+  habit_id?: string;
+  title?: string;
+  value: number;
+  why: string;
+  answer: "好" | "先不改" | null;
+};
+export type Review = {
+  crisis: false;
+  id: number;
+  week_end: string;
+  summary: string;
+  adjustments: Adjustment[];
+  question: string; // 带进下周的问题，导师不回答
+  last_question: string | null;
+  still_right: (Profile & { question: string }) | null; // 「还对吗」：回答用 confirmProfile
+};
 
 export type CheckinItem = { id: string; title: string; project: boolean };
 
@@ -77,6 +97,9 @@ export const confirmProfile = (id: number, content?: string) =>
   send<{ confirmed: Profile[]; pending: Profile[] } | Crisis>("POST", "/profile/confirm", { id, content });
 export const postEnergy = (level: number) => send<Plan | Crisis>("POST", "/energy", { level });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
+export const getReview = () => send<Review | Crisis>("POST", "/review", {});
+export const answerAdjustment = (id: number, index: number, accept: boolean) =>
+  send<Review>("POST", "/review", { id, index, accept });
 
 // 第 3 周循环 ④：在这里写 postCheckin(body)，照上面几行的样子调 send
 

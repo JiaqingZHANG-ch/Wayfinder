@@ -101,7 +101,7 @@ def _check_adjustments(raw: object, habits: list[dict]) -> list[dict] | None:
         floor, minutes = h.get("floor_min", h["minutes"]), h["minutes"]
         if (a["kind"] == "minutes" and value < floor) or (a["kind"] == "floor_min" and value > minutes):
             return None  # 改了以后保底版不能比标准版长
-        out.append({"kind": a["kind"], "habit_id": h["id"], "value": value, "why": why.strip()})
+        out.append({"kind": a["kind"], "habit_id": h["id"], "title": h["title"], "value": value, "why": why.strip()})
     return out
 
 

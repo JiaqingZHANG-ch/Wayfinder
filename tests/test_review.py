@@ -61,7 +61,7 @@ def test_good_review_passes_through():
     stats = week_stats(WEEK, HABITS, TASKS)
     adj = {"kind": "minutes", "habit_id": "english", "value": 10, "why": "有 3 天没做，先把标准版缩短。"}
     outcome, out = write_review(FakeModel([reply(GOOD, [adj])]), stats, HABITS)
-    assert outcome == "ok" and out["summary"] == GOOD and out["adjustments"] == [adj]
+    assert outcome == "ok" and out["summary"] == GOOD and out["adjustments"] == [{**adj, "title": "背单词"}]
     assert out["question"] == "下周哪天最容易被课拖住？"
     # 每个数字都在统计里：这就是「模型不许改数字」的测试
     assert set(re.findall(r"\d+", out["summary"])) <= allowed_numbers(stats)

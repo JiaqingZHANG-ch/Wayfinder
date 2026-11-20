@@ -10,6 +10,7 @@ export default function RootLayout() {
       <Stack.Screen name="checkin" options={{ title: "晚间对账" }} />
       <Stack.Screen name="energy" options={{ title: "报电量" }} />
       <Stack.Screen name="onboarding" options={{ title: "认识一下" }} />
+      <Stack.Screen name="review" options={{ title: "每周复盘" }} />
     </Stack>
   );
 }
