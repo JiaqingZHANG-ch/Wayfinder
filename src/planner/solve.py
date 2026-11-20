@@ -441,7 +441,19 @@ def _diagnose(inp: PlanInput, c: Commute) -> str:
     return "必做事项和三餐加在一起排不下：" + "、".join(h.title for h in inp.habits)
 
 
+LOW_ENERGY = 2  # 电量不超过这个数：习惯只排保底版（C26）
+
+
+def _low_energy(inp: PlanInput) -> PlanInput:
+    """C26 低电量用保底版：电量 ≤2 时，有保底版的习惯换成保底分钟数，标题加「（保底）」。再调一次不会再变。"""
+    if inp.energy_level is None or inp.energy_level > LOW_ENERGY:
+        return inp
+    return replace(inp, habits=[replace(h, minutes=h.floor_min, title=f"{h.title}（保底）") if h.floor_min < h.minutes
+                                else h for h in inp.habits])
+
+
 def solve_day(inp: PlanInput) -> DayPlan:
+    inp = _low_energy(inp)
     c = pick_commute(inp)
     conflict = _fixed_conflict(inp, c)
     if conflict:
@@ -476,7 +488,8 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
     unknown = set(done_ids) - {x.id for x in [*inp.habits, *inp.meals, *inp.flex, *inp.tasks]}
     if unknown:
         raise InputError(f"输入有误：done_ids 里有不认识的 id：{sorted(unknown)}")
-    before = solve_day(inp)
+    orig, before = inp, solve_day(replace(inp, energy_level=None))  # 上午照原计划排的，不受刚报的电量影响
+    inp = _low_energy(inp)
     keep = [b for b in before.blocks
             if b.start < t and b.kind != "class" and not b.id.startswith(("free-",) + MOVE_PREFIXES)]
     rest_min = inp.energy.rest_after_focus_min
@@ -507,7 +520,7 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
     past_cost = sum(_block_cost(inp, b) for b in keep)
     kept_ids = {b.id for b in keep}
     # 提前做完的必做和健身也花了精力；没保留在计划里的按标准时长记
-    past_cost += sum(h.minutes * cost.get(h.id, cost["habit"]) for h in inp.habits if h.id in done_ids and h.id not in kept_ids)
+    past_cost += sum(h.minutes * cost.get(h.id, cost["habit"]) for h in orig.habits if h.id in done_ids and h.id not in kept_ids)
     past_cost += sum(f.minutes * cost.get(f.id, 0) for f in inp.flex if f.id in done_ids and f.id not in kept_ids)
     gym_done = inp.energy.gym_id in kept_ids or inp.energy.gym_id in done_ids
     en = inp.energy

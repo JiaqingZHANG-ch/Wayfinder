@@ -244,3 +244,28 @@ def test_negative_cost_rejected(tmp_path):
     p.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(InputError):
         load_input(p)
+
+
+@pytest.mark.parametrize("level, expect", [(1, 10), (2, 10), (3, 20), (None, 20)])
+def test_low_energy_habit_uses_floor(home_day, level, expect):
+    """C26：电量 ≤2 时习惯只排保底版。"""
+    from dataclasses import replace
+    h = home_day.habits[0]
+    home_day.habits[0] = replace(h, minutes=20, floor_min=10)
+    home_day.energy_level = level
+    b = next(b for b in solve_day(home_day).blocks if b.id == h.id)
+    assert b.end - b.start == expect and (b.title.endswith("（保底）") == (expect == 10))
+
+
+def test_replan_at_low_energy_keeps_morning_and_floors_evening(home_day):
+    from dataclasses import replace
+
+    from planner.solve import replan_from
+    home_day.habits = [replace(h, floor_min=max(1, h.minutes // 2)) for h in home_day.habits]
+    before = solve_day(home_day)
+    home_day.energy_level = 1
+    after = replan_from(home_day, "12:00")
+    kept = [b for b in before.blocks if b.start < to_min("12:00") and b.kind == "must"]
+    assert all(any(a.id == b.id and a.end - a.start == b.end - b.start for a in after.blocks) for b in kept)
+    later = [b for b in after.blocks if b.kind == "must" and b.start >= to_min("12:00")]
+    assert later and all(b.title.endswith("（保底）") for b in later)
