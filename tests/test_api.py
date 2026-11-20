@@ -46,7 +46,8 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     assert after["version"] == 2 and after["energy_level"] == 2 and not after["confirmed"]
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
-    assert client.get("/today").json() == after
+    today = client.get("/today").json()
+    assert {k: v for k, v in today.items() if k != "reminders"} == after
 
 
 @pytest.mark.parametrize("body", [{"level": 0}, {"level": 6}, {"level": 3, "now": "6pm"}, {}])
@@ -240,7 +241,7 @@ def test_new_user_goes_from_onboarding_to_first_plan(new_user):
     assert [p["content"] for p in got["confirmed"]] == ["把法语练到能面试"] and got["pending"] == []
     assert client.post("/onboarding", json={"answer": "再答一次"}).json()["done"]  # 问完了不再问
 
-    assert client.put("/settings", json=SETTINGS).json() == SETTINGS
+    assert client.put("/settings", json=SETTINGS).json() == {**SETTINGS, "reminders": {"after_class": True, "evening": "21:00"}}
     plan = client.get("/today").json()
     assert any(b["title"] == "练法语" for b in plan["blocks"])
     raw = db.plan_input(1)
@@ -289,3 +290,18 @@ def test_crisis_in_model_output_during_onboarding(new_user):
 
 def test_confirm_unknown_profile_is_404(new_user):
     assert new_user[0].post("/profile/confirm", json={"id": 99}).status_code == 404
+
+# ---- 第 5 周：两条本地提醒 ----
+def test_today_carries_two_reminders(setup):
+    r = setup[0].get("/today").json()["reminders"]
+    assert [(x["kind"], x["at"], x["url"]) for x in r] == [("after_class", "16:00", "/energy"), ("evening", "21:00", "/checkin")]
+
+
+def test_reminders_follow_settings(new_user):
+    client = new_user[0]
+    body = {**SETTINGS, "reminders": {"after_class": True, "evening": "20:30"}}
+    client.put("/settings", json=body)
+    assert [(x["kind"], x["at"]) for x in client.get("/today").json()["reminders"]] == [("evening", "20:30")]  # 没课就没有下课那条
+    client.put("/settings", json={**SETTINGS, "reminders": {"after_class": False, "evening": None}})
+    assert client.get("/today").json()["reminders"] == []
+    assert client.put("/settings", json={**SETTINGS, "reminders": {"evening": "9pm"}}).status_code == 422

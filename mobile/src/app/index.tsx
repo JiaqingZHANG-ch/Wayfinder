@@ -4,13 +4,17 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, getToday, Plan } from "@/api";
 import { PlanView } from "@/components/plan-view";
+import { scheduleToday } from "@/notifications";
 
 export default function Today() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<ApiError | Error | null>(null);
 
   useEffect(() => {
-    getToday().then(setPlan, setError);
+    getToday().then((p) => {
+      setPlan(p);
+      scheduleToday(p.day, p.reminders ?? []).catch(() => {}); // 定不上提醒也不挡着看计划
+    }, setError);
   }, []);
 
   if (error instanceof ApiError && error.status === 409) return <Redirect href="/onboarding" />; // 还没建档

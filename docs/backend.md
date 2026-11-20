@@ -77,4 +77,18 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ⑤ 在 Python 里打印一轮 `build_messages(...)` 的结果，逐段说出每段为什么在里面。
 - ⑥ 在 `db.py` 的 `stalest_profile` 写查询，删掉 `tests/test_db.py` 里 `test_loop6_stalest_profile` 的 skip，变绿。
 
+## 第 5 周：手机和两条本地提醒
+
+- `GET /today` 多了 `reminders`：下课那条（当天最后一节课结束时，没课就没有）、晚上那条（设置里的时间，默认 21:00）。文案在 `src/mentor/reminders.py`，`tests/test_reminders.py` 管禁用词。
+- 手机上 `mobile/src/notifications.native.ts` 每次打开首页把今天还没到点的提醒重新定一遍，点通知直达 `/energy` 或 `/checkin`；网页版不定提醒。
+- 设置接口多了 `reminders: {after_class, evening}`。
+
+手机上怎么开：先 `$env:HOST = '0.0.0.0'; .\serve.ps1`，再 `.\phone.ps1`，iPhone 相机扫二维码进 Expo Go。第一次可能要在 Windows 防火墙里允许 Python 用专用网络（这一步你自己点）。后端没有登录，只在自己家的 Wi-Fi 这样开。
+
+留给你的循环：
+- ① iPhone 扫码打开，能看到今日计划。
+- ② 在任意页面临时加一条 1 分钟后的通知（`scheduleNotificationAsync` 的 `TIME_INTERVAL`），手机收到后删掉。
+- ③ 设置页里加两条提醒的时间和开关（`Settings.reminders`），改 `reminders.py` 文案时 `tests/test_reminders.py` 保持绿；到点收到，点开直达。
+- ④ Android Studio 模拟器（SDK 目录放 U 盘）里跑一次。
+
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。

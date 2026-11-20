@@ -18,6 +18,7 @@ from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate
 from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, make_model
 from mentor.onboarding import QUESTIONS, run_round
+from mentor.reminders import todays_reminders
 from mentor.safety import CRISIS_MESSAGE, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
@@ -131,10 +132,12 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
             return {"crisis": True, "message": CRISIS_MESSAGE}
         return None
 
-    @app.get("/today", summary="今日计划，没有就生成")
+    @app.get("/today", summary="今日计划，没有就生成；reminders 是手机要定的两条本地提醒")
     def get_today():
         day = logical_date(clock())
-        return out(day, today_plan(day))
+        stored = today_plan(day)
+        settings = (db.plan_input(USER_ID) or {}).get("reminders")
+        return {**out(day, stored), "reminders": todays_reminders(stored["plan"], settings)}
 
     @app.post("/energy", summary="报电量 → 只重排今晚 → 返回新计划（未确认）")
     def post_energy(body: EnergyIn):

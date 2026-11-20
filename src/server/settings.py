@@ -28,10 +28,16 @@ class HabitIn(BaseModel):
         return self
 
 
+class RemindersIn(BaseModel):
+    after_class: bool = Field(True, description="下课时问电量（时间按当天最后一节课自动算）")
+    evening: str | None = Field("21:00", pattern=HHMM, description="晚上对账提醒的时间；null = 不提醒")
+
+
 class SettingsIn(BaseModel):
     wake: str = Field(pattern=HHMM, description="几点起床")
     sleep: str = Field(pattern=HHMM, description="几点上床")
     habits: list[HabitIn] = Field(min_length=1, max_length=3, description="新用户从 1 个习惯开始")
+    reminders: RemindersIn = Field(default_factory=RemindersIn)
 
 
 def to_plan_input(s: SettingsIn, base: dict | None) -> dict:
@@ -43,7 +49,8 @@ def to_plan_input(s: SettingsIn, base: dict | None) -> dict:
     energy = dict(raw.get("energy", {}))
     cost = {k: v for k, v in energy.get("cost", {}).items() if k not in old_ids}  # 旧习惯的消耗值一起去掉
     cost.update({h["id"]: ENERGY_COST[x.energy] for h, x in zip(habits, s.habits) if x.energy})
-    raw.update(wake=s.wake, sleep=s.sleep, habits=habits, energy={**energy, "cost": cost})
+    raw.update(wake=s.wake, sleep=s.sleep, habits=habits, energy={**energy, "cost": cost},
+               reminders=s.reminders.model_dump())  # 求解器不认这一段，读输入时会忽略
     raw.pop("habit_block", None)  # 连成一块的设置是按旧习惯 id 写的，换了习惯就不再适用
     return raw
 
@@ -54,4 +61,5 @@ def from_plan_input(raw: dict) -> dict:
     by_cost = {v: k for k, v in ENERGY_COST.items()}
     return {"wake": raw["wake"], "sleep": raw["sleep"],
             "habits": [{"title": h["title"], "minutes": h["minutes"], "floor_min": h.get("floor_min", h["minutes"]),
-                        "energy": by_cost.get(cost.get(h["id"]))} for h in raw.get("habits", [])]}
+                        "energy": by_cost.get(cost.get(h["id"]))} for h in raw.get("habits", [])],
+            "reminders": RemindersIn(**raw.get("reminders", {})).model_dump()}

@@ -1,6 +1,9 @@
 import { Stack } from "expo-router";
 
+import { useNotificationRouting } from "@/notifications";
+
 export default function RootLayout() {
+  useNotificationRouting();
   return (
     <Stack>
       <Stack.Screen name="index" options={{ title: "今日计划" }} />

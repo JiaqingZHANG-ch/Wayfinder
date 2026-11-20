@@ -11,6 +11,9 @@ export type Block = {
   pomodoros: number | null;
 };
 
+/** 一条本地提醒：at 是当天的 "HH:MM"，url 是点开后去的页面。 */
+export type Reminder = { kind: "after_class" | "evening"; at: string; title: string; body: string; url: string };
+
 export type Plan = {
   day: string;
   version: number;
@@ -20,6 +23,7 @@ export type Plan = {
   warnings: string[];
   energy_used: number;
   energy_cap: number;
+  reminders?: Reminder[]; // 只有 GET /today 带
 };
 
 export type Week = { start: string; end: string; logged_days: number };
@@ -39,6 +43,7 @@ export type Settings = {
   wake: string;
   sleep: string;
   habits: { title: string; minutes: number; floor_min: number; energy: Energy | null }[];
+  reminders?: { after_class: boolean; evening: string | null }; // 不填用默认：下课提醒开、晚上 21:00
 };
 
 /** 后端回了错误：status 是 HTTP 状态码（比如 409 = 还没建档），message 是给人看的话。 */
