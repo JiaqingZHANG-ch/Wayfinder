@@ -305,3 +305,59 @@ def test_reminders_follow_settings(new_user):
     client.put("/settings", json={**SETTINGS, "reminders": {"after_class": False, "evening": None}})
     assert client.get("/today").json()["reminders"] == []
     assert client.put("/settings", json={**SETTINGS, "reminders": {"evening": "9pm"}}).status_code == 422
+
+def seed_week(db, last_day=20, days=7):
+    for d in range(last_day - days + 1, last_day + 1):
+        db.save_log(1, {"date": f"2026-11-{d:02d}", "energy_after_class": 3, "blocker": "", "tomorrow_task": "",
+                        "note": "今天读得很顺" if d == last_day else "", "yesterday_done": None,
+                        "items": {"reading": {"status": "done"}, "english": {"status": "skip" if d % 2 else "done"}}})
+
+
+REVIEW = json.dumps({"summary": "这 7 天记录了 7 天。「看书」做了 7 天，11 月 20 日你写「今天读得很顺」。",
+                     "adjustments": [{"kind": "minutes", "habit_id": "english", "value": 15, "why": "有 3 天没做。"},
+                                     {"kind": "add_habit", "title": "散步", "value": 20, "why": "看书很稳。"}],
+                     "question": "下周哪天最容易被课拖住？"}, ensure_ascii=False)
+
+
+def test_review_appears_after_seven_days(setup):
+    client, db, model = setup
+    seed_week(db, days=6)
+    assert client.get("/week").json()["review"] is None
+    assert client.post("/review", json={}).status_code == 409
+    seed_week(db)
+    assert client.get("/week").json()["review"] == "due"
+    model.replies.append(REVIEW)
+    r = client.post("/review", json={}).json()
+    assert r["summary"].startswith("这 7 天记录了 7 天") and r["question"] == "下周哪天最容易被课拖住？"
+    assert r["stats"]["habits"][1] == {"id": "english", "title": "背单词", "done_days": 4, "floor_days": 0, "skip_days": 3}
+    assert [a["answer"] for a in r["adjustments"]] == [None, None]
+    assert r["still_right"] is None and r["last_question"] is None
+    assert client.post("/review", json={}).json() == r  # 同一天再点，拿到的是同一份，不再问模型
+    assert len(model.calls) == 1 and client.get("/week").json()["review"] == "today"
+
+
+def test_review_adjustment_only_written_on_yes(setup):
+    client, db, model = setup
+    seed_week(db)
+    model.replies.append(REVIEW)
+    rid = client.post("/review", json={}).json()["id"]
+    before = client.get("/today").json()["version"]
+    r = client.post("/review", json={"id": rid, "index": 1, "accept": False}).json()
+    assert [a["answer"] for a in r["adjustments"]] == [None, "先不改"]
+    assert len(db.plan_input(1)["habits"]) == 2 and client.get("/today").json()["version"] == before
+    r = client.post("/review", json={"id": rid, "index": 0, "accept": True}).json()
+    assert r["adjustments"][0]["answer"] == "好"
+    assert next(h for h in db.plan_input(1)["habits"] if h["id"] == "english")["minutes"] == 15
+    assert client.get("/today").json()["version"] == before + 1  # 今天的计划跟着重排
+    assert client.post("/review", json={"id": rid, "index": 0, "accept": False}).status_code == 409  # 不能改口
+    assert client.post("/review", json={"id": rid, "index": 2, "accept": True}).status_code == 409
+    assert client.post("/review", json={"id": rid + 1, "index": 0, "accept": True}).status_code == 409
+    assert client.post("/review", json={"id": rid, "index": 0}).status_code == 422
+
+
+def test_review_falls_back_when_model_misbehaves(setup):
+    client, db, model = setup
+    seed_week(db)
+    model.replies += [REVIEW.replace("7 天。", "8 天。")] * 2  # 改了数字，两次都不合格
+    r = client.post("/review", json={}).json()
+    assert r["adjustments"] == [] and r["summary"].startswith("这 7 天记录了 7 天。「看书」做了 7 天。")

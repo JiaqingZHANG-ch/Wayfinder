@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -19,6 +19,7 @@ from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, make_model
 from mentor.onboarding import QUESTIONS, run_round
 from mentor.reminders import todays_reminders
+from mentor.review import apply_adjustments, week_stats, write_review
 from mentor.safety import CRISIS_MESSAGE, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
@@ -50,6 +51,13 @@ class OnboardingIn(BaseModel):
 class ProfileConfirmIn(BaseModel):
     id: int
     content: str | None = Field(None, description="确认前改过的字；不填 = 原样确认")
+
+
+class ReviewIn(BaseModel):
+    """不填 = 生成（或取回）这周的复盘；三个都填 = 回答其中一条调整。"""
+    id: int | None = Field(None, description="复盘的 id")
+    index: int | None = Field(None, ge=0, le=2, description="第几条调整（从 0 数）")
+    accept: bool | None = Field(None, description="true =「好」，false =「先不改」")
 
 
 class CheckinIn(BaseModel):
@@ -201,7 +209,25 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
                 db.add_quote(USER_ID, mid, quote, "对账", day)
         return {"crisis": False, "saved": result, "closing": closing_line(quote)}
 
-    @app.get("/week", summary="近 7 天：每个习惯做了几天 / 记录了几天，项目比预想多还是少")
+    def review_state(day) -> str | None:
+        """首页的复盘入口：due = 可以做了，today = 今天已经做了（还能回去点调整），None = 不显示。"""
+        last = db.reviews(USER_ID)
+        return "today" if last and last[0]["week_end"] == day.isoformat() else "due" if review_due(day) else None
+
+    def review_due(day) -> bool:
+        """满 7 天出现复盘入口：最早一条对账至少在 6 天前，而且最近 7 天里没复盘过。"""
+        first, last = db.first_log_day(USER_ID), db.reviews(USER_ID)
+        return (first is not None and first <= day - timedelta(days=6)
+                and not (last and date.fromisoformat(last[0]["week_end"]) > day - timedelta(days=7)))
+
+    def review_view(review: dict) -> dict:
+        earlier = db.reviews(USER_ID, limit=2)[1:]
+        profile = next((p for p in db.profiles(USER_ID, confirmed=True) if p["id"] == review["still_right"]), None)
+        return {"crisis": False, **review,
+                "last_question": earlier[0]["question"] if earlier else None,  # 上周带进来的问题，导师不回答
+                "still_right": profile and {**profile, "question": f"上次你说「{profile['content']}」，现在还对吗？"}}
+
+    @app.get("/week", summary="近 7 天：每个习惯做了几天 / 记录了几天，项目比预想多还是少；review 是复盘入口")
     def get_week():
         end = logical_date(clock())
         start = end - timedelta(days=6)
@@ -218,7 +244,52 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
                      **{v: sum(s.get("vs_plan") == v for s in statuses(t["id"])) for v in VS_PLAN}}
                     for t in raw.get("tasks", [])]
         return {"start": start.isoformat(), "end": end.isoformat(), "logged_days": len(logs),
-                "habits": habits, "projects": projects}
+                "habits": habits, "projects": projects, "review": review_state(end)}
+
+    @app.post("/review", summary="每周复盘：生成这周的（数字由程序算），或回答一条调整（点了「好」才写进设置）")
+    def post_review(body: ReviewIn):
+        day = logical_date(clock())
+        latest = db.reviews(USER_ID)
+        if body.id is None and body.index is None and body.accept is None:
+            if latest and latest[0]["week_end"] == day.isoformat():
+                return review_view(latest[0])
+            if not review_due(day):
+                raise HTTPException(409, "还没满 7 天，或者这周已经复盘过了")
+            raw = db.plan_input(USER_ID) or {}
+            habits = raw.get("habits", [])
+            stats = week_stats(db.logs_between(USER_ID, day - timedelta(days=6), day), habits, raw.get("tasks", []))
+            outcome, written = write_review(model, stats, habits)
+            if outcome == "crisis":
+                db.log_crisis(USER_ID, day, "（每周复盘的模型输出）")
+                return {"crisis": True, "message": CRISIS_MESSAGE}
+            try:
+                stale = db.stalest_profile(USER_ID, day)
+            except NotImplementedError:  # 第 4 周循环 ⑥ 写好之前，复盘不问「还对吗」
+                stale = None
+            db.add_review(USER_ID, day, {"stats": stats, **written, "still_right": stale and stale["id"]})
+            return review_view(db.reviews(USER_ID)[0])
+
+        if body.id is None or body.index is None or body.accept is None:
+            raise HTTPException(422, "回答调整要同时填 id、index、accept")
+        if not latest or latest[0]["id"] != body.id:
+            raise HTTPException(409, "只能回答最近一次复盘里的调整")
+        adjustments = latest[0]["adjustments"]
+        if body.index >= len(adjustments) or adjustments[body.index]["answer"] is not None:
+            raise HTTPException(409, "没有这条调整，或者已经回答过了")
+        raw = None
+        if body.accept:  # 先确认改完还排得出今天的计划，再记回答、写设置
+            raw = apply_adjustments(db.plan_input(USER_ID) or {}, [adjustments[body.index]])
+            try:
+                inp = input_from_dict({**raw, "day": day.isoformat()})
+            except InputError as e:
+                raise HTTPException(422, str(e)) from None
+            plan = solved(lambda: solve_day(inp))
+        if not db.answer_adjustment(USER_ID, body.id, body.index, "好" if body.accept else "先不改"):
+            raise HTTPException(409, "这条已经回答过了")
+        if raw is not None:
+            db.set_plan_input(USER_ID, raw)
+            db.add_plan(USER_ID, day, plan, None)
+        return review_view(db.reviews(USER_ID)[0])
 
     @app.post("/onboarding", summary="建档对话的一轮：一次只问一个问题，最后提一条「方向」等用户确认")
     def post_onboarding(body: OnboardingIn):

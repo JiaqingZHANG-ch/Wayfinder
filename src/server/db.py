@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS user_quotes (
 CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     level TEXT NOT NULL, content TEXT NOT NULL, confirmed_at TEXT, source TEXT NOT NULL, created_at TEXT NOT NULL);
+-- 每周复盘：adjustments 里每条带 answer（null = 还没点，"好" / "先不改"）；still_right 是这次问「还对吗」的那条档案
+CREATE TABLE IF NOT EXISTS weekly_reviews (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    week_end TEXT NOT NULL, stats TEXT NOT NULL, summary TEXT NOT NULL, adjustments TEXT NOT NULL,
+    question TEXT NOT NULL, still_right INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL, UNIQUE (user_id, week_end));
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -133,6 +139,10 @@ class Db:
                  "tomorrow_task": t, "yesterday_done": None if y is None else bool(y)}
                 for d, e, i, b, n, t, y in rows]
 
+    def first_log_day(self, user_id: int) -> date | None:
+        (d,) = self._run(lambda c: c.execute("SELECT MIN(day) FROM day_logs WHERE user_id = ?", (user_id,)).fetchone())
+        return None if d is None else date.fromisoformat(d)
+
     def days_with_note(self, user_id: int, start: date, end: date) -> list[str]:
         """这段时间里哪几天写了一句话（note 不是空的），按日期排好。"""
         raise NotImplementedError("循环 ③：家庆来写这条 SQL 查询")
@@ -196,6 +206,39 @@ class Db:
     def stalest_profile(self, user_id: int, today: date) -> dict | None:
         """已确认、且最久没再确认的那条；离上次确认不到 14 天就是 None（第 6 周复盘问「还对吗」用）。"""
         raise NotImplementedError("第 4 周循环 ⑥：家庆来写这条 SQL 查询")
+
+    # 每周复盘
+    def add_review(self, user_id: int, week_end: date, review: dict) -> None:
+        """review：{stats, summary, adjustments, question, still_right}。这一周已经有了就不再存（同时来两个请求时）。"""
+        adjustments = [{**a, "answer": None} for a in review["adjustments"]]
+        self._run(lambda c: c.execute(
+            "INSERT OR IGNORE INTO weekly_reviews (user_id, week_end, stats, summary, adjustments, question, still_right, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, week_end.isoformat(), json.dumps(review["stats"], ensure_ascii=False), review["summary"],
+             json.dumps(adjustments, ensure_ascii=False), review["question"], review["still_right"], _now())))
+
+    def reviews(self, user_id: int, *, limit: int = 1) -> list[dict]:
+        """最近几次复盘，新的在前。"""
+        rows = self._run(lambda c: c.execute(
+            "SELECT id, week_end, stats, summary, adjustments, question, still_right FROM weekly_reviews "
+            "WHERE user_id = ? ORDER BY week_end DESC LIMIT ?", (user_id, limit)).fetchall())
+        return [{"id": i, "week_end": w, "stats": json.loads(st), "summary": su, "adjustments": json.loads(a),
+                 "question": q, "still_right": sr} for i, w, st, su, a, q, sr in rows]
+
+    def answer_adjustment(self, user_id: int, review_id: int, index: int, answer: str) -> bool:
+        """记下用户对第 index 条调整点的「好」或「先不改」。已经点过的不能改，返回 False。"""
+        def go(c):
+            c.execute("BEGIN IMMEDIATE")
+            row = c.execute("SELECT adjustments FROM weekly_reviews WHERE id = ? AND user_id = ?",
+                            (review_id, user_id)).fetchone()
+            adjustments = json.loads(row[0]) if row else []
+            if not 0 <= index < len(adjustments) or adjustments[index]["answer"] is not None:
+                return False
+            adjustments[index]["answer"] = answer
+            c.execute("UPDATE weekly_reviews SET adjustments = ? WHERE id = ?",
+                      (json.dumps(adjustments, ensure_ascii=False), review_id))
+            return True
+        return self._run(go)
 
     # 危机
     def log_crisis(self, user_id: int, day: date, text: str) -> None:
