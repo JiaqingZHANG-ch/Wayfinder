@@ -20,13 +20,14 @@ from mentor.model import ModelPort, RecordingModel, make_model
 from mentor.onboarding import QUESTIONS, run_round
 from mentor.reminders import todays_reminders
 from mentor.review import apply_adjustments, week_stats, write_review
-from mentor.safety import CRISIS_MESSAGE, is_crisis
+from mentor.safety import crisis_message, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
 from planner.solve import DayPlan, replan_from, solve_day
 
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
+from .privacy import COUNTRIES, PRIVACY_TEXT, PRIVACY_VERSION
 from .settings import SettingsIn, from_plan_input, to_plan_input
 
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
@@ -59,6 +60,12 @@ class ReviewIn(BaseModel):
     id: int | None = Field(None, description="复盘的 id")
     index: int | None = Field(None, ge=0, le=2, description="第几条调整（从 0 数）")
     accept: bool | None = Field(None, description="true =「好」，false =「先不改」")
+
+
+class MeIn(BaseModel):
+    country: str = Field(description="CN / FR / 空（别的国家或不想说）：危机提示显示哪国的热线")
+    is_adult: bool
+    consent: str = Field(description="同意的隐私说明版本，要等于 GET /me 给的 privacy.version")
 
 
 class CheckinIn(BaseModel):
@@ -94,8 +101,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
     app = FastAPI(title="Wayfinder 后端", version="0.1.0")
     # Expo 网页版开在 8081，和后端不同源，浏览器要后端明说放行；手机上的 App 不受这条限制
-    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST", "PUT"],
+    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST", "PUT", "DELETE"],
                        allow_headers=["Content-Type"])
+
+    def crisis_reply() -> dict:
+        return {"crisis": True, "message": crisis_message(db.user_info(USER_ID)["country"])}
 
     def clock() -> datetime:
         return now(ZoneInfo(db.user_timezone(USER_ID)))
@@ -139,7 +149,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(422, "文字里有无法识别的字符") from None
         if is_crisis(text):
             db.log_crisis(USER_ID, day, text)
-            return {"crisis": True, "message": CRISIS_MESSAGE}
+            return crisis_reply()
         return None
 
     @app.get("/today", summary="今日计划，没有就生成；reminders 是手机要定的两条本地提醒")
@@ -199,7 +209,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             outcome, result = parse_sentence(model, body.sentence, day, items)
             if outcome == "crisis":
                 db.log_crisis(USER_ID, day, body.sentence)
-                return {"crisis": True, "message": CRISIS_MESSAGE}
+                return crisis_reply()
             if outcome == "bad":  # 什么都不存，让用户点按钮补
                 raise HTTPException(422, "这句话我没整理出来，请点按钮补上")
             said, quote = body.sentence, result["note"]
@@ -273,7 +283,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             outcome, written = write_review(model, stats, habits)
             if outcome == "crisis":
                 db.log_crisis(USER_ID, day, "（每周复盘的模型输出）")
-                return {"crisis": True, "message": CRISIS_MESSAGE}
+                return crisis_reply()
             try:
                 stale = db.stalest_profile(USER_ID, day)
             except NotImplementedError:  # 第 4 周循环 ⑥ 写好之前，复盘不问「还对吗」
@@ -306,6 +316,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     @app.post("/onboarding", summary="建档对话的一轮：一次只问一个问题，最后提一条「方向」等用户确认")
     def post_onboarding(body: OnboardingIn):
         day = logical_date(clock())
+        if db.consents(USER_ID).get("隐私") != PRIVACY_VERSION:
+            raise HTTPException(409, "先看隐私说明并同意")
         answers = [m["content"] for m in db.messages(USER_ID, "建档") if m["role"] == "user"]
         n = len(answers)
         if n >= len(QUESTIONS):
@@ -322,7 +334,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         outcome, out_ = run_round(model, QUESTIONS[n], body.answer, db.profiles(USER_ID, confirmed=True), earlier)
         if outcome == "crisis":
             db.log_crisis(USER_ID, day, body.answer)
-            return {"crisis": True, "message": CRISIS_MESSAGE}
+            return crisis_reply()
         db.add_message(USER_ID, day, "建档", "user", body.answer)
         db.add_message(USER_ID, day, "建档", "assistant", out_["reply"])
         if final:
@@ -368,6 +380,33 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.set_plan_input(USER_ID, raw)
         db.add_plan(USER_ID, day, plan, None)
         return from_plan_input(raw)
+
+    @app.get("/me", summary="国家、是否成年、隐私说明和有没有同意过这一版")
+    def get_me():
+        return {**db.user_info(USER_ID), "consented": db.consents(USER_ID).get("隐私") == PRIVACY_VERSION,
+                "privacy": {"version": PRIVACY_VERSION, "text": PRIVACY_TEXT}}
+
+    @app.put("/me", summary="填国家和是否成年，并同意隐私说明（建档前要做）")
+    def put_me(body: MeIn):
+        if body.country not in COUNTRIES:
+            raise HTTPException(422, f"country 只能是 {' / '.join(c or '空' for c in COUNTRIES)}")
+        if body.consent != PRIVACY_VERSION:
+            raise HTTPException(409, "隐私说明更新了，刷新后再看一遍")
+        db.update_user(USER_ID, country=body.country, is_adult=body.is_adult)
+        db.consent(USER_ID, "隐私", PRIVACY_VERSION)
+        return get_me()
+
+    @app.get("/export", summary="导出我的全部数据（每张表里属于我的行）")
+    def get_export():
+        return {"exported_at": clock().isoformat(timespec="seconds"), "tables": db.export(USER_ID)}
+
+    @app.delete("/me", summary="删除我的全部数据，不能恢复；要带 ?confirm=true")
+    def delete_me(confirm: bool = False):
+        if not confirm:
+            raise HTTPException(422, "删除不能恢复，确定的话带上 confirm=true")
+        db.delete_user(USER_ID)
+        db.ensure_user(USER_ID)  # 换成一个全新的空用户，下次打开从同意和建档开始
+        return {"deleted": True}
 
     return app
 

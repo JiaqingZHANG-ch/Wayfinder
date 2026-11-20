@@ -13,6 +13,14 @@ create table public.users (
   created_at timestamptz not null default now()
 );
 
+create table public.consents (
+  user_id uuid not null references public.users (id) on delete cascade,
+  kind text not null,
+  version text not null,
+  at timestamptz not null default now(),
+  primary key (user_id, kind)
+);
+
 create table public.settings (
   user_id uuid primary key references public.users (id) on delete cascade,
   plan_input jsonb not null
@@ -115,6 +123,7 @@ create index on public.crisis_events (user_id);
 
 -- 行级安全（RLS）：每张表都打开。打开了却没有规则 = 谁都看不到（anon 也一样）。
 alter table public.users enable row level security;
+alter table public.consents enable row level security;
 alter table public.settings enable row level security;
 alter table public.day_plans enable row level security;
 alter table public.day_logs enable row level security;
@@ -128,6 +137,8 @@ alter table public.crisis_events enable row level security;
 -- 「只能看和改自己的」。(select auth.uid()) 套一层 select，Postgres 每条查询只算一次，不是每行算一次。
 create policy "只能看和改自己" on public.users for all to authenticated
   using (id = (select auth.uid())) with check (id = (select auth.uid()));
+create policy "只能看和改自己" on public.consents for all to authenticated
+  using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "只能看和改自己" on public.settings for all to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "只能看和改自己" on public.day_plans for all to authenticated

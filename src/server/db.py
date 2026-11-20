@@ -49,11 +49,19 @@ CREATE TABLE IF NOT EXISTS weekly_reviews (
 CREATE TABLE IF NOT EXISTS model_calls (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL, model TEXT NOT NULL, request TEXT NOT NULL, reply TEXT, error TEXT, ms INTEGER NOT NULL);
+-- 同意：哪一版说明、什么时候点的同意
+CREATE TABLE IF NOT EXISTS consents (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind TEXT NOT NULL, version TEXT NOT NULL,
+    at TEXT NOT NULL, PRIMARY KEY (user_id, kind));
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
 """
 
+# 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
+USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles",
+               "weekly_reviews", "model_calls", "crisis_events")
+JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
 PROFILE_SOURCES = ("建档", "复盘", "深度长谈")
@@ -82,6 +90,40 @@ class Db:
 
     def user_timezone(self, user_id: int) -> str:
         return self._run(lambda c: c.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone())[0]
+
+    def user_info(self, user_id: int) -> dict:
+        country, adult = self._run(lambda c: c.execute(
+            "SELECT country, is_adult FROM users WHERE id = ?", (user_id,)).fetchone())
+        return {"country": country, "is_adult": None if adult is None else bool(adult)}
+
+    def update_user(self, user_id: int, *, country: str, is_adult: bool) -> None:
+        self._run(lambda c: c.execute("UPDATE users SET country = ?, is_adult = ? WHERE id = ?",
+                                      (country, int(is_adult), user_id)))
+
+    def consent(self, user_id: int, kind: str, version: str) -> None:
+        self._run(lambda c: c.execute(
+            "INSERT OR REPLACE INTO consents (user_id, kind, version, at) VALUES (?, ?, ?, ?)",
+            (user_id, kind, version, _now())))
+
+    def consents(self, user_id: int) -> dict[str, str]:
+        """{kind: version}"""
+        return dict(self._run(lambda c: c.execute(
+            "SELECT kind, version FROM consents WHERE user_id = ?", (user_id,)).fetchall()))
+
+    def export(self, user_id: int) -> dict[str, list[dict]]:
+        """这个用户在每张表里的全部行，JSON 列解开。"""
+        def go(c):
+            out = {}
+            for t in USER_TABLES:
+                cur = c.execute(f"SELECT * FROM {t} WHERE {'id' if t == 'users' else 'user_id'} = ?", (user_id,))
+                cols = [d[0] for d in cur.description]
+                out[t] = [{k: json.loads(v) if k in JSON_COLUMNS else v for k, v in zip(cols, row)} for row in cur]
+            return out
+        return self._run(go)
+
+    def delete_user(self, user_id: int) -> None:
+        """删掉这个用户和他的全部数据（各表外键都是 ON DELETE CASCADE）。"""
+        self._run(lambda c: c.execute("DELETE FROM users WHERE id = ?", (user_id,)))
 
     def plan_input(self, user_id: int) -> dict | None:
         row = self._run(lambda c: c.execute("SELECT plan_input FROM settings WHERE user_id = ?", (user_id,)).fetchone())

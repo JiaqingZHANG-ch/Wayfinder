@@ -2,7 +2,7 @@
 -- user_quotes 那条在第 7 周循环 ③ 写好规则之前是红的。
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(16);
 
 -- 以管理员身份（不受 RLS 管）给 A、B 各放一份数据
 insert into auth.users (id, email) values
@@ -17,6 +17,7 @@ declare
 begin
   foreach u in array array['aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002']::uuid[] loop
     insert into public.users (id) values (u);
+    insert into public.consents (user_id, kind, version) values (u, '隐私', '隐私说明-v1');
     insert into public.settings (user_id, plan_input) values (u, '{"wake": "07:00"}');
     insert into public.day_plans (user_id, day, version, plan) values (u, '2026-11-20', 1, '{"blocks": []}');
     insert into public.day_logs (user_id, day, items, blocker, note, tomorrow_task)
@@ -38,6 +39,7 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub": "aaaaaaaa-0000-0000-0000-000000000001", "role": "authenticated"}', true);
 
 select is((select array_agg(id::text) from public.users), array['aaaaaaaa-0000-0000-0000-000000000001'], 'A 只看到自己的 users');
+select is((select count(*)::int from public.consents), 1, 'A 只看到自己的 consents');
 select is((select count(*)::int from public.settings), 1, 'A 只看到自己的 settings');
 select is((select count(*)::int from public.day_plans), 1, 'A 只看到自己的 day_plans');
 select is((select count(*)::int from public.day_logs), 1, 'A 只看到自己的 day_logs');

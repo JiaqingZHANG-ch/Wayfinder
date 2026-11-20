@@ -67,6 +67,15 @@ export type Settings = {
   reminders?: { after_class: boolean; evening: string | null }; // 不填用默认：下课提醒开、晚上 21:00
 };
 
+/** 国家决定危机提示显示哪国热线：CN / FR / ""（别的国家或不想说，两边都列）。 */
+export type Country = "CN" | "FR" | "";
+export type Me = {
+  country: Country;
+  is_adult: boolean | null;
+  consented: boolean; // 同意过当前这一版隐私说明
+  privacy: { version: string; text: string };
+};
+
 /** 后端回了错误：status 是 HTTP 状态码（比如 409 = 还没建档），message 是给人看的话。 */
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -98,6 +107,11 @@ export const confirmProfile = (id: number, content?: string) =>
   send<{ confirmed: Profile[]; pending: Profile[] } | Crisis>("POST", "/profile/confirm", { id, content });
 export const postEnergy = (level: number) => send<Plan | Crisis>("POST", "/energy", { level });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
+export const getMe = () => send<Me>("GET", "/me");
+export const putMe = (country: Country, is_adult: boolean, consent: string) =>
+  send<Me>("PUT", "/me", { country, is_adult, consent });
+export const exportData = () => send<{ exported_at: string; tables: Record<string, object[]> }>("GET", "/export");
+export const deleteMe = () => send<{ deleted: true }>("DELETE", "/me?confirm=true");
 export const getReview = () => send<Review | Crisis>("POST", "/review", {});
 export const answerAdjustment = (id: number, index: number, accept: boolean) =>
   send<Review>("POST", "/review", { id, index, accept });

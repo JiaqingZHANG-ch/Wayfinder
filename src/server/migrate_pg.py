@@ -14,6 +14,7 @@ from contextlib import closing
 TABLES = {
     "users": {"display_name": "text", "lang": "text", "timezone": "text", "country": "text", "is_adult": "bool",
               "created_at": "text"},
+    "consents": {"kind": "text", "version": "text", "at": "text"},
     "settings": {"plan_input": "json"},
     "day_plans": {"id": "int", "day": "text", "version": "int", "plan": "json", "energy_level": "int",
                   "confirmed_at": "text", "in_calendar": "bool"},

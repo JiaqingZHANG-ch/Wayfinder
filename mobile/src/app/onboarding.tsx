@@ -3,11 +3,12 @@ import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { confirmProfile, isCrisis, postOnboarding, Profile, putSettings } from "@/api";
+import { confirmProfile, Country, getMe, isCrisis, Me, postOnboarding, Profile, putMe, putSettings } from "@/api";
 
-type Step = "chat" | "confirm" | "form";
+type Step = "consent" | "chat" | "confirm" | "form";
+const COUNTRIES: [Country, string][] = [["CN", "中国"], ["FR", "法国"], ["", "别的国家 / 不想说"]];
 
-/** 轻量建档：先聊方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯。 */
+/** 轻量建档：先看隐私说明并同意 → 聊方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯。 */
 export default function Onboarding() {
   const [step, setStep] = useState<Step>("chat");
   const [question, setQuestion] = useState<string | null>(null);
@@ -23,13 +24,26 @@ export default function Onboarding() {
     setStep(pending.length ? "confirm" : "form");
   }
 
-  useEffect(() => {
+  const [me, setMe] = useState<Me | null>(null);
+
+  function startChat() {
+    setStep("chat");
     postOnboarding().then((t) => {
       if (isCrisis(t)) return setCrisis(t.message);
       if (t.done) afterChat(t.proposals);
       else setQuestion(t.question);
     }, (e: Error) => setError(e.message));
-  }, []);
+  }
+
+  useEffect(() => {
+    getMe().then((m) => {
+      if (m.consented) startChat();
+      else {
+        setMe(m);
+        setStep("consent");
+      }
+    }, (e: Error) => setError(e.message));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- 只在打开页面时问一次
 
   async function sendAnswer() {
     if (!answer.trim()) return;
@@ -66,6 +80,8 @@ export default function Onboarding() {
       {reply && <Text style={styles.reply}>{reply}</Text>}
       {error && <Text style={styles.error}>{error}</Text>}
 
+      {step === "consent" && me && <Consent me={me} onDone={startChat} onError={setError} />}
+
       {step === "chat" && question && (
         <>
           <Text style={styles.question}>{question}</Text>
@@ -86,6 +102,43 @@ export default function Onboarding() {
 
       {step === "form" && <SettingsForm onError={setError} onCrisis={setCrisis} />}
     </ScrollView>
+  );
+}
+
+function Consent({ me, onDone, onError }: { me: Me; onDone: () => void; onError: (m: string) => void }) {
+  const [country, setCountry] = useState<Country | null>(me.consented ? me.country : null);
+  const [adult, setAdult] = useState(false);
+
+  async function agree() {
+    if (country === null) return onError("先选一下你在哪个国家");
+    try {
+      await putMe(country, adult, me.privacy.version);
+      onDone();
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  }
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.question}>开始之前，看一下数据怎么用</Text>
+      <Text style={styles.privacy}>{me.privacy.text}</Text>
+      <Text style={styles.label}>你现在在哪个国家？（遇到危险时显示当地的求助电话）</Text>
+      <View style={styles.choices}>
+        {COUNTRIES.map(([code, name]) => (
+          <Pressable key={name} onPress={() => setCountry(code)} accessibilityRole="radio"
+            accessibilityState={{ checked: country === code }}
+            style={[styles.choice, country === code && styles.chosen]}>
+            <Text style={country === code ? styles.chosenText : undefined}>{name}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Pressable onPress={() => setAdult(!adult)} accessibilityRole="checkbox" accessibilityState={{ checked: adult }}
+        style={[styles.choice, adult && styles.chosen]}>
+        <Text style={adult ? styles.chosenText : undefined}>{adult ? "✓ " : ""}我已经年满 18 岁</Text>
+      </Pressable>
+      <Button label="同意，开始" onPress={agree} />
+    </View>
   );
 }
 
@@ -169,4 +222,10 @@ const styles = StyleSheet.create({
   crisis: { padding: 16, lineHeight: 22 },
   button: { backgroundColor: "#1a73e8", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
   buttonText: { color: "#fff", fontSize: 16 },
+  privacy: { lineHeight: 22, color: "#3c4043" },
+  choices: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  choice: { borderWidth: 1, borderColor: "#dadce0", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12,
+    alignSelf: "flex-start" },
+  chosen: { backgroundColor: "#1a73e8", borderColor: "#1a73e8" },
+  chosenText: { color: "#fff" },
 });

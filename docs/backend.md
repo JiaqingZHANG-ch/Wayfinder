@@ -133,4 +133,18 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ④ `uv run python -m server.migrate_pg var/app.db <你的 uuid> > var/migrate.sql`，用 psql 导入，挑一天对一下数据。
 - ⑤ 挑一条 `model_calls` 记录，用 `replay(记录)` 当模型重跑一次（`tests/test_api.py` 的 `test_every_model_call_is_recorded_and_can_be_replayed` 是样子），结果一样。
 
+## 第 8 周：隐私（同意、导出、删除、按国家的热线）
+
+- 第一次打开先看隐私说明（`src/server/privacy.py`，改了内容就把版本号加 1），选国家、勾成年，点「同意，开始」才进建档；没同意，`POST /onboarding` 回 409。接口：`GET /me`、`PUT /me`。
+- 危机提示按国家显示热线：中国 12356、法国 3114（2026-11-14 核实过）；别的国家或没填就两边都列。号码在 `src/mentor/safety.py` 的 `HOTLINES`。
+- 首页「我的数据 →」：换国家、导出（`GET /export`，网页版下载 JSON，手机上走系统分享）、删除（`DELETE /me?confirm=true`，删完回到同意页）。
+- 导出和删除覆盖数据库里的每张表（`db.USER_TABLES`）。已经写进 Google 日历的计划、`var/google/` 里的授权令牌不在删除范围里，页面上说明了。
+- 「是否成年」现在只记下来，不拦人。未成年能不能用、要不要监护人同意，需要你定。
+
+留给你的循环：
+- ① 填 `docs/data-inventory.md` 的数据清单，确认没有字段在存焦虑、家庭、回避的话题。
+- ② 自己导出一次，再删除一次，用 `/docs` 或 SQLite 查库，确认查不到。
+- ③ 用两周的真实数据看一次复盘，自己提一个想改的参数（比如 `review.py` 的 `PATTERN_DAYS`），改完测试全绿。
+- ④ 列一张表：Ollama 连不上、超时、格式错、命中禁用词、危机词、Google 日历授权失效，各走哪条路，每一行对上一个测试的名字。
+
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。

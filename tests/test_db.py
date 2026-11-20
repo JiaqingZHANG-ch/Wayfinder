@@ -122,3 +122,13 @@ def test_loop6_stalest_profile(db):
     assert db.stalest_profile(1, DAY)["id"] == a
     assert db.stalest_profile(1, date(2026, 10, 10)) is None  # 都不到 14 天
     assert db.stalest_profile(2, DAY) is None
+
+def test_export_and_delete_cover_every_table(tmp_path):
+    import sqlite3
+    from contextlib import closing
+
+    from server.db import USER_TABLES
+    Db(tmp_path / "x.db")
+    with closing(sqlite3.connect(tmp_path / "x.db")) as c:
+        tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert tables == set(USER_TABLES)  # 加了新表要加进 USER_TABLES，导出和删除才带得上

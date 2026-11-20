@@ -13,6 +13,7 @@ def full_db(path):
     db = Db(path)
     for u in (1, 2):
         db.ensure_user(u)
+        db.consent(u, "隐私", "隐私说明-v1")
         db.set_plan_input(u, {"wake": "07:00"})
         db.add_plan(u, DAY, {"blocks": []}, 3)
         db.save_log(u, {"date": "2026-11-20", "energy_after_class": 3, "items": {}, "blocker": "", "note": "it's ok",

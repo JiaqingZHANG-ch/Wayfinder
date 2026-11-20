@@ -12,6 +12,20 @@ CRISIS_MESSAGE: str = (
     "今天的带练先停在这里。等你觉得可以了，点下面的「继续」。"
 )
 
+# 按国家显示的热线（第 8 周）。只放核实过的号码；国家没填或不在表里，就把两边都列出来（上面那段）。
+HOTLINES: dict[str, str] = {
+    "CN": "· 拨打 12356 心理援助热线；有紧急危险拨 120 或 110\n",
+    "FR": "· 拨打 3114（预防自杀热线，全天免费）；有紧急危险拨 112\n",
+}
+
+
+def crisis_message(country: str) -> str:
+    if country not in HOTLINES:
+        return CRISIS_MESSAGE
+    head, sep, rest = CRISIS_MESSAGE.partition("请现在联系能帮到你的人：\n")
+    return head + sep + HOTLINES[country] + rest[rest.index("· 也请"):]
+
+
 # 只有这几种身体或场面上的夸张说法（热得想死）不算；「难受得想死」「我觉得想死」都算。
 # 单个「死」字（累死了）不算；「不想活动」不是「不想活」。宁可多拦：误拦只需点一次「继续」。
 # shortcut: 只认简体中文的明确说法，含蓄表达、繁体和外语靠模型返回的 crisis 标记兜底；有实例再扩词表

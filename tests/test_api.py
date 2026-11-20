@@ -9,6 +9,7 @@ from mentor.onboarding import QUESTIONS
 from mentor.safety import CRISIS_MESSAGE
 from server.api import DEFAULT_TEMPLATE, create_app
 from server.db import Db
+from server.privacy import PRIVACY_VERSION
 
 TEMPLATE = json.loads(DEFAULT_TEMPLATE.read_text(encoding="utf-8"))  # 假用户「学生」：上下午各一节课
 
@@ -220,7 +221,9 @@ SETTINGS = {"wake": "07:30", "sleep": "23:30",
 @pytest.fixture
 def new_user(tmp_path):
     db, model = Db(tmp_path / "new.db"), FakeModel()
-    return TestClient(create_app(db, model, now=at("09:00"))), db, model
+    client = TestClient(create_app(db, model, now=at("09:00")))
+    client.put("/me", json={"country": "", "is_adult": True, "consent": PRIVACY_VERSION})
+    return client, db, model
 
 
 def test_new_user_goes_from_onboarding_to_first_plan(new_user):
@@ -406,3 +409,47 @@ def test_every_model_call_is_recorded_and_can_be_replayed(setup):
     items = _items(db.latest_plan(1, date(2026, 11, 20))["plan"])
     again = parse_sentence(replay(calls[0]), "今天看书感觉不错", date(2026, 11, 20), items)
     assert again == ("ok", first["saved"])
+
+
+def test_onboarding_needs_consent_first(tmp_path):
+    client = TestClient(create_app(Db(tmp_path / "a.db"), FakeModel(), now=at("09:00")))
+    me = client.get("/me").json()
+    assert not me["consented"] and me["privacy"]["version"] == PRIVACY_VERSION and "删除" in me["privacy"]["text"]
+    assert client.post("/onboarding", json={}).status_code == 409
+    assert client.put("/me", json={"country": "DE", "is_adult": True, "consent": PRIVACY_VERSION}).status_code == 422
+    assert client.put("/me", json={"country": "FR", "is_adult": True, "consent": "隐私说明-v0"}).status_code == 409
+    me = client.put("/me", json={"country": "FR", "is_adult": True, "consent": PRIVACY_VERSION}).json()
+    assert me["consented"] and me["country"] == "FR" and me["is_adult"] is True
+    assert client.post("/onboarding", json={}).json()["question"] == QUESTIONS[0]
+
+
+def test_hotline_follows_country(new_user):
+    client = new_user[0]
+    client.put("/me", json={"country": "FR", "is_adult": True, "consent": PRIVACY_VERSION})
+    msg = client.post("/onboarding", json={"answer": "我不想活了"}).json()["message"]
+    assert "3114" in msg and "12356" not in msg
+    client.put("/me", json={"country": "CN", "is_adult": True, "consent": PRIVACY_VERSION})
+    msg = client.post("/onboarding", json={"answer": "我不想活了"}).json()["message"]
+    assert "12356" in msg and "3114" not in msg
+
+
+def test_export_has_everything_and_delete_removes_it(setup):
+    from server.db import USER_TABLES
+    client, db, model = setup
+    seed_week(db)
+    model.replies.append(REVIEW)
+    client.post("/review", json={})
+    client.post("/checkin", json={"result": {"note": "今天读得很顺", "items": {"reading": {"status": "done"}}}})
+    db.propose_profile(1, "方向", "想做产品", "建档")
+    client.post("/checkin", json={"sentence": "我想死"})
+    db.consent(1, "隐私", PRIVACY_VERSION)
+    tables = client.get("/export").json()["tables"]
+    assert set(tables) == set(USER_TABLES) and all(tables[t] for t in USER_TABLES), \
+        [t for t in USER_TABLES if not tables[t]]  # 每张表都有东西，导出也都带上了
+    assert tables["settings"][0]["plan_input"]["habits"]  # JSON 列已经解开
+    assert client.delete("/me").status_code == 422  # 不带 confirm 不删
+    assert client.delete("/me", params={"confirm": "true"}).json() == {"deleted": True}
+    after = db.export(1)
+    assert len(after["users"]) == 1 and after["users"][0]["country"] == ""  # 换成全新的空用户
+    assert all(after[t] == [] for t in USER_TABLES if t != "users")
+    assert client.get("/today").status_code == 409  # 从建档开始
