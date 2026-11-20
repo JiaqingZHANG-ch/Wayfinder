@@ -66,7 +66,9 @@ def schema_for(items: dict[str, Item]) -> dict:
             props["vs_plan"] = {"enum": list(VS_PLAN)}
         return {"type": "object", "properties": props, "required": ["status"]}
 
-    return {"type": "object", "required": ["items", "note"], "properties": {
+    # 除 crisis 外都必填：2026-11-20 实测 qwen3:14b 遇到选填字段时，会把用户明说的「电量3」省掉
+    return {"type": "object", "required": ["energy_after_class", "items", "blocker", "note", "tomorrow_task",
+                                           "yesterday_done"], "properties": {
         "energy_after_class": {"type": ["integer", "null"], "minimum": 1, "maximum": 5},
         "items": {"type": "object", "properties": {k: entry(v) for k, v in items.items()},
                   "additionalProperties": False},
