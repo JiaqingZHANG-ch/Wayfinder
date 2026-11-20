@@ -27,7 +27,15 @@ export type Plan = {
   calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
 };
 
-export type Week = { start: string; end: string; logged_days: number; review?: "due" | "today" | null };
+/** 近 7 天：每个习惯做了几天（含保底）；每个项目几天比预想少 / 差不多 / 多。 */
+export type Week = {
+  start: string;
+  end: string;
+  logged_days: number;
+  habits: { id: string; title: string; done_days: number }[];
+  projects: { id: string; title: string; less: number; same: number; more: number }[];
+  review?: "due" | "today" | null;
+};
 
 /** 复盘里的一条调整：answer 是 null（还没点）、"好" 或 "先不改"。 */
 export type Adjustment = {

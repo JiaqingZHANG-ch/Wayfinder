@@ -10,6 +10,7 @@ const light = {
   card: "#FFFDF9",
   sunken: "#F3ECE2", // 输入框、未选中的块
   line: "#E8DFD3",
+  edge: "rgba(0, 0, 0, 0)", // 卡片边：浅色靠投影，不画边
   text: "#2E2A26", // 13.2:1
   muted: "#6E655C", // 5.3:1
   primary: "#B4573A", // 陶土色；上面的白字 4.8:1
@@ -17,6 +18,10 @@ const light = {
   soft: "#F6E3D9", // 选中的柔和底
   onSoft: "#8A3F27", // 6.0:1
   danger: "#A63A32", // 6.0:1
+  ok: "#4F7A55", // 完成的绿；白字 4.9:1
+  onWarm: "#2E2A26", // 琥珀色（kind.flex）上的字 6.3:1
+  overlay: "rgba(46, 42, 38, 0.36)", // 底部面板后面的遮罩
+  shadow: "0 8px 24px rgba(90, 58, 40, 0.10), 0 1px 3px rgba(90, 58, 40, 0.06)",
   // 计划里每类事情的颜色：课、习惯、项目、可选、生活
   kind: { class: "#A39A8F", must: "#6F8F72", proj: "#5B7A99", flex: "#D9A441", life: "#C4B8AA" },
 };
@@ -26,6 +31,7 @@ const dark: typeof light = {
   card: "#26221E",
   sunken: "#302A25",
   line: "#3D3631",
+  edge: "#3D3631", // 深色里投影看不见，用一条细边
   text: "#F2ECE4", // 14.9:1
   muted: "#B3A99E", // 6.8:1
   primary: "#E3906F", // 上面用深色字 7.1:1
@@ -33,13 +39,26 @@ const dark: typeof light = {
   soft: "#4A3027",
   onSoft: "#F3C9B6", // 7.9:1
   danger: "#F0918A", // 6.9:1
+  ok: "#8DBE93", // 上面用 onPrimary（深色字）8.3:1
+  onWarm: "#1C1916",
+  overlay: "rgba(0, 0, 0, 0.55)",
+  shadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
   kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
 };
 
 export type Colors = typeof light;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
-export const radius = { sm: 10, md: 16, lg: 24, pill: 999 } as const;
+export const radius = { sm: 10, md: 16, lg: 24, xl: 32, pill: 999 } as const;
+
+// 动效：按 Apple HIG 的弹簧手感（不回弹过头），时长 150–400ms；系统开了「减少动态效果」时 reanimated 自动跳过
+export const motion = {
+  fast: 160,
+  base: 260,
+  slow: 420,
+  press: { damping: 20, stiffness: 400, mass: 0.6 }, // 按下缩放
+  sheet: { damping: 24, stiffness: 260, mass: 0.9 }, // 面板滑入
+} as const;
 
 // 只用系统字体（不打包十几 MB 的中文字体）：手机上不填 = 系统字体，网页给一串回退
 const fontFamily = Platform.select({
@@ -59,3 +78,6 @@ export const type = {
 export function useColors(): Colors {
   return useColorScheme() === "dark" ? dark : light;
 }
+
+/** 底部标签栏占的高度（不含安全区）：标签页底部要留出这么多空，内容才不被挡住。 */
+export const TAB_SPACE = 96;
