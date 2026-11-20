@@ -10,13 +10,14 @@ from typing import Literal
 
 from .model import ModelError, ModelPort
 from .safety import model_output_is_crisis
-from .tone import FALLBACK, RULES, banned_hits
+from .tone import RULES, banned_hits
 
 QUESTIONS = (
     "最近一次觉得「这样过就对了」，是哪一天、在做什么？",
     "接下来三个月，你最想多花时间在哪一件事上？",
 )
 MAX_DIRECTION = 40  # 方向只写一句话
+FALLBACK = "这句话我记下了。"  # 模型没答好时的回应；对账用的「今天记下了」放在建档里不顺
 
 
 def build_messages(question: str, answer: str, confirmed: list[dict],

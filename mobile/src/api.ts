@@ -26,17 +26,54 @@ export type Week = { start: string; end: string; logged_days: number };
 
 export type CheckinItem = { id: string; title: string; project: boolean };
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(API_URL + path);
-  const body = await res.json();
-  if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`);
-  return body as T;
+export type Profile = { id: number; level: string; content: string; confirmed_at: string | null };
+
+export type Crisis = { crisis: true; message: string };
+
+export type OnboardingTurn =
+  | Crisis
+  | { crisis: false; done: boolean; reply: string | null; question: string | null; proposals?: Profile[] };
+
+export type Energy = "love" | "recharge" | "drain";
+export type Settings = {
+  wake: string;
+  sleep: string;
+  habits: { title: string; minutes: number; floor_min: number; energy: Energy | null }[];
+};
+
+/** 后端回了错误：status 是 HTTP 状态码（比如 409 = 还没建档），message 是给人看的话。 */
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
 }
 
-export const getToday = () => getJson<Plan>("/today");
-export const getWeek = () => getJson<Week>("/week");
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(API_URL + path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    // 422 的 detail 可能是字段错误的列表，取第一条的 msg
+    const detail = typeof data.detail === "string" ? data.detail : data.detail?.[0]?.msg;
+    throw new ApiError(res.status, detail ?? `HTTP ${res.status}`);
+  }
+  return data as T;
+}
 
-// 循环 ④：在这里写 postCheckin(body)，用 fetch 发 POST /checkin（method、headers、body 照 /docs 里的写）
+export const getToday = () => send<Plan>("GET", "/today");
+export const getWeek = () => send<Week>("GET", "/week");
+export const getSettings = () => send<Settings>("GET", "/settings");
+export const putSettings = (s: Settings) => send<Settings | Crisis>("PUT", "/settings", s);
+export const postOnboarding = (answer?: string) => send<OnboardingTurn>("POST", "/onboarding", { answer });
+export const confirmProfile = (id: number, content?: string) =>
+  send<{ confirmed: Profile[]; pending: Profile[] } | Crisis>("POST", "/profile/confirm", { id, content });
+export const postEnergy = (level: number) => send<Plan | Crisis>("POST", "/energy", { level });
+export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
+
+// 第 3 周循环 ④：在这里写 postCheckin(body)，照上面几行的样子调 send
 
 /** 今晚要对账的事项：习惯和可选项按块 id，项目按任务 id 只算一次。和后端 api.py 的 _items 一致。 */
 export function checkinItems(plan: Plan): CheckinItem[] {
@@ -47,3 +84,5 @@ export function checkinItems(plan: Plan): CheckinItem[] {
   }
   return [...items.values()];
 }
+
+export const isCrisis = (x: object): x is Crisis => "crisis" in x && x.crisis === true;

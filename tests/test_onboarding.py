@@ -3,8 +3,8 @@ import json
 import pytest
 
 from mentor.model import FakeModel
-from mentor.onboarding import QUESTIONS, build_messages, run_round
-from mentor.tone import FALLBACK, RULES
+from mentor.onboarding import FALLBACK, QUESTIONS, build_messages, run_round
+from mentor.tone import RULES, banned_hits
 
 CONFIRMED = [{"level": "方向", "content": "把法语练到能面试"}]
 
@@ -51,3 +51,7 @@ def test_model_trouble_falls_back_to_users_own_words(replies):
 @pytest.mark.parametrize("raw", ['{"crisis": true}', '{"reply": "你说你不想活了"}'])
 def test_crisis_in_model_output(raw):
     assert run_round(FakeModel([raw]), QUESTIONS[0], "随便", []) == ("crisis", None)
+
+
+def test_fallback_is_clean():
+    assert banned_hits(FALLBACK) == []

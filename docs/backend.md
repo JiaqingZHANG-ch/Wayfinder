@@ -1,4 +1,4 @@
-# 合并版 App 后端（第 2 周）
+# Wayfinder 开发说明（第 2 周起）
 
 ## 启动
 
@@ -9,7 +9,7 @@
 然后用浏览器打开 http://127.0.0.1:8000/docs ，每个接口都能点「Try it out」试。
 
 - 数据库：`var/app.db`（不进 git）。想从头来，停掉服务后删掉它。
-- 第 4 周做建档之前，第一次启动会拿 daily-planner 的假用户「学生」当设置。换成别的：先设 `$env:PLAN_TEMPLATE = '某个输入文件.json'`。
+- 新数据库从建档开始。想跳过建档、直接用一份现成设置：先设 `$env:PLAN_TEMPLATE = '..\daily-planner\examples\users\学生.json'`（或别的求解器输入文件）。
 
 ## 换模型（循环 ⑥）
 
@@ -56,5 +56,25 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ④ `api.ts` 里写 `postCheckin`，接上「记好了」按钮，把返回的 `closing` 显示出来；然后在 `/docs` 或数据库里查到这一条。
 
 改完跑 `cd mobile; npx tsc --noEmit; npx expo lint`，两个都没报错再贴 diff。
+
+## 第 4 周：建档、设置、报电量后重排
+
+新数据库打开网页版会先跳到建档：两问方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯 → 第一张计划。首页的「下课了，报电量」进重排页。
+
+| 文件 | 做什么 |
+|---|---|
+| `src/mentor/onboarding.py` | 建档的问题、每轮发给模型的内容 `build_messages`、一轮的处理 `run_round` |
+| `src/server/settings.py` | 设置表单 ↔ 求解器输入；能量地图 热爱 0／累但回血 0.5／擅长但耗能 1 |
+| `src/server/db.py` | 新增 `profiles`：模型只提议，确认了才算 |
+| `mobile/src/app/onboarding.tsx` | 建档页（对话 + 确认方向 + React Hook Form 表单） |
+| `mobile/src/app/energy.tsx` | 报电量 → 只重排今晚 → 「就这样」确认 |
+
+留给你的循环：
+- ① 加「设置」页（`mobile/src/app/settings.tsx`）并从首页能跳过去；内容可以先用 `getSettings()` 读出来显示。
+- ② 在 `onboarding.tsx` 的表单里加能量地图三选一（搜「循环 ②」），提交后用 `/docs` 的 `GET /settings` 看 `energy` 对了。
+- ③ 画「点击 → 接口 → 求解器 → 数据库 → 页面」，在 `api.py` 的某个接口里加一行 `print`，终端能看到。
+- ④ 报一次「电量 2」。注意：晚上只剩保底版要等第 1 周循环 4（C26 保底版），你先写测试，AI 再实现。
+- ⑤ 在 Python 里打印一轮 `build_messages(...)` 的结果，逐段说出每段为什么在里面。
+- ⑥ 在 `db.py` 的 `stalest_profile` 写查询，删掉 `tests/test_db.py` 里 `test_loop6_stalest_profile` 的 skip，变绿。
 
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。
