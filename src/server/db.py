@@ -1,0 +1,162 @@
+"""合并版 App 的数据库（合并版设计 七）。每张表都带 user_id；第 7 周整体搬到 Supabase 的 Postgres。
+
+写法尽量两边通用：JSON 先存成 TEXT（Postgres 里换 jsonb），自增 id 用 SQLite 的 INTEGER PRIMARY KEY
+（Postgres 里换 bigint generated always as identity）。每个方法各自开关连接。
+"""
+import json
+import sqlite3
+from contextlib import closing
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from mentor.tone import quote_is_verbatim
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '', lang TEXT NOT NULL DEFAULT 'zh',
+    timezone TEXT NOT NULL DEFAULT 'Europe/Paris', country TEXT NOT NULL DEFAULT '',
+    is_adult INTEGER, created_at TEXT NOT NULL);
+-- shortcut: 第 2 周把整份求解器输入（daily-planner 的 JSON 格式）存在一格里；第 4 周做设置页时拆成 settings/habits/tasks
+CREATE TABLE IF NOT EXISTS settings (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, plan_input TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS day_plans (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL, version INTEGER NOT NULL, plan TEXT NOT NULL, energy_level INTEGER,
+    confirmed_at TEXT, in_calendar INTEGER NOT NULL DEFAULT 0, UNIQUE (user_id, day, version));
+CREATE TABLE IF NOT EXISTS day_logs (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL,
+    energy_after_class INTEGER, items TEXT NOT NULL, blocker TEXT NOT NULL, note TEXT NOT NULL,
+    tomorrow_task TEXT NOT NULL, yesterday_done INTEGER, PRIMARY KEY (user_id, day));
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL, mode TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_quotes (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    text TEXT NOT NULL, used_in TEXT NOT NULL, day TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS crisis_events (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
+"""
+
+QUOTE_USES = ("档案", "对账", "复盘", "回信")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class Db:
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._run(lambda c: c.executescript(SCHEMA))
+
+    def _run(self, fn):
+        with closing(sqlite3.connect(self._path)) as conn, conn:  # 内层 with 负责提交或回滚
+            conn.execute("PRAGMA foreign_keys = ON")
+            return fn(conn)
+
+    # 用户和设置
+    def ensure_user(self, user_id: int, *, timezone_name: str = "Europe/Paris") -> None:
+        self._run(lambda c: c.execute(
+            "INSERT OR IGNORE INTO users (id, timezone, created_at) VALUES (?, ?, ?)",
+            (user_id, timezone_name, _now())))
+
+    def user_timezone(self, user_id: int) -> str:
+        return self._run(lambda c: c.execute("SELECT timezone FROM users WHERE id = ?", (user_id,)).fetchone())[0]
+
+    def plan_input(self, user_id: int) -> dict | None:
+        row = self._run(lambda c: c.execute("SELECT plan_input FROM settings WHERE user_id = ?", (user_id,)).fetchone())
+        return None if row is None else json.loads(row[0])
+
+    def set_plan_input(self, user_id: int, raw: dict) -> None:
+        self._run(lambda c: c.execute(
+            "INSERT INTO settings (user_id, plan_input) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET plan_input = excluded.plan_input",
+            (user_id, json.dumps(raw, ensure_ascii=False))))
+
+    # 计划：每次重排加一个新版本，旧版本留着
+    def add_plan(self, user_id: int, day: date, plan: dict, energy_level: int | None) -> int:
+        def go(c):
+            (latest,) = c.execute("SELECT COALESCE(MAX(version), 0) FROM day_plans WHERE user_id = ? AND day = ?",
+                                  (user_id, day.isoformat())).fetchone()
+            c.execute("INSERT INTO day_plans (user_id, day, version, plan, energy_level) VALUES (?, ?, ?, ?, ?)",
+                      (user_id, day.isoformat(), latest + 1, json.dumps(plan, ensure_ascii=False), energy_level))
+            return latest + 1
+        return self._run(go)
+
+    def latest_plan(self, user_id: int, day: date) -> dict | None:
+        """最新一版：{version, plan, energy_level, confirmed_at}；这天还没有计划就是 None。"""
+        row = self._run(lambda c: c.execute(
+            "SELECT version, plan, energy_level, confirmed_at FROM day_plans WHERE user_id = ? AND day = ? "
+            "ORDER BY version DESC LIMIT 1", (user_id, day.isoformat())).fetchone())
+        if row is None:
+            return None
+        version, plan, energy, confirmed = row
+        return {"version": version, "plan": json.loads(plan), "energy_level": energy, "confirmed_at": confirmed}
+
+    def confirm_plan(self, user_id: int, day: date, version: int) -> bool:
+        cur = self._run(lambda c: c.execute(
+            "UPDATE day_plans SET confirmed_at = ? WHERE user_id = ? AND day = ? AND version = ?",
+            (_now(), user_id, day.isoformat(), version)))
+        return cur.rowcount == 1
+
+    # 对账
+    def save_log(self, user_id: int, result: dict) -> None:
+        """result 是 mentor.checkin.validate_checkin 校验过的格式。同一天再记一次就覆盖。"""
+        done = result["yesterday_done"]
+        self._run(lambda c: c.execute(
+            "INSERT OR REPLACE INTO day_logs (user_id, day, energy_after_class, items, blocker, note, "
+            "tomorrow_task, yesterday_done) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, result["date"], result["energy_after_class"], json.dumps(result["items"], ensure_ascii=False),
+             result["blocker"], result["note"], result["tomorrow_task"], None if done is None else int(done))))
+
+    def logs_between(self, user_id: int, start: date, end: date) -> list[dict]:
+        rows = self._run(lambda c: c.execute(
+            "SELECT day, energy_after_class, items, blocker, note, tomorrow_task, yesterday_done FROM day_logs "
+            "WHERE user_id = ? AND day BETWEEN ? AND ? ORDER BY day",
+            (user_id, start.isoformat(), end.isoformat())).fetchall())
+        return [{"date": d, "energy_after_class": e, "items": json.loads(i), "blocker": b, "note": n,
+                 "tomorrow_task": t, "yesterday_done": None if y is None else bool(y)}
+                for d, e, i, b, n, t, y in rows]
+
+    def days_with_note(self, user_id: int, start: date, end: date) -> list[str]:
+        """这段时间里哪几天写了一句话（note 不是空的），按日期排好。"""
+        raise NotImplementedError("循环 ③：家庆来写这条 SQL 查询")
+
+    # 对话和原话
+    def add_message(self, user_id: int, day: date, mode: str, role: str, content: str) -> int:
+        cur = self._run(lambda c: c.execute(
+            "INSERT INTO messages (user_id, day, mode, role, content) VALUES (?, ?, ?, ?, ?)",
+            (user_id, day.isoformat(), mode, role, content)))
+        return cur.lastrowid
+
+    def add_quote(self, user_id: int, message_id: int, text: str, used_in: str, day: date) -> int:
+        """记一条用户原话。必须是这个用户、这条消息内容里一字不差的连续片段，否则抛 ValueError。"""
+        if used_in not in QUOTE_USES:
+            raise ValueError(f"used_in 只能是 {'/'.join(QUOTE_USES)}")
+
+        def go(c):
+            row = c.execute("SELECT content FROM messages WHERE id = ? AND user_id = ? AND role = 'user'",
+                            (message_id, user_id)).fetchone()
+            if row is None or not quote_is_verbatim(text, row[0]):
+                raise ValueError("这句话不是该用户在这条消息里的原话")
+            return c.execute("INSERT INTO user_quotes (user_id, message_id, text, used_in, day) VALUES (?, ?, ?, ?, ?)",
+                             (user_id, message_id, text, used_in, day.isoformat())).lastrowid
+        return self._run(go)
+
+    def quotes(self, user_id: int) -> list[dict]:
+        rows = self._run(lambda c: c.execute(
+            "SELECT message_id, text, used_in, day FROM user_quotes WHERE user_id = ? ORDER BY id",
+            (user_id,)).fetchall())
+        return [{"message_id": m, "text": t, "used_in": u, "day": d} for m, t, u, d in rows]
+
+    # 危机
+    def log_crisis(self, user_id: int, day: date, text: str) -> None:
+        self._run(lambda c: c.execute("INSERT INTO crisis_events (user_id, day, text) VALUES (?, ?, ?)",
+                                      (user_id, day.isoformat(), text)))
+
+    def crisis_count(self, user_id: int) -> int:
+        return self._run(lambda c: c.execute(
+            "SELECT COUNT(*) FROM crisis_events WHERE user_id = ?", (user_id,)).fetchone())[0]

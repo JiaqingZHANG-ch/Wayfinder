@@ -1,0 +1,84 @@
+from datetime import date
+
+import pytest
+
+from server.db import Db
+
+DAY = date(2026, 11, 20)
+
+
+def log(day: str, note: str = "", items=None) -> dict:
+    return {"date": day, "energy_after_class": 3, "items": items or {"english": {"status": "done"}},
+            "blocker": "", "note": note, "tomorrow_task": "", "yesterday_done": None}
+
+
+@pytest.fixture
+def db(tmp_path):
+    d = Db(tmp_path / "app.db")
+    d.ensure_user(1)
+    d.ensure_user(2)
+    return d
+
+
+def test_settings_round_trip_and_users_apart(db):
+    db.set_plan_input(1, {"day": "2026-11-20", "habits": [{"id": "english", "title": "英语"}]})
+    db.set_plan_input(1, {"day": "2026-11-21"})
+    assert db.plan_input(1) == {"day": "2026-11-21"}
+    assert db.plan_input(2) is None
+    assert db.user_timezone(1) == "Europe/Paris"
+
+
+def test_plans_get_versions_and_confirm(db):
+    assert db.latest_plan(1, DAY) is None
+    assert db.add_plan(1, DAY, {"blocks": []}, None) == 1
+    assert db.add_plan(1, DAY, {"blocks": [1]}, 2) == 2
+    assert db.add_plan(2, DAY, {"blocks": []}, None) == 1  # 别人的版本号各算各的
+    latest = db.latest_plan(1, DAY)
+    assert latest["version"] == 2 and latest["plan"] == {"blocks": [1]} and latest["energy_level"] == 2
+    assert latest["confirmed_at"] is None
+    assert db.confirm_plan(1, DAY, 2)
+    assert db.latest_plan(1, DAY)["confirmed_at"] is not None
+    assert not db.confirm_plan(1, DAY, 9)
+    assert not db.confirm_plan(2, DAY, 2)
+
+
+def test_logs_overwrite_same_day_and_stay_per_user(db):
+    db.save_log(1, log("2026-11-19"))
+    db.save_log(1, log("2026-11-20"))
+    db.save_log(1, log("2026-11-20", note="第二次"))
+    db.save_log(2, log("2026-11-20", note="别人的"))
+    got = db.logs_between(1, date(2026, 11, 14), DAY)
+    assert [g["date"] for g in got] == ["2026-11-19", "2026-11-20"]
+    assert got[1]["note"] == "第二次" and got[1]["items"] == {"english": {"status": "done"}}
+
+
+def test_quotes_must_be_verbatim_from_that_users_message(db):
+    mid = db.add_message(1, DAY, "对账", "user", "英语完成，今天读得很顺。")
+    db.add_quote(1, mid, "今天读得很顺", "对账", DAY)
+    assert db.quotes(1) == [{"message_id": mid, "text": "今天读得很顺", "used_in": "对账", "day": "2026-11-20"}]
+    with pytest.raises(ValueError):
+        db.add_quote(1, mid, "今天读得挺顺", "对账", DAY)  # 改了字
+    with pytest.raises(ValueError):
+        db.add_quote(2, mid, "今天读得很顺", "对账", DAY)  # 不是自己的消息
+    reply = db.add_message(1, DAY, "对账", "assistant", "今天读得很顺")
+    with pytest.raises(ValueError):
+        db.add_quote(1, reply, "今天读得很顺", "对账", DAY)  # 导师说的话不算用户原话
+    with pytest.raises(ValueError):
+        db.add_quote(1, mid, "今天读得很顺", "闲聊", DAY)
+    assert len(db.quotes(1)) == 1 and db.quotes(2) == []
+
+
+def test_crisis_logged_per_user(db):
+    db.log_crisis(1, DAY, "……")
+    assert db.crisis_count(1) == 1 and db.crisis_count(2) == 0
+
+
+# 循环 ③：在 db.py 的 days_with_note 里写一条 SELECT，然后删掉下面这行 skip，跑到变绿
+@pytest.mark.skip(reason="循环 ③：等家庆写 days_with_note 的查询")
+def test_loop3_days_with_note(db):
+    db.save_log(1, log("2026-11-18", note="今天读得很顺"))
+    db.save_log(1, log("2026-11-19"))
+    db.save_log(1, log("2026-11-20", note="有点累"))
+    db.save_log(2, log("2026-11-20", note="别人的"))
+    assert db.days_with_note(1, date(2026, 11, 14), DAY) == ["2026-11-18", "2026-11-20"]
+    assert db.days_with_note(1, date(2026, 11, 19), date(2026, 11, 19)) == []
