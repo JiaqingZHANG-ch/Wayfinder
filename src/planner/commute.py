@@ -1,12 +1,10 @@
-"""挑去学校和回家的班次。"""
+"""挑去学校和回家的班次；没给班次表就按单程路上时间估。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from .errors import PlanInfeasible
 from .model import BusToCampus, BusToHome, PlanInput, to_hhmm
-
-ARRIVE_BEFORE_MIN = 10  # 在 Campus 2 下车后走到教室（用户 11-19：约 10 分钟）
 
 
 @dataclass
@@ -23,11 +21,17 @@ def pick_commute(inp: PlanInput) -> Commute:
         return Commute(None, None, None, None)
     start = min(e.start for e in campus)
     end = max(e.end for e in campus)
+    r = inp.rules
 
-    outs = [b for b in inp.bus_to_campus if b.arrive_campus <= start - ARRIVE_BEFORE_MIN]
+    if not inp.bus_to_campus and not inp.bus_to_home:  # 没有班次表：按路上时间估
+        arrive, leave = start - r.arrive_before_min, end + r.leave_after_class_min
+        return Commute(BusToCampus(arrive - r.campus_travel_min, arrive),
+                       BusToHome(leave, leave + r.campus_travel_min), start, end)
+
+    outs = [b for b in inp.bus_to_campus if b.arrive_campus <= start - r.arrive_before_min]
     if not outs:
         raise PlanInfeasible(f"没有可坐的去学校班次：{to_hhmm(start)} 的课前赶不到")
-    backs = [b for b in inp.bus_to_home if b.leave_building >= end + inp.rules.leave_after_class_min]
+    backs = [b for b in inp.bus_to_home if b.leave_building >= end + r.leave_after_class_min]
     if not backs:
         raise PlanInfeasible(f"没有可坐的回家班次：{to_hhmm(end)} 下课后没有车")
 

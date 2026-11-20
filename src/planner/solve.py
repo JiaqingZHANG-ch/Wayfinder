@@ -20,7 +20,6 @@ FLEX_WEIGHT = 5
 NEW_BLOCK_PENALTY = 50
 POMODORO_MIN = 30  # 一个番茄：25 分钟专注 + 5 分钟小歇
 FOCUS_MIN = 25
-GYM_ID = "gym"  # 这个 id 的 flex 排上了，当天精力上限加 gym_bonus_min
 ON_BUS_COST = 0.5  # 车上听的习惯只算一半精力
 FOCUS_KINDS = ("class", "exam", "meeting")
 FREE_TITLE = "自由时间：刷视频、看动漫都行"
@@ -65,10 +64,10 @@ class _Movable:
 def _commute_blocks(c: Commute) -> list[Block]:
     out = []
     if c.out:
-        out.append(Block("bus-out", f"去学校：{to_hhmm(c.out.leave_home)} 出门坐 6B，{to_hhmm(c.out.arrive_campus)} 到 Campus 2",
+        out.append(Block("bus-out", f"去学校：{to_hhmm(c.out.leave_home)} 出门，{to_hhmm(c.out.arrive_campus)} 到学校",
                          c.out.leave_home, c.out.arrive_campus, "life"))
     if c.back:
-        out.append(Block("bus-back", f"回家：{to_hhmm(c.back.leave_building)} 出发坐 6A，{to_hhmm(c.back.arrive_home)} 到家",
+        out.append(Block("bus-back", f"回家：{to_hhmm(c.back.leave_building)} 离开教学楼，{to_hhmm(c.back.arrive_home)} 到家",
                          c.back.leave_building, c.back.arrive_home, "life"))
     return out
 
@@ -267,7 +266,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         if not add(Block(h.id, h.title, 0, 0, "must"), h.minutes, h.window_start, h.window_end, True, h.where == "home", True):
             return None
 
-    # 人在学校的时段：到 Campus 2 到离开教学楼。
+    # 人在学校的时段：到学校到离开教学楼。
     away = away_spans[0] if c.out and c.back else None
     campus = (c.out.arrive_campus, c.back.leave_building) if c.out and c.back else None
     cap = day_capacity(inp, c)
@@ -360,7 +359,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         busy.append(m.NewOptionalIntervalVar(s, f.minutes, s + f.minutes, p, f"{f.id}-iv"))
         gapped.append(m.NewOptionalIntervalVar(s, f.minutes + pad, s + f.minutes + pad, p, f"{f.id}-g"))
         objective.append(FLEX_WEIGHT * 1440 * f.minutes * p)
-        if f.id == GYM_ID:
+        if f.id == inp.energy.gym_id:
             gym_p = p
         flex_cost.append(round(100 * cost.get(f.id, 0) * f.minutes) * p)
         d = m.NewConstant(f.minutes)
@@ -427,7 +426,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         b.slot = f"p{i + 1}"
     used = spent / 100 + sum((b.end - b.start) * (task_cost(inp, b.task_id) if b.kind == "proj" else cost.get(b.id, 0))
                              for b in blocks if b.kind in ("proj", "flex"))
-    gym = any(b.id == GYM_ID for b in blocks)
+    gym = any(b.id == inp.energy.gym_id for b in blocks)
     return DayPlan(inp.day, sorted(blocks, key=lambda b: b.start), energy_used=used, energy_cap=energy_cap(inp, gym))
 
 
@@ -510,7 +509,7 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
     # 提前做完的必做和健身也花了精力；没保留在计划里的按标准时长记
     past_cost += sum(h.minutes * cost.get(h.id, cost["habit"]) for h in inp.habits if h.id in done_ids and h.id not in kept_ids)
     past_cost += sum(f.minutes * cost.get(f.id, 0) for f in inp.flex if f.id in done_ids and f.id not in kept_ids)
-    gym_done = GYM_ID in kept_ids or GYM_ID in done_ids
+    gym_done = inp.energy.gym_id in kept_ids or inp.energy.gym_id in done_ids
     en = inp.energy
     past_free = sum(min(b.end, t) - b.start for b in before.blocks if b.id.startswith("free-") and b.start < t)
     free_left = min(max(0, en.min_free_min - past_free), max(0, inp.sleep - cutoff))
@@ -531,6 +530,6 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
     for i, b in enumerate(projects):
         b.slot = f"p{i + 1}"  # shortcut: 上午已有项目块时可能出现 p4，网页只显示 p1–p3；做 API 时再定怎么显示
     blocks = sorted(blocks + free_blocks(inp, blocks), key=lambda b: b.start)
-    gym = any(b.id == GYM_ID for b in blocks)
+    gym = any(b.id == inp.energy.gym_id for b in blocks)
     warnings = after.warnings + [f"来不及排了：{x}" for x in late]
     return DayPlan(inp.day, blocks, warnings, energy_used=after.energy_used + past_cost, energy_cap=energy_cap(inp, gym))

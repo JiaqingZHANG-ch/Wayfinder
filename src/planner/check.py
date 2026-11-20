@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 from .model import PlanInput, to_hhmm
-from .solve import FOCUS_KINDS, FREE_MIN_GAP, GYM_ID, ON_BUS_COST, POMODORO_MIN, DayPlan
+from .solve import FOCUS_KINDS, FREE_MIN_GAP, ON_BUS_COST, POMODORO_MIN, DayPlan
 
-SLEEP_MIN = 8 * 60
 
 
 def _away_spans(plan: DayPlan) -> list[tuple[int, int]]:
@@ -60,8 +59,8 @@ def check_plan(inp: PlanInput, plan: DayPlan) -> list[str]:
     for b in plan.blocks:
         if b.start < inp.wake or b.end > inp.sleep:
             problems.append(f"{b.title}（{to_hhmm(b.start)}–{to_hhmm(b.end)}）超出了起床到睡觉的时间")
-    if inp.wake + 1440 - inp.sleep < SLEEP_MIN:
-        problems.append(f"睡觉 {to_hhmm(inp.sleep)} 到起床 {to_hhmm(inp.wake)} 不足 8 小时")
+    if inp.wake + 1440 - inp.sleep < inp.rules.min_sleep_min:
+        problems.append(f"睡觉 {to_hhmm(inp.sleep)} 到起床 {to_hhmm(inp.wake)} 不足 {inp.rules.min_sleep_min / 60:g} 小时")
     problems += _check_energy(inp, plan)
     return problems
 
@@ -79,7 +78,7 @@ def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
     fixed += sum(h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h.id in on_bus else 1) for h in inp.habits)
     optional = sum((b.end - b.start) * cost.get(b.task_id, cost["project"]) for b in proj)
     optional += sum((b.end - b.start) * cost.get(b.id, 0) for b in plan.blocks if b.kind == "flex")
-    gym = any(b.id == GYM_ID for b in plan.blocks)
+    gym = any(b.id == inp.energy.gym_id for b in plan.blocks)
     cap = e.load * (e.base_min + e.gym_bonus_min * gym)
     if optional > max(0, cap - fixed) + 1e-6:
         problems.append(f"精力超了：项目和健身要 {optional:.0f}，上限 {cap:.0f} 减固定 {fixed:.0f} 只剩 {max(0, cap - fixed):.0f}")

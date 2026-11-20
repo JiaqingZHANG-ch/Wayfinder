@@ -28,7 +28,8 @@ class Energy:
     gym_bonus_min: int = 120
     load: float = 0.8
     periods: list[tuple[int, float]] = field(default_factory=lambda: [(720, 2.0), (1080, 1.5), (1440, 1.0)])  # (结束分钟, 效率)
-    cost: dict[str, float] = field(default_factory=lambda: {"class": 1.0, "project": 1.0, "habit": 1.0, "calligraphy": 0.5})
+    cost: dict[str, float] = field(default_factory=lambda: {"class": 1.0, "project": 1.0, "habit": 1.0})
+    gym_id: str = "gym"  # 这个 id 的 flex 排上了，当天精力上限加 gym_bonus_min
     pomodoro_decay: list[float] = field(default_factory=lambda: [1.0, 0.85, 0.7])  # 长度 = 一块最多几个番茄
     rest_after_focus_min: int = 30
     min_free_min: int = 120
@@ -44,6 +45,9 @@ class Rules:
     light_min_block: int = 30
     getup_min: int = 15  # 起床后先洗漱，不贴着闹钟开工
     other_travel_min: int = 30  # 去「其他地点」的单程估计
+    arrive_before_min: int = 10  # 到站或到校门后走到教室要几分钟：去程要在上课前这么久到
+    campus_travel_min: int = 30  # 没给班次表时，家到学校的单程估计（含步行）
+    min_sleep_min: int = 8 * 60  # 复查用：睡觉到起床至少这么久
 
 
 @dataclass
@@ -158,6 +162,9 @@ def _validate(inp: PlanInput) -> None:
             raise InputError("输入有误：" + msg)
 
     need(inp.wake < inp.sleep, "起床时间要早于睡觉时间")
+    r = inp.rules
+    need(r.arrive_before_min >= 0 and r.campus_travel_min > 0 and r.min_sleep_min > 0,
+         "rules 里 arrive_before_min 不能是负数，campus_travel_min 和 min_sleep_min 要大于 0")
     for e in inp.fixed:
         need(e.where in FIXED_WHERE, f"{e.title} 的 where 只能是 {sorted(FIXED_WHERE)}，现在是 {e.where!r}")
         need(e.kind in KINDS, f"{e.title} 的 kind 只能是 {sorted(KINDS)}，现在是 {e.kind!r}")
