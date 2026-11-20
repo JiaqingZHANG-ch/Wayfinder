@@ -1,6 +1,28 @@
 # Wayfinder 开发说明（第 2 周起）
 
-## 启动
+## 每天用：一键打开
+
+```powershell
+.\wayfinder.ps1
+```
+
+开出三个窗口（本机 Ollama、后端、网页版），网页版起来后自动用浏览器打开 http://localhost:8081 。关掉窗口就停。默认用本机 qwen3:14b（你写的话不出电脑，一句话要等 20–30 秒）；想不用模型先 `$env:MODEL = 'fake'`。
+
+一天怎么用：早上看首页计划 → 下课点「下课了，报电量」（电量 1–2 时晚上的习惯只排保底版）→ 晚上「晚间对账」点按钮或写一句话 → 每周首页出现「每周复盘」时点进去。课表、习惯、项目在首页「设置」里改，保存时会先试排今天，排不出来就不存。
+
+## 底座阶段改成「读懂 + 改一处」的循环（2026-11-20）
+
+为了让你先能天天用，下面这些原来留给你写的地方我先写好了。对应的循环不用再从零写，改成：读懂那几行，然后自己改一处、跑测试看变化。
+
+| 原来的循环 | 现在在哪 | 建议改的一处 |
+|---|---|---|
+| 第 2 周 ③ `days_with_note` | `src/server/db.py` | 把「note 不为空」改成「note 或 blocker 不为空」，看 `tests/test_db.py` 哪条变红 |
+| 第 4 周 ① 设置页 | `mobile/src/app/settings.tsx` | 给课表加一个「这节课在哪个教室」的输入（前后端都要改） |
+| 第 4 周 ② 能量地图 | `mobile/src/app/onboarding.tsx` 的 `EnergyPick` | 把三选一的说明文字改成你自己的说法（`mobile/src/labels.ts`） |
+| 第 4 周 ④ / 第 1 周循环 4（C26 保底版） | `daily-planner/src/planner/solve.py` 的 `_low_energy` | 把 `LOW_ENERGY = 2` 改成 3，看 `tests/test_energy.py` 怎么变 |
+| 第 4 周 ⑥ `stalest_profile` | `src/server/db.py` | 把 14 天改成 7 天，先改测试再改 SQL |
+
+## 启动（开发时只开后端）
 
 ```powershell
 .\serve.ps1
@@ -34,7 +56,7 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 ## 第 2 周留给你的循环
 
 - ② 给 `GET /today` 加一个字段：在 `api.py` 的 `out()` 里加，`/docs` 里看到它。
-- ③ 在 `db.py` 的 `days_with_note` 里写一条 SELECT，删掉 `tests/test_db.py` 里 `test_loop3_days_with_note` 上面的 skip，跑到变绿。
+- ③ ~~在 `db.py` 的 `days_with_note` 里写一条 SELECT~~ 已写好，改成「读懂 + 改一处」（见开头的表）。
 - ⑤ Ollama 和 qwen3:14b 已经装在 U 盘。先另开一个窗口运行 `AI工作空间\工具与运行环境\Ollama-启动.ps1`，再在这里：`$env:MODEL_TEST='ollama'; uv run pytest tests/test_checkin.py -k real`。
 - ⑦ 在 `tests/test_tone.py` 的 `BAD` 里加 3 条坏示范，先红，再去 `tone.py` 的 `BANNED` 补说法，变绿。
 
@@ -70,12 +92,12 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 | `mobile/src/app/energy.tsx` | 报电量 → 只重排今晚 → 「就这样」确认 |
 
 留给你的循环：
-- ① 加「设置」页（`mobile/src/app/settings.tsx`）并从首页能跳过去；内容可以先用 `getSettings()` 读出来显示。
-- ② 在 `onboarding.tsx` 的表单里加能量地图三选一（搜「循环 ②」），提交后用 `/docs` 的 `GET /settings` 看 `energy` 对了。
+- ① ~~加「设置」页~~ 已写好（作息、习惯、每周课表、项目、提醒），改成「读懂 + 改一处」。
+- ② ~~能量地图三选一~~ 已写好，提交后用 `/docs` 的 `GET /settings` 看 `energy` 对了。
 - ③ 画「点击 → 接口 → 求解器 → 数据库 → 页面」，在 `api.py` 的某个接口里加一行 `print`，终端能看到。
-- ④ 报一次「电量 2」。注意：晚上只剩保底版要等第 1 周循环 4（C26 保底版），你先写测试，AI 再实现。
+- ④ 报一次「电量 2」：C26 已实现，晚上的习惯只排保底版，标题带「（保底）」。
 - ⑤ 在 Python 里打印一轮 `build_messages(...)` 的结果，逐段说出每段为什么在里面。
-- ⑥ 在 `db.py` 的 `stalest_profile` 写查询，删掉 `tests/test_db.py` 里 `test_loop6_stalest_profile` 的 skip，变绿。
+- ⑥ ~~`stalest_profile` 写查询~~ 已写好：确认过超过 14 天的那条方向，复盘时问「还对吗」。
 
 ## 第 5 周：手机和两条本地提醒
 
@@ -97,7 +119,7 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 
 - 数字全由 `src/mentor/review.py` 的 `week_stats` 从 `day_logs` 算；模型只写成话。正文里每个数字都得在统计里出现，「」里的话得是用户某天的原话（或事项名、规律里的卡点），否则重来一次，再不行用程序拼的几句事实。
 - 调整最多 3 条（改标准版／改保底版／加一个习惯），点「好」才写进设置，今天的计划跟着换新版本；点过不能改口。
-- 「还对吗」用 `db.stalest_profile`，它是你的循环 ⑥，写好之前复盘不问这一句。
+- 「还对吗」用 `db.stalest_profile`：确认过超过 14 天的那条方向才问。
 - 带进下周的问题存在 `weekly_reviews.question`，下次复盘页顶上显示。
 - 真模型（qwen3:14b）试了 3 次，2 次直接通过，1 次退回兜底句。模型偶尔会提方向不对的调整（比如说「保底太长」却把保底加长），格式合法就会出现，靠用户点「先不改」。
 

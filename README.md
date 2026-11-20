@@ -4,7 +4,15 @@
 
 设计与计划在知识库：`17-AI学习/AI应用开发与FDE实战/AI从0开发/成长导师/`。
 
-## 启动
+## 启动 Wayfinder（现在用这个）
+
+```powershell
+.\wayfinder.ps1
+```
+
+一键开本机 Ollama、后端和网页版，并打开 <http://localhost:8081>。怎么用、改哪里见 `docs/backend.md`。
+
+## 旧版（第一阶段第一步的单页导师）
 
 ```powershell
 .\start.ps1
