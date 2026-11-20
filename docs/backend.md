@@ -38,4 +38,23 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ⑤ Ollama 和 qwen3:14b 已经装在 U 盘。先另开一个窗口运行 `AI工作空间\工具与运行环境\Ollama-启动.ps1`，再在这里：`$env:MODEL_TEST='ollama'; uv run pytest tests/test_checkin.py -k real`。
 - ⑦ 在 `tests/test_tone.py` 的 `BAD` 里加 3 条坏示范，先红，再去 `tone.py` 的 `BANNED` 补说法，变绿。
 
+## 第 3 周：网页版（`mobile/`，Expo SDK 58 + Expo Router）
+
+先开后端 `.\serve.ps1`，再在另一个窗口 `.\web.ps1`，浏览器打开 http://localhost:8081 。
+
+| 文件 | 做什么 |
+|---|---|
+| `mobile/src/app/index.tsx` | 今日计划页 |
+| `mobile/src/app/checkin.tsx` | 晚间对账页（空壳：事项列表 + 一句话输入框） |
+| `mobile/src/api.ts` | 调后端：`getToday`、`getWeek`、`checkinItems` |
+| `mobile/src/labels.ts` | 按钮上的字：做了／做了保底／今天没做；比预想少／差不多／多 |
+
+留给你的循环（代码里搜「循环 ③」「循环 ④」能找到位置）：
+- ① 在 `AI工作空间\临时文件` 里自己另建一个练习项目 `npx create-expo-app@latest expo-practice`（项目名不能用中文），网页版能开，体会脚手架做了什么；正式项目已经在 `mobile/`。
+- ② 改 `index.tsx` 的标题和颜色。
+- ③ 对账页的三个按钮（点了变色）和「记录了几天」。
+- ④ `api.ts` 里写 `postCheckin`，接上「记好了」按钮，把返回的 `closing` 显示出来；然后在 `/docs` 或数据库里查到这一条。
+
+改完跑 `cd mobile; npx tsc --noEmit; npx expo lint`，两个都没报错再贴 diff。
+
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。

@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
@@ -25,7 +26,8 @@ from .db import Db
 
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
 USER_ID = 1
-DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "daily-planner" / "examples" / "users" / "学生.json"
+WEB_ORIGINS = ["http://localhost:8081", "http://127.0.0.1:8081"]
+DEFAULT_TEMPLATE =Path(__file__).resolve().parents[3] / "daily-planner" / "examples" / "users" / "学生.json"
 
 
 class EnergyIn(BaseModel):
@@ -69,6 +71,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         db.set_plan_input(USER_ID, template)  # shortcut: 第 4 周做建档和设置页之前，用模板当设置
 
     app = FastAPI(title="合并版 App 后端", version="0.1.0")
+    # Expo 网页版开在 8081，和后端不同源，浏览器要后端明说放行；手机上的 App 不受这条限制
+    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST"],
+                       allow_headers=["Content-Type"])
 
     def clock() -> datetime:
         return now(ZoneInfo(db.user_timezone(USER_ID)))

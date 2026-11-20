@@ -200,3 +200,12 @@ def test_first_plan_of_the_day_is_not_duplicated(tmp_path):
     assert db.add_plan(1, day, {"blocks": []}, None, only_if_none=True) == 1
     assert db.add_plan(1, day, {"blocks": [1]}, None, only_if_none=True) == 1
     assert db.latest_plan(1, day)["plan"] == {"blocks": []}
+
+def test_expo_web_origin_allowed_others_not(setup):
+    client = setup[0]
+    ok = client.options("/checkin", headers={"Origin": "http://localhost:8081", "Access-Control-Request-Method": "POST",
+                                             "Access-Control-Request-Headers": "content-type"})
+    assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == "http://localhost:8081"
+    assert client.get("/today", headers={"Origin": "http://localhost:8081"}).headers[
+        "access-control-allow-origin"] == "http://localhost:8081"
+    assert "access-control-allow-origin" not in client.get("/today", headers={"Origin": "https://evil.example"}).headers
