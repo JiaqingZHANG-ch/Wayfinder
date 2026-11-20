@@ -82,3 +82,43 @@ def test_loop3_days_with_note(db):
     db.save_log(2, log("2026-11-20", note="别人的"))
     assert db.days_with_note(1, date(2026, 11, 14), DAY) == ["2026-11-18", "2026-11-20"]
     assert db.days_with_note(1, date(2026, 11, 19), date(2026, 11, 19)) == []
+
+
+def test_profiles_are_proposed_then_confirmed(db):
+    pid = db.propose_profile(1, "方向", "想把法语练到能面试", "建档")
+    assert db.profiles(1, confirmed=True) == []
+    assert [p["content"] for p in db.profiles(1, confirmed=False)] == ["想把法语练到能面试"]
+    assert not db.confirm_profile(2, pid)  # 别人确认不了
+    assert db.confirm_profile(1, pid, content="把法语练到能用法语面试")  # 确认前可以改字
+    got = db.profiles(1, confirmed=True)
+    assert got[0]["content"] == "把法语练到能用法语面试" and got[0]["confirmed_at"] is not None
+    assert db.profiles(1, confirmed=False) == [] and db.profiles(2, confirmed=True) == []
+    for bad in [("焦虑", "x", "建档"), ("方向", "  ", "建档"), ("方向", "x", "聊天")]:
+        with pytest.raises(ValueError):
+            db.propose_profile(1, *bad)
+    with pytest.raises(ValueError):
+        db.confirm_profile(1, pid, content=" ")
+
+
+def test_messages_by_mode(db):
+    db.add_message(1, DAY, "建档", "user", "答一")
+    db.add_message(1, DAY, "对账", "user", "别的")
+    db.add_message(2, DAY, "建档", "user", "别人的")
+    assert [m["content"] for m in db.messages(1, "建档")] == ["答一"]
+
+
+# 第 4 周循环 ⑥：在 db.py 的 stalest_profile 里写查询，然后删掉下面这行 skip
+@pytest.mark.skip(reason="第 4 周循环 ⑥：等家庆写 stalest_profile 的查询")
+def test_loop6_stalest_profile(db):
+    import sqlite3
+    a = db.propose_profile(1, "方向", "旧的", "建档")
+    b = db.propose_profile(1, "目标", "新一点的", "建档")
+    db.propose_profile(1, "目标", "还没确认的", "建档")
+    db.confirm_profile(1, a)
+    db.confirm_profile(1, b)
+    with sqlite3.connect(db._path) as c:  # 把确认时间改到过去
+        c.execute("UPDATE profiles SET confirmed_at = '2026-10-01T10:00:00+00:00' WHERE id = ?", (a,))
+        c.execute("UPDATE profiles SET confirmed_at = '2026-11-01T10:00:00+00:00' WHERE id = ?", (b,))
+    assert db.stalest_profile(1, DAY)["id"] == a
+    assert db.stalest_profile(1, date(2026, 10, 10)) is None  # 都不到 14 天
+    assert db.stalest_profile(2, DAY) is None

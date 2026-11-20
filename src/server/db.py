@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '', lang TEXT NOT NULL DEFAULT 'zh',
     timezone TEXT NOT NULL DEFAULT 'Europe/Paris', country TEXT NOT NULL DEFAULT '',
     is_adult INTEGER, created_at TEXT NOT NULL);
--- shortcut: 第 2 周把整份求解器输入（daily-planner 的 JSON 格式）存在一格里；第 4 周做设置页时拆成 settings/habits/tasks
+-- shortcut: 整份求解器输入（daily-planner 的 JSON 格式）存在一格里，设置表单只改其中几样（server/settings.py）；
+-- 习惯要单独查询统计时（第 6 周复盘）再拆出 habits/tasks 表
 CREATE TABLE IF NOT EXISTS settings (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, plan_input TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS day_plans (
@@ -34,12 +35,18 @@ CREATE TABLE IF NOT EXISTS user_quotes (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     text TEXT NOT NULL, used_in TEXT NOT NULL, day TEXT NOT NULL);
+-- 档案：一条一件事。confirmed_at 为空 = 模型提的、用户还没确认，不能当事实用
+CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    level TEXT NOT NULL, content TEXT NOT NULL, confirmed_at TEXT, source TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
 """
 
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
+PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
+PROFILE_SOURCES = ("建档", "复盘", "深度长谈")
 
 
 def _now() -> str:
@@ -137,6 +144,11 @@ class Db:
             (user_id, day.isoformat(), mode, role, content)))
         return cur.lastrowid
 
+    def messages(self, user_id: int, mode: str) -> list[dict]:
+        rows = self._run(lambda c: c.execute(
+            "SELECT id, role, content FROM messages WHERE user_id = ? AND mode = ? ORDER BY id", (user_id, mode)).fetchall())
+        return [{"id": i, "role": r, "content": t} for i, r, t in rows]
+
     def add_quote(self, user_id: int, message_id: int, text: str, used_in: str, day: date) -> int:
         """记一条用户原话。必须是这个用户、这条消息内容里一字不差的连续片段，否则抛 ValueError。"""
         if used_in not in QUOTE_USES:
@@ -156,6 +168,34 @@ class Db:
             "SELECT message_id, text, used_in, day FROM user_quotes WHERE user_id = ? ORDER BY id",
             (user_id,)).fetchall())
         return [{"message_id": m, "text": t, "used_in": u, "day": d} for m, t, u, d in rows]
+
+    # 档案：模型只能提议，用户点了确认才算数
+    def propose_profile(self, user_id: int, level: str, content: str, source: str) -> int:
+        if level not in PROFILE_LEVELS or source not in PROFILE_SOURCES or not content.strip():
+            raise ValueError("档案的层级、来源不对，或者内容是空的")
+        return self._run(lambda c: c.execute(
+            "INSERT INTO profiles (user_id, level, content, source, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, level, content.strip(), source, _now())).lastrowid)
+
+    def confirm_profile(self, user_id: int, profile_id: int, content: str | None = None) -> bool:
+        """用户确认一条档案（可以先改字）。也用于「还对吗」之后的再确认：confirmed_at 更新成现在。"""
+        if content is not None and not content.strip():
+            raise ValueError("档案内容不能是空的")
+        cur = self._run(lambda c: c.execute(
+            "UPDATE profiles SET confirmed_at = ?, content = COALESCE(?, content) WHERE id = ? AND user_id = ?",
+            (_now(), None if content is None else content.strip(), profile_id, user_id)))
+        return cur.rowcount == 1
+
+    def profiles(self, user_id: int, *, confirmed: bool) -> list[dict]:
+        cond = "IS NOT NULL" if confirmed else "IS NULL"
+        rows = self._run(lambda c: c.execute(
+            f"SELECT id, level, content, confirmed_at, source FROM profiles WHERE user_id = ? AND confirmed_at {cond} "
+            "ORDER BY id", (user_id,)).fetchall())
+        return [{"id": i, "level": lv, "content": ct, "confirmed_at": ca, "source": s} for i, lv, ct, ca, s in rows]
+
+    def stalest_profile(self, user_id: int, today: date) -> dict | None:
+        """已确认、且最久没再确认的那条；离上次确认不到 14 天就是 None（第 6 周复盘问「还对吗」用）。"""
+        raise NotImplementedError("第 4 周循环 ⑥：家庆来写这条 SQL 查询")
 
     # 危机
     def log_crisis(self, user_id: int, day: date, text: str) -> None:

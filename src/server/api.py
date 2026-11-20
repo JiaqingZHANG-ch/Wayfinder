@@ -17,17 +17,19 @@ from pydantic import BaseModel, Field
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, make_model
+from mentor.onboarding import QUESTIONS, run_round
 from mentor.safety import CRISIS_MESSAGE, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
 from planner.solve import DayPlan, replan_from, solve_day
 
 from .db import Db
+from .settings import SettingsIn, from_plan_input, to_plan_input
 
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
 USER_ID = 1
 WEB_ORIGINS = ["http://localhost:8081", "http://127.0.0.1:8081"]
-DEFAULT_TEMPLATE =Path(__file__).resolve().parents[3] / "daily-planner" / "examples" / "users" / "学生.json"
+DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "daily-planner" / "examples" / "users" / "学生.json"
 
 
 class EnergyIn(BaseModel):
@@ -38,6 +40,15 @@ class EnergyIn(BaseModel):
 
 class ConfirmIn(BaseModel):
     version: int
+
+
+class OnboardingIn(BaseModel):
+    answer: str | None = Field(None, description="对上一个问题的回答；不填 = 开始或接着问")
+
+
+class ProfileConfirmIn(BaseModel):
+    id: int
+    content: str | None = Field(None, description="确认前改过的字；不填 = 原样确认")
 
 
 class CheckinIn(BaseModel):
@@ -68,11 +79,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
                now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
     db.ensure_user(USER_ID)
     if db.plan_input(USER_ID) is None and template is not None:
-        db.set_plan_input(USER_ID, template)  # shortcut: 第 4 周做建档和设置页之前，用模板当设置
+        db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 
     app = FastAPI(title="Wayfinder 后端", version="0.1.0")
     # Expo 网页版开在 8081，和后端不同源，浏览器要后端明说放行；手机上的 App 不受这条限制
-    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST"],
+    app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST", "PUT"],
                        allow_headers=["Content-Type"])
 
     def clock() -> datetime:
@@ -206,10 +217,77 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None,
         return {"start": start.isoformat(), "end": end.isoformat(), "logged_days": len(logs),
                 "habits": habits, "projects": projects}
 
+    @app.post("/onboarding", summary="建档对话的一轮：一次只问一个问题，最后提一条「方向」等用户确认")
+    def post_onboarding(body: OnboardingIn):
+        day = logical_date(clock())
+        answers = [m["content"] for m in db.messages(USER_ID, "建档") if m["role"] == "user"]
+        n = len(answers)
+        if n >= len(QUESTIONS):
+            return {"crisis": False, "done": True, "reply": None, "question": None,
+                    "proposals": db.profiles(USER_ID, confirmed=False)}
+        if body.answer is None:
+            return {"crisis": False, "done": False, "reply": None, "question": QUESTIONS[n]}
+        if crisis := screen(body, day):
+            return crisis
+        if not body.answer.strip() or len(body.answer) > MAX_INPUT:
+            raise HTTPException(422, f"回答不能是空的，也不能超过 {MAX_INPUT} 字")
+        final = n == len(QUESTIONS) - 1
+        earlier = list(zip(QUESTIONS, answers)) if final else []
+        outcome, out_ = run_round(model, QUESTIONS[n], body.answer, db.profiles(USER_ID, confirmed=True), earlier)
+        if outcome == "crisis":
+            db.log_crisis(USER_ID, day, body.answer)
+            return {"crisis": True, "message": CRISIS_MESSAGE}
+        db.add_message(USER_ID, day, "建档", "user", body.answer)
+        db.add_message(USER_ID, day, "建档", "assistant", out_["reply"])
+        if final:
+            db.propose_profile(USER_ID, "方向", out_["direction"], "建档")
+            return {"crisis": False, "done": True, "reply": out_["reply"], "question": None,
+                    "proposals": db.profiles(USER_ID, confirmed=False)}
+        return {"crisis": False, "done": False, "reply": out_["reply"], "question": QUESTIONS[n + 1]}
+
+    @app.get("/profile", summary="档案：已确认的，和等你确认的")
+    def get_profile():
+        return {"confirmed": db.profiles(USER_ID, confirmed=True), "pending": db.profiles(USER_ID, confirmed=False)}
+
+    @app.post("/profile/confirm", summary="确认一条档案（可以先改字）；没确认的档案不当事实用")
+    def post_profile_confirm(body: ProfileConfirmIn):
+        if crisis := screen(body, logical_date(clock())):
+            return crisis
+        try:
+            ok = db.confirm_profile(USER_ID, body.id, body.content)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        if not ok:
+            raise HTTPException(404, "没有这条档案")
+        return get_profile()
+
+    @app.get("/settings", summary="设置：作息、习惯和保底版、每件事累不累")
+    def get_settings():
+        raw = db.plan_input(USER_ID)
+        if raw is None:
+            raise HTTPException(404, "还没有设置")
+        return from_plan_input(raw)
+
+    @app.put("/settings", summary="保存设置；排得出今天的计划才保存，今天的计划跟着换成新版本")
+    def put_settings(body: SettingsIn):
+        day = logical_date(clock())
+        if crisis := screen(body, day):
+            return crisis
+        raw = to_plan_input(body, db.plan_input(USER_ID))
+        try:
+            inp = input_from_dict({**raw, "day": day.isoformat()})
+        except InputError as e:
+            raise HTTPException(422, str(e)) from None
+        plan = solved(lambda: solve_day(inp))
+        db.set_plan_input(USER_ID, raw)
+        db.add_plan(USER_ID, day, plan, None)
+        return from_plan_input(raw)
+
     return app
 
 
 def app_from_env(env=os.environ) -> FastAPI:
-    template = Path(env.get("PLAN_TEMPLATE") or DEFAULT_TEMPLATE)
-    return create_app(Db(env.get("APP_DB") or "var/app.db"), make_model(env),
-                      template=json.loads(template.read_text(encoding="utf-8")))
+    """PLAN_TEMPLATE 设成一份求解器输入（比如 daily-planner 的假用户）就跳过建档；不设就从建档开始。"""
+    path = env.get("PLAN_TEMPLATE")
+    template = json.loads(Path(path).read_text(encoding="utf-8")) if path else None
+    return create_app(Db(env.get("APP_DB") or "var/app.db"), make_model(env), template=template)

@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mentor.model import FakeModel
+from mentor.onboarding import QUESTIONS
 from mentor.safety import CRISIS_MESSAGE
 from server.api import DEFAULT_TEMPLATE, create_app
 from server.db import Db
@@ -209,3 +210,82 @@ def test_expo_web_origin_allowed_others_not(setup):
     assert client.get("/today", headers={"Origin": "http://localhost:8081"}).headers[
         "access-control-allow-origin"] == "http://localhost:8081"
     assert "access-control-allow-origin" not in client.get("/today", headers={"Origin": "https://evil.example"}).headers
+
+# ---- 第 4 周：建档、档案、设置 ----
+SETTINGS = {"wake": "07:30", "sleep": "23:30",
+            "habits": [{"title": "练法语", "minutes": 30, "floor_min": 10, "energy": "recharge"}]}
+
+
+@pytest.fixture
+def new_user(tmp_path):
+    db, model = Db(tmp_path / "new.db"), FakeModel()
+    return TestClient(create_app(db, model, now=at("09:00"))), db, model
+
+
+def test_new_user_goes_from_onboarding_to_first_plan(new_user):
+    client, db, model = new_user
+    assert client.get("/today").status_code == 409
+    first = client.post("/onboarding", json={}).json()
+    assert first == {"crisis": False, "done": False, "reply": None, "question": QUESTIONS[0]}
+    model.replies.append('{"reply": "图书馆那天你记得很清楚。"}')
+    r = client.post("/onboarding", json={"answer": "上周六在图书馆读完一本书"}).json()
+    assert r["reply"] == "图书馆那天你记得很清楚。" and r["question"] == QUESTIONS[1]
+    model.replies.append('{"reply": "记下了。", "direction": "多花时间练法语"}')
+    r = client.post("/onboarding", json={"answer": "练法语"}).json()
+    assert r["done"] and [p["content"] for p in r["proposals"]] == ["多花时间练法语"]
+    assert "上周六在图书馆读完一本书" in model.calls[1]["messages"][1]["content"]  # 最后一轮带上前面的原话
+    pid = r["proposals"][0]["id"]
+    assert client.get("/profile").json()["confirmed"] == []  # 没确认不算数
+    got = client.post("/profile/confirm", json={"id": pid, "content": "把法语练到能面试"}).json()
+    assert [p["content"] for p in got["confirmed"]] == ["把法语练到能面试"] and got["pending"] == []
+    assert client.post("/onboarding", json={"answer": "再答一次"}).json()["done"]  # 问完了不再问
+
+    assert client.put("/settings", json=SETTINGS).json() == SETTINGS
+    plan = client.get("/today").json()
+    assert any(b["title"] == "练法语" for b in plan["blocks"])
+    raw = db.plan_input(1)
+    assert raw["energy"]["cost"]["habit-1"] == 0.5 and raw["habits"][0]["floor_min"] == 10
+
+
+def test_settings_change_replaces_todays_plan_and_keeps_other_parts(setup):
+    client, db, _ = setup
+    v1 = client.get("/today").json()
+    assert client.get("/settings").json()["habits"][0]["energy"] is None  # 模板里的消耗值不是三档之一
+    client.put("/settings", json={**SETTINGS, "wake": "07:00", "sleep": "23:00"})
+    v2 = client.get("/today").json()
+    assert v2["version"] == v1["version"] + 1
+    assert "math" in {b["id"] for b in v2["blocks"]}  # 模板里的课还在
+    assert {"english", "reading"}.isdisjoint(b["id"] for b in v2["blocks"])  # 旧习惯换掉了
+    assert "habit_block" not in db.plan_input(1)
+
+
+@pytest.mark.parametrize("body", [
+    {**SETTINGS, "wake": "7:30"},
+    {**SETTINGS, "habits": []},
+    {**SETTINGS, "habits": [{"title": "x", "minutes": 10, "floor_min": 20}]},
+    {**SETTINGS, "habits": [{"title": "x", "minutes": 10, "floor_min": 5, "energy": "happy"}]},
+    {**SETTINGS, "wake": "23:00", "sleep": "07:00"},
+    {**SETTINGS, "habits": [{"title": "x", "minutes": 180, "floor_min": 5}] * 3, "wake": "20:00", "sleep": "22:00"},
+])
+def test_bad_or_unsolvable_settings_are_not_saved(new_user, body):
+    client, db, _ = new_user
+    assert client.put("/settings", json=body).status_code == 422
+    assert db.plan_input(1) is None
+
+
+def test_crisis_in_onboarding_answer_skips_model(new_user):
+    client, db, model = new_user
+    client.post("/onboarding", json={})
+    r = client.post("/onboarding", json={"answer": "我不想活了"}).json()
+    assert r["crisis"] and model.calls == [] and db.messages(1, "建档") == []
+
+
+def test_crisis_in_model_output_during_onboarding(new_user):
+    client, db, model = new_user
+    model.replies.append('{"crisis": true}')
+    assert client.post("/onboarding", json={"answer": "说不清"}).json()["crisis"]
+    assert db.crisis_count(1) == 1 and db.messages(1, "建档") == []
+
+
+def test_confirm_unknown_profile_is_404(new_user):
+    assert new_user[0].post("/profile/confirm", json={"id": 99}).status_code == 404
