@@ -29,7 +29,7 @@ from planner.solve import DayPlan, replan_from, solve_day
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
 from .privacy import COUNTRIES, PRIVACY_TEXT, PRIVACY_VERSION
-from .settings import SettingsIn, from_plan_input, to_plan_input
+from .settings import SettingsIn, for_day, from_plan_input, to_plan_input
 
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
 USER_ID = 1
@@ -116,7 +116,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         raw = db.plan_input(USER_ID)
         if raw is None:
             raise HTTPException(409, "还没有设置，先完成建档")
-        raw = {**raw, "day": day.isoformat()}
+        raw = for_day(raw, day)
         if energy_level is not None:
             raw["energy_level"] = energy_level
         try:
@@ -312,7 +312,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 if len(raw.get("habits", [])) > MAX_HABITS:
                     raise HTTPException(409, f"已经有 {MAX_HABITS} 个习惯了，先在设置里去掉一个")
                 try:
-                    inp = input_from_dict({**raw, "day": day.isoformat()})
+                    inp = input_from_dict(for_day(raw, day))
                 except InputError as e:
                     raise HTTPException(422, str(e)) from None
                 plan = solved(lambda: solve_day(inp))
@@ -383,7 +383,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             return crisis
         raw = to_plan_input(body, db.plan_input(USER_ID))
         try:
-            inp = input_from_dict({**raw, "day": day.isoformat()})
+            inp = input_from_dict(for_day(raw, day))
         except InputError as e:
             raise HTTPException(422, str(e)) from None
         plan = solved(lambda: solve_day(inp))

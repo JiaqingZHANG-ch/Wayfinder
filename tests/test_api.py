@@ -244,7 +244,9 @@ def test_new_user_goes_from_onboarding_to_first_plan(new_user):
     assert [p["content"] for p in got["confirmed"]] == ["把法语练到能面试"] and got["pending"] == []
     assert client.post("/onboarding", json={"answer": "再答一次"}).json()["done"]  # 问完了不再问
 
-    assert client.put("/settings", json=SETTINGS).json() == {**SETTINGS, "reminders": {"after_class": True, "evening": "21:00"}}
+    assert client.put("/settings", json=SETTINGS).json() == {
+        **SETTINGS, "habits": [{"id": "habit-1", **SETTINGS["habits"][0]}], "timetable": [], "projects": [],
+        "reminders": {"after_class": True, "evening": "21:00"}}
     plan = client.get("/today").json()
     assert any(b["title"] == "练法语" for b in plan["blocks"])
     raw = db.plan_input(1)
@@ -491,3 +493,41 @@ def test_add_habit_refused_when_already_three(setup):
     db.set_plan_input(1, {**raw, "habits": raw["habits"] + [{**raw["habits"][0], "id": "habit-9", "title": "拉伸"}]})
     assert client.post("/review", json={"id": rid, "index": 1, "accept": True}).status_code == 409
     assert len(db.plan_input(1)["habits"]) == 3 and db.reviews(1)[0]["adjustments"][1]["answer"] is None
+
+
+def test_timetable_classes_appear_on_their_weekday(new_user):
+    client, db, _ = new_user
+    body = {**SETTINGS, "timetable": [
+        {"title": "机器学习", "weekday": 4, "start": "10:00", "end": "12:00", "energy": "drain"},   # 2026-11-20 是星期五
+        {"title": "数据挖掘", "weekday": 0, "start": "14:00", "end": "16:00"}]}
+    got = client.put("/settings", json=body).json()
+    assert [(c["title"], c["weekday"], c["where"]) for c in got["timetable"]] == [("机器学习", 4, "campus"), ("数据挖掘", 0, "campus")]
+    blocks = client.get("/today").json()["blocks"]
+    classes = [(b["title"], b["start"], b["end"]) for b in blocks if b["kind"] == "class"]
+    assert classes == [("机器学习", "10:00", "12:00")]  # 星期一的课今天不排
+    assert db.plan_input(1)["energy"]["cost"]["class-1"] == 1.0
+    assert client.get("/today").json()["reminders"][0]["at"] >= "12:00"  # 下课提醒跟着课表走
+
+
+def test_overlapping_classes_rejected(new_user):
+    body = {**SETTINGS, "timetable": [{"title": "A", "weekday": 2, "start": "10:00", "end": "12:00"},
+                                      {"title": "B", "weekday": 2, "start": "11:00", "end": "13:00"}]}
+    r = new_user[0].put("/settings", json=body)
+    assert r.status_code == 422 and "重叠" in r.text
+
+
+def test_ids_survive_edits_so_history_stays_attached(new_user):
+    client, db, _ = new_user
+    two = {**SETTINGS, "habits": SETTINGS["habits"] + [{"title": "看书", "minutes": 20, "floor_min": 5}],
+           "projects": [{"title": "毕业论文", "hours_left": 40, "deadline": "2027-01-15", "heavy": True}]}
+    got = client.put("/settings", json=two).json()
+    reading = got["habits"][1]
+    proj = got["projects"][0]
+    assert reading["id"] == "habit-2" and proj["id"] == "proj-1" and proj["hours_left"] == 40
+    # 删掉第一个习惯、改项目剩余时间：剩下的 id 不变
+    after = client.put("/settings", json={**two, "habits": [reading], "projects": [{**proj, "hours_left": 35.5}]}).json()
+    assert [h["id"] for h in after["habits"]] == ["habit-2"]
+    assert after["projects"][0]["id"] == "proj-1" and db.plan_input(1)["tasks"][0]["remaining_min"] == 2130
+    # 再加一个新习惯：拿到一个没在用的 id
+    third = client.put("/settings", json={**two, "habits": [reading, {"title": "跑步", "minutes": 30, "floor_min": 10}]}).json()
+    assert len({h["id"] for h in third["habits"]}) == 2
