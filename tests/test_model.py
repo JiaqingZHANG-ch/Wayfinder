@@ -61,6 +61,31 @@ def test_bad_energy_rejected(tmp_path, energy):
         load_input(p)
 
 
+def test_floor_and_energy_level_loaded(tmp_path):
+    raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    raw["habits"][0]["floor_min"] = 10
+    raw["energy_level"] = 2
+    p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    inp = load_input(p)
+    assert inp.habits[0].floor_min == 10 and inp.energy_level == 2
+    assert all(h.floor_min == h.minutes for h in inp.habits[1:])  # 不填 = 标准分钟数
+    assert load_input(EXAMPLE).energy_level is None
+
+
+@pytest.mark.parametrize("patch", [
+    {"floor_min": 0}, {"floor_min": 999}, {"floor_min": 5.5}, {"energy_level": 0}, {"energy_level": 6},
+])
+def test_bad_floor_or_energy_level_rejected(tmp_path, patch):
+    raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    if "floor_min" in patch:
+        raw["habits"][0]["floor_min"] = patch["floor_min"]
+    else:
+        raw["energy_level"] = patch["energy_level"]
+    p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(InputError):
+        load_input(p)
+
+
 def test_duplicate_habit_block_rejected(tmp_path):
     raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     raw["habit_block"] = ["reading", "reading"]

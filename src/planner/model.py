@@ -77,6 +77,11 @@ class Habit:
     window_end: int
     can_be_on_bus: bool = False
     where: str = "any"  # home | campus | any（练字只能在家）
+    floor_min: int | None = None  # 保底版分钟数（低电量时用）；不填 = 标准分钟数
+
+    def __post_init__(self) -> None:
+        if self.floor_min is None:
+            self.floor_min = self.minutes
 
 
 @dataclass
@@ -128,6 +133,7 @@ class PlanInput:
     bus_to_home: list[BusToHome]
     energy: Energy = field(default_factory=Energy)
     habit_block: list[str] = field(default_factory=list)
+    energy_level: int | None = None  # 当天自报电量 1–5，不填 = 不按电量调整
 
 
 def _window(d: dict) -> tuple[int, int]:
@@ -161,6 +167,10 @@ def _validate(inp: PlanInput) -> None:
         need(x.window_start < x.window_end, f"{x.title} 的时间窗口开始要早于结束")
     for h in inp.habits:
         need(h.where in PLACE, f"{h.title} 的 where 只能是 {sorted(PLACE)}，现在是 {h.where!r}")
+        need(type(h.floor_min) is int and 0 < h.floor_min <= h.minutes,
+             f"{h.title} 的 floor_min 要是 1 到 {h.minutes} 之间的整数，现在是 {h.floor_min!r}")
+    need(inp.energy_level is None or (type(inp.energy_level) is int and 1 <= inp.energy_level <= 5),
+         f"energy_level 只能是 1–5 的整数，现在是 {inp.energy_level!r}")
     ids = [t.id for t in inp.tasks]
     need(len(ids) == len(set(ids)), "任务 id 有重复")
     for t in inp.tasks:
@@ -214,7 +224,7 @@ def _load(raw: dict) -> PlanInput:
                for e in raw.get("fixed", [])],
         meals=[Meal(m["id"], m["title"], int(m["minutes"]), *_window(m)) for m in raw.get("meals", [])],
         habits=[Habit(h["id"], h["title"], int(h["minutes"]), *_window(h), bool(h.get("can_be_on_bus", False)),
-                      h.get("where", "any"))
+                      h.get("where", "any"), h.get("floor_min"))
                 for h in raw.get("habits", [])],
         flex=[Flex(f["id"], f["title"], int(f["minutes"]), *_window(f)) for f in raw.get("flex", [])],
         tasks=[task(t) for t in raw.get("tasks", [])],
@@ -222,4 +232,5 @@ def _load(raw: dict) -> PlanInput:
         bus_to_home=[BusToHome(to_min(a), to_min(b)) for a, b in raw.get("bus_to_home", [])],
         energy=energy,
         habit_block=list(raw.get("habit_block", [])),
+        energy_level=raw.get("energy_level"),
     )
