@@ -49,5 +49,16 @@ def model_output_is_crisis(raw: str) -> bool:
     except (ValueError, RecursionError):
         return is_crisis(raw)
     flag = obj.get("crisis") if isinstance(obj, dict) else None
-    # 标记写成 "true"、1 也算；再把内容还原成文字查一遍，免得字眼藏在 \uXXXX 转义里
-    return (flag is not None and flag is not False) or is_crisis(json.dumps(obj, ensure_ascii=False))
+    # 标记写成 "true"、1 也算；再把每段文字取出来查（解开了 \uXXXX 转义和 \n 换行）
+    return (flag is not None and flag is not False) or any(is_crisis(t) for t in all_strings(obj))
+
+
+def all_strings(x) -> list[str]:
+    """一个 JSON 值里的全部字符串（包括键）。要逐段查：整段 dump 成 JSON 时换行变成 \\n 两个字，「想\\n死」会漏。"""
+    if isinstance(x, str):
+        return [x]
+    if isinstance(x, dict):
+        return [s for k, v in x.items() for s in all_strings(k) + all_strings(v)]
+    if isinstance(x, list):
+        return [s for v in x for s in all_strings(v)]
+    return []

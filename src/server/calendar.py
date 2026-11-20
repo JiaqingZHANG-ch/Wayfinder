@@ -7,6 +7,7 @@ Google 那一头要先做第 6 周循环 ②：在 Google Cloud 建测试项目�
 权限只要 calendar.app.created：只能管这个 App 自己建的日历，看不到你别的日程。
 """
 import os
+import threading
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
@@ -55,6 +56,7 @@ class FakeCalendar:
 class GoogleCalendar:
     def __init__(self, folder: Path) -> None:
         self.token, self.calendar_id_file = folder / "token.json", folder / "calendar_id.txt"
+        self._lock = threading.Lock()
 
     def _service(self):
         from google.auth.exceptions import RefreshError
@@ -83,26 +85,36 @@ class GoogleCalendar:
         self.calendar_id_file.write_text(cal["id"], encoding="utf-8")
         return cal["id"]
 
+    def _write(self, day: date, blocks: list[dict], tz: str) -> None:
+        svc = self._service()
+        cid = self._calendar_id(svc, tz)
+        old = svc.events().list(calendarId=cid, privateExtendedProperty=f"wayfinder_day={day.isoformat()}",
+                                singleEvents=True).execute().get("items", [])
+        for e in old:
+            svc.events().delete(calendarId=cid, eventId=e["id"]).execute()
+        for e in events_for(day, blocks, tz):
+            svc.events().insert(calendarId=cid, body=e).execute()
+
     def write_day(self, day: date, blocks: list[dict], tz: str) -> None:
         from googleapiclient.errors import HttpError
 
-        try:
-            svc = self._service()
-            cid = self._calendar_id(svc, tz)
-            old = svc.events().list(calendarId=cid, privateExtendedProperty=f"wayfinder_day={day.isoformat()}",
-                                    singleEvents=True).execute().get("items", [])
-            for e in old:
-                svc.events().delete(calendarId=cid, eventId=e["id"]).execute()
-            for e in events_for(day, blocks, tz):
-                svc.events().insert(calendarId=cid, body=e).execute()
-        except CalendarError:
-            raise
-        except HttpError as e:
-            if e.status_code in (401, 403):
-                raise CalendarAuthError("Google 日历的授权失效了") from None
-            raise CalendarError(f"Google 日历出错：{e.status_code}") from None
-        except Exception as e:  # 网络断了之类：不让它把「确认计划」弄失败
-            raise CalendarError(f"写日历失败：{e}") from None
+        # 连点两次「就这样」会同时来两个请求：排队写，不然两边都没看到旧事件、各写一份，或者各建一个日历
+        # shortcut: 锁只在一个进程里有效；后端开多个进程时要换成数据库里的锁
+        with self._lock:
+            for attempt in range(2):
+                try:
+                    return self._write(day, blocks, tz)
+                except CalendarError:
+                    raise
+                except HttpError as e:
+                    if e.status_code == 404 and attempt == 0 and self.calendar_id_file.exists():
+                        self.calendar_id_file.unlink()  # 用户在 Google 里删了这个日历：重建一个再写
+                        continue
+                    if e.status_code in (401, 403):
+                        raise CalendarAuthError("Google 日历的授权失效了") from None
+                    raise CalendarError(f"Google 日历出错：{e.status_code}") from None
+                except Exception as e:  # 网络断了之类：不让它把「确认计划」弄失败
+                    raise CalendarError(f"写日历失败：{e}") from None
 
 
 def make_calendar(env: Mapping[str, str]) -> CalendarPort | None:

@@ -15,6 +15,7 @@ export default function ReviewScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [stillRight, setStillRight] = useState<"asking" | "editing" | "done">("asking");
   const [edited, setEdited] = useState("");
+  const [busy, setBusy] = useState(false); // 一次只答一条：连点也只发一个请求
 
   useEffect(() => {
     getReview().then(
@@ -24,11 +25,14 @@ export default function ReviewScreen() {
   }, []);
 
   async function answer(index: number, accept: boolean) {
-    if (!review) return;
+    if (!review || busy) return;
+    setBusy(true);
     try {
       setReview(await answerAdjustment(review.id, index, accept));
     } catch (e) {
       setMessage((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -59,10 +63,10 @@ export default function ReviewScreen() {
             <Text style={styles.muted}>{a.answer === "好" ? "已改，从今天的计划开始" : "先不改"}</Text>
           ) : (
             <View style={styles.row}>
-              <Pressable style={styles.button} onPress={() => answer(i, true)} accessibilityRole="button">
+              <Pressable style={styles.button} onPress={() => answer(i, true)} disabled={busy} accessibilityRole="button">
                 <Text style={styles.buttonText}>好</Text>
               </Pressable>
-              <Pressable style={styles.button} onPress={() => answer(i, false)} accessibilityRole="button">
+              <Pressable style={styles.button} onPress={() => answer(i, false)} disabled={busy} accessibilityRole="button">
                 <Text style={styles.buttonText}>先不改</Text>
               </Pressable>
             </View>

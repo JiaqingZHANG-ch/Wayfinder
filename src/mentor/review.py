@@ -13,6 +13,7 @@ from .safety import model_output_is_crisis
 from .tone import RULES, banned_hits, quote_is_verbatim
 
 MAX_ADJUSTMENTS = 3
+MAX_HABITS = 3  # 设置里最多 3 个习惯（server/settings.py 用同一个数）
 PATTERN_DAYS = 3  # 同一件事出现 3 天以上才说「值得留意」
 ADJUST_KINDS = ("minutes", "floor_min", "add_habit")
 MAX_QUESTION = 60
@@ -62,7 +63,7 @@ def build_messages(stats: dict, habits: list[dict]) -> list[dict[str, str]]:
         "你是一个安静的成长导师，在帮用户看过去 7 天的记录。\n"
         f"{RULES}\n\n"
         "复盘要求：\n"
-        "1. summary：3–5 句。数字只能用下面统计里的，不许自己算新数字，不许改。没做的写「没做」或「没有记录」。\n"
+        "1. summary：3–5 句。数字一律写阿拉伯数字，只能用下面统计里的，不许自己算新数字，不许改。没做的写「没做」或「没有记录」。\n"
         "2. 做得好的、没做到的，尽量引用用户当天的原话：放在「」里，一字不差，后面标日期；没有原话就只写事实。\n"
         "3. 只有 patterns 里列出的才说「值得留意」。\n"
         f"4. adjustments：最多 {MAX_ADJUSTMENTS} 条，可以是 0 条。每条是下面三种之一，why 用一句话说依据：\n"
@@ -91,7 +92,8 @@ def _check_adjustments(raw: object, habits: list[dict]) -> list[dict] | None:
             return None
         if a["kind"] == "add_habit":
             title = a.get("title")
-            if not isinstance(title, str) or not 0 < len(title.strip()) <= 20 or len(habits) >= 3:
+            added = sum(x["kind"] == "add_habit" for x in out)
+            if not isinstance(title, str) or not 0 < len(title.strip()) <= 20 or len(habits) + added >= MAX_HABITS:
                 return None
             out.append({"kind": "add_habit", "title": title.strip(), "value": value, "why": why.strip()})
             continue
@@ -105,14 +107,46 @@ def _check_adjustments(raw: object, habits: list[dict]) -> list[dict] | None:
     return out
 
 
+_CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+# 中文数字后面跟着单位才算数字（「一起」「一句」不算）
+_CN_NUMBER = re.compile(r"([零〇一二两三四五六七八九十]+)(?=\s*(?:天|次|分钟|小时|条|周|个|件|项))")
+
+
+def _cn_to_int(s: str) -> int:
+    """一到九十九：五、十、十五、二十、二十三。"""
+    if "十" not in s:
+        return int("".join(str(_CN_DIGITS[c]) for c in s))
+    tens, _, ones = s.partition("十")
+    return (_CN_DIGITS[tens] if tens else 1) * 10 + (_CN_DIGITS[ones] if ones else 0)
+
+
+def numbers_in(text: str) -> set[str]:
+    """正文里的数字，阿拉伯数字和带单位的中文数字（三天、二十分钟）都算。"""
+    return set(re.findall(r"\d+", text)) | {str(_cn_to_int(m)) for m in _CN_NUMBER.findall(text)}
+
+
+def _date_near(text: str, start: int, end: int, day: str) -> bool:
+    """引号前后 20 个字以内写了这一天：2026-11-14、11-14 或 11 月 14 日。"""
+    window = re.sub(r"\s+", "", text[max(0, start - 20):end + 20])
+    _, m, d = day.split("-")
+    return any(f in window for f in (day, f"{m}-{d}", f"{int(m)}月{int(d)}日", f"{m}月{d}日"))
+
+
 def _summary_ok(text: object, stats: dict) -> bool:
     if not isinstance(text, str) or not text.strip() or banned_hits(text):
         return False
-    if not set(re.findall(r"\d+", text)) <= allowed_numbers(stats):
+    if not numbers_in(text) <= allowed_numbers(stats):
         return False
-    sources = [n["note"] for n in stats["notes"]] + stats["patterns"]  # 规律里带着用户写的卡点原话
-    return all(any(quote_is_verbatim(q, n) for n in sources) for q in re.findall(r"「([^」]*)」", text)
-               if q not in {h["title"] for h in stats["habits"]} | {p["title"] for p in stats["projects"]})
+    names = {h["title"] for h in stats["habits"]} | {p["title"] for p in stats["projects"]}
+    for m in re.finditer(r"「([^」]*)」", text):
+        q = m.group(1)
+        if q in names or any(quote_is_verbatim(q, p) for p in stats["patterns"]):  # 规律里带着用户写的卡点原话
+            continue
+        # 用户的原话：要一字不差，而且旁边标的日期得是说这句话的那天
+        if not any(quote_is_verbatim(q, n["note"]) and _date_near(text, m.start(), m.end(), n["date"])
+                   for n in stats["notes"]):
+            return False
+    return True
 
 
 def _question_ok(q: object) -> bool:

@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from mentor.review import MAX_HABITS
+
 HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 # 能量地图三选一 → 每分钟消耗（合并版设计 六之四 第 3 步）：热爱 0、累但回血 0.5、擅长但耗能 1
 ENERGY_COST = {"love": 0.0, "recharge": 0.5, "drain": 1.0}
@@ -36,7 +38,7 @@ class RemindersIn(BaseModel):
 class SettingsIn(BaseModel):
     wake: str = Field(pattern=HHMM, description="几点起床")
     sleep: str = Field(pattern=HHMM, description="几点上床")
-    habits: list[HabitIn] = Field(min_length=1, max_length=3, description="新用户从 1 个习惯开始")
+    habits: list[HabitIn] = Field(min_length=1, max_length=MAX_HABITS, description="新用户从 1 个习惯开始")
     reminders: RemindersIn = Field(default_factory=RemindersIn)
 
 

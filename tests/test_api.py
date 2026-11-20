@@ -423,6 +423,12 @@ def test_onboarding_needs_consent_first(tmp_path):
     assert client.post("/onboarding", json={}).json()["question"] == QUESTIONS[0]
 
 
+def test_changing_country_does_not_count_as_consent(tmp_path):
+    client = TestClient(create_app(Db(tmp_path / "a.db"), FakeModel(), now=at("09:00")))
+    me = client.put("/me", json={"country": "CN", "is_adult": True}).json()
+    assert me["country"] == "CN" and not me["consented"]
+
+
 def test_hotline_follows_country(new_user):
     client = new_user[0]
     client.put("/me", json={"country": "FR", "is_adult": True, "consent": PRIVACY_VERSION})
@@ -453,3 +459,35 @@ def test_export_has_everything_and_delete_removes_it(setup):
     assert len(after["users"]) == 1 and after["users"][0]["country"] == ""  # 换成全新的空用户
     assert all(after[t] == [] for t in USER_TABLES if t != "users")
     assert client.get("/today").status_code == 409  # 从建档开始
+
+
+@pytest.mark.parametrize("body", [{"result": {"note": "我不想\n活了", "items": {}}}, {"sentence": "想\n死"}])
+def test_crisis_split_by_newline_is_caught(setup, body):
+    client, db, model = setup
+    assert client.post("/checkin", json=body).json()["crisis"] is True
+    assert db.crisis_count(1) == 1 and db.logs_between(1, at("09:00")(None).date(), at("09:00")(None).date()) == []
+    assert model.calls == []
+
+
+def test_two_quick_yes_taps_keep_both_changes(setup):
+    from concurrent.futures import ThreadPoolExecutor
+    client, db, model = setup
+    seed_week(db)
+    model.replies.append(REVIEW)
+    rid = client.post("/review", json={}).json()["id"]
+    with ThreadPoolExecutor(2) as pool:
+        codes = list(pool.map(lambda i: client.post("/review", json={"id": rid, "index": i, "accept": True}).status_code,
+                              (0, 1)))
+    habits = {h["title"]: h for h in db.plan_input(1)["habits"]}
+    assert codes == [200, 200] and habits["背单词"]["minutes"] == 15 and "散步" in habits
+
+
+def test_add_habit_refused_when_already_three(setup):
+    client, db, model = setup
+    seed_week(db)
+    model.replies.append(REVIEW)
+    rid = client.post("/review", json={}).json()["id"]
+    raw = db.plan_input(1)
+    db.set_plan_input(1, {**raw, "habits": raw["habits"] + [{**raw["habits"][0], "id": "habit-9", "title": "拉伸"}]})
+    assert client.post("/review", json={"id": rid, "index": 1, "accept": True}).status_code == 409
+    assert len(db.plan_input(1)["habits"]) == 3 and db.reviews(1)[0]["adjustments"][1]["answer"] is None

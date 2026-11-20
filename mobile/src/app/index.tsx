@@ -2,7 +2,8 @@ import { Link, Redirect } from "expo-router";
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { ApiError, getToday, getWeek, Plan, Week } from "@/api";
+import { ApiError, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
+import { Consent } from "@/components/consent";
 import { PlanView } from "@/components/plan-view";
 import { scheduleToday } from "@/notifications";
 
@@ -10,6 +11,7 @@ export default function Today() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [review, setReview] = useState<Week["review"]>(null);
+  const [me, setMe] = useState<Me | null>(null);
 
   useEffect(() => {
     getToday().then((p) => {
@@ -17,11 +19,16 @@ export default function Today() {
       scheduleToday(p.day, p.reminders ?? []).catch(() => {}); // 定不上提醒也不挡着看计划
     }, setError);
     getWeek().then((w) => setReview(w.review), () => {}); // 复盘入口拿不到就不显示
+    getMe().then(setMe, () => {});
   }, []);
 
   if (error instanceof ApiError && error.status === 409) return <Redirect href="/onboarding" />; // 还没建档
   if (error) return <Text style={styles.message}>没拿到今天的计划：{error.message}（后端开着吗？）</Text>;
   if (!plan) return <Text style={styles.message}>正在排今天的计划……</Text>;
+  if (me && !me.consented) {
+    // 隐私说明换了新版本：老用户先看完再用
+    return <ScrollView contentContainerStyle={styles.page}><Consent me={me} onDone={setMe} /></ScrollView>;
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.page}>

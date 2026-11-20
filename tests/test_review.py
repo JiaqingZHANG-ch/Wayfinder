@@ -1,11 +1,10 @@
 import json
-import re
 
 import pytest
 
 from mentor.model import FakeModel
-from mentor.review import (FALLBACK_QUESTION, allowed_numbers, apply_adjustments, fallback_summary, week_stats,
-                           write_review)
+from mentor.review import (FALLBACK_QUESTION, allowed_numbers, apply_adjustments, fallback_summary, numbers_in,
+                           week_stats, write_review)
 
 HABITS = [{"id": "reading", "title": "看书", "minutes": 30, "floor_min": 10},
           {"id": "english", "title": "背单词", "minutes": 20, "floor_min": 10}]
@@ -64,7 +63,7 @@ def test_good_review_passes_through():
     assert outcome == "ok" and out["summary"] == GOOD and out["adjustments"] == [{**adj, "title": "背单词"}]
     assert out["question"] == "下周哪天最容易被课拖住？"
     # 每个数字都在统计里：这就是「模型不许改数字」的测试
-    assert set(re.findall(r"\d+", out["summary"])) <= allowed_numbers(stats)
+    assert numbers_in(out["summary"]) <= allowed_numbers(stats)
 
 
 @pytest.mark.parametrize("summary", [
@@ -79,7 +78,7 @@ def test_bad_summary_is_retried_then_falls_back(summary):
     outcome, out = write_review(model, stats, HABITS)
     assert outcome == "ok" and len(model.calls) == 2
     assert out == {"summary": fallback_summary(stats), "adjustments": [], "question": FALLBACK_QUESTION}
-    assert set(re.findall(r"\d+", out["summary"])) <= allowed_numbers(stats)
+    assert numbers_in(out["summary"]) <= allowed_numbers(stats)
 
 
 def test_second_try_can_succeed():
@@ -125,3 +124,28 @@ def test_blocker_from_patterns_can_be_quoted():
     stats = week_stats(WEEK, HABITS, TASKS)
     _, out = write_review(FakeModel([reply("有 3 天卡在「太累」。")]), stats, HABITS)
     assert out["summary"] == "有 3 天卡在「太累」。"
+
+
+@pytest.mark.parametrize("summary", [
+    "这七天里「看书」做了三十天。",                  # 中文数字也要在统计里（30 不在）
+    "「背单词」有八天没做。",
+    "「今天读得很顺」（11 月 20 日）。",              # 原话是 11-14 说的，日期标错了
+    "你写过「今天读得很顺」。",                       # 原话没标日期
+])
+def test_chinese_numbers_and_quote_dates_are_checked(summary):
+    stats = week_stats(WEEK, HABITS, TASKS)
+    _, out = write_review(FakeModel([reply(summary)] * 2), stats, HABITS)
+    assert out["summary"] == fallback_summary(stats)
+
+
+def test_chinese_numbers_from_stats_pass():
+    assert numbers_in("「看书」做了五天，十五分钟，二十三次，一起读") == {"5", "15", "23"}
+    stats = week_stats(WEEK, HABITS, TASKS)
+    ok = "「看书」做了五天，「背单词」有三天没做。2026-11-14 你写「今天读得很顺」。"
+    assert write_review(FakeModel([reply(ok)]), stats, HABITS)[1]["summary"] == ok
+
+
+def test_cannot_add_past_three_habits_in_one_review():
+    adds = [{"kind": "add_habit", "title": t, "value": 20, "why": "稳"} for t in ("散步", "拉伸")]
+    _, out = write_review(FakeModel([reply(GOOD, adds)] * 2), week_stats(WEEK, HABITS, TASKS), HABITS)
+    assert out["adjustments"] == []  # 已经 2 个习惯，一次只能再加 1 个

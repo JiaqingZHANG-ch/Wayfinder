@@ -108,7 +108,8 @@ export const confirmProfile = (id: number, content?: string) =>
 export const postEnergy = (level: number) => send<Plan | Crisis>("POST", "/energy", { level });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
 export const getMe = () => send<Me>("GET", "/me");
-export const putMe = (country: Country, is_adult: boolean, consent: string) =>
+/** consent 不填 = 只改国家，不算同意。 */
+export const putMe = (country: Country, is_adult: boolean, consent?: string) =>
   send<Me>("PUT", "/me", { country, is_adult, consent });
 export const exportData = () => send<{ exported_at: string; tables: Record<string, object[]> }>("GET", "/export");
 export const deleteMe = () => send<{ deleted: true }>("DELETE", "/me?confirm=true");

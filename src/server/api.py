@@ -4,6 +4,7 @@
 """
 import json
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
@@ -19,8 +20,8 @@ from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, RecordingModel, make_model
 from mentor.onboarding import QUESTIONS, run_round
 from mentor.reminders import todays_reminders
-from mentor.review import apply_adjustments, week_stats, write_review
-from mentor.safety import crisis_message, is_crisis
+from mentor.review import MAX_HABITS, apply_adjustments, week_stats, write_review
+from mentor.safety import all_strings, crisis_message, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm
 from planner.solve import DayPlan, replan_from, solve_day
@@ -65,7 +66,7 @@ class ReviewIn(BaseModel):
 class MeIn(BaseModel):
     country: str = Field(description="CN / FR / 空（别的国家或不想说）：危机提示显示哪国的热线")
     is_adult: bool
-    consent: str = Field(description="同意的隐私说明版本，要等于 GET /me 给的 privacy.version")
+    consent: str | None = Field(None, description="同意的隐私说明版本，要等于 GET /me 给的 privacy.version；不填 = 只改国家")
 
 
 class CheckinIn(BaseModel):
@@ -96,6 +97,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
     db.ensure_user(USER_ID)
     model = RecordingModel(model, lambda call: db.add_model_call(USER_ID, call))
+    settings_lock = threading.Lock()
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 
@@ -142,12 +144,14 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
     def screen(body: BaseModel, day) -> dict | None:
         """请求里用户写的任何文字：编码不了就 422；有危机字眼就记下并返回危机话术（不交给模型）。"""
-        text = json.dumps(body.model_dump(), ensure_ascii=False)
+        texts = all_strings(body.model_dump())
         try:
-            text.encode("utf-8")
+            for t in texts:
+                t.encode("utf-8")
         except UnicodeEncodeError:
             raise HTTPException(422, "文字里有无法识别的字符") from None
-        if is_crisis(text):
+        if any(is_crisis(t) for t in texts):
+            text = "\n".join(texts)
             db.log_crisis(USER_ID, day, text)
             return crisis_reply()
         return None
@@ -293,24 +297,30 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
         if body.id is None or body.index is None or body.accept is None:
             raise HTTPException(422, "回答调整要同时填 id、index、accept")
-        if not latest or latest[0]["id"] != body.id:
-            raise HTTPException(409, "只能回答最近一次复盘里的调整")
-        adjustments = latest[0]["adjustments"]
-        if body.index >= len(adjustments) or adjustments[body.index]["answer"] is not None:
-            raise HTTPException(409, "没有这条调整，或者已经回答过了")
-        raw = None
-        if body.accept:  # 先确认改完还排得出今天的计划，再记回答、写设置
-            raw = apply_adjustments(db.plan_input(USER_ID) or {}, [adjustments[body.index]])
-            try:
-                inp = input_from_dict({**raw, "day": day.isoformat()})
-            except InputError as e:
-                raise HTTPException(422, str(e)) from None
-            plan = solved(lambda: solve_day(inp))
-        if not db.answer_adjustment(USER_ID, body.id, body.index, "好" if body.accept else "先不改"):
-            raise HTTPException(409, "这条已经回答过了")
-        if raw is not None:
-            db.set_plan_input(USER_ID, raw)
-            db.add_plan(USER_ID, day, plan, None)
+        # 快速连点两条「好」：排队处理，不然两边各读一份旧设置、后写的盖掉先写的那条改动
+        # shortcut: 锁只在一个进程里有效；后端开多个进程时要换成数据库事务
+        with settings_lock:
+            latest = db.reviews(USER_ID)
+            if not latest or latest[0]["id"] != body.id:
+                raise HTTPException(409, "只能回答最近一次复盘里的调整")
+            adjustments = latest[0]["adjustments"]
+            if body.index >= len(adjustments) or adjustments[body.index]["answer"] is not None:
+                raise HTTPException(409, "没有这条调整，或者已经回答过了")
+            raw = None
+            if body.accept:  # 先确认改完还排得出今天的计划，再记回答、写设置
+                raw = apply_adjustments(db.plan_input(USER_ID) or {}, [adjustments[body.index]])
+                if len(raw.get("habits", [])) > MAX_HABITS:
+                    raise HTTPException(409, f"已经有 {MAX_HABITS} 个习惯了，先在设置里去掉一个")
+                try:
+                    inp = input_from_dict({**raw, "day": day.isoformat()})
+                except InputError as e:
+                    raise HTTPException(422, str(e)) from None
+                plan = solved(lambda: solve_day(inp))
+            if not db.answer_adjustment(USER_ID, body.id, body.index, "好" if body.accept else "先不改"):
+                raise HTTPException(409, "这条已经回答过了")
+            if raw is not None:
+                db.set_plan_input(USER_ID, raw)
+                db.add_plan(USER_ID, day, plan, None)
         return review_view(db.reviews(USER_ID)[0])
 
     @app.post("/onboarding", summary="建档对话的一轮：一次只问一个问题，最后提一条「方向」等用户确认")
@@ -386,14 +396,15 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return {**db.user_info(USER_ID), "consented": db.consents(USER_ID).get("隐私") == PRIVACY_VERSION,
                 "privacy": {"version": PRIVACY_VERSION, "text": PRIVACY_TEXT}}
 
-    @app.put("/me", summary="填国家和是否成年，并同意隐私说明（建档前要做）")
+    @app.put("/me", summary="填国家和是否成年；带 consent 就同时同意这一版隐私说明（建档前、说明更新后要做）")
     def put_me(body: MeIn):
         if body.country not in COUNTRIES:
             raise HTTPException(422, f"country 只能是 {' / '.join(c or '空' for c in COUNTRIES)}")
-        if body.consent != PRIVACY_VERSION:
+        if body.consent is not None and body.consent != PRIVACY_VERSION:
             raise HTTPException(409, "隐私说明更新了，刷新后再看一遍")
         db.update_user(USER_ID, country=body.country, is_adult=body.is_adult)
-        db.consent(USER_ID, "隐私", PRIVACY_VERSION)
+        if body.consent is not None:
+            db.consent(USER_ID, "隐私", PRIVACY_VERSION)
         return get_me()
 
     @app.get("/export", summary="导出我的全部数据（每张表里属于我的行）")

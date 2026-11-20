@@ -41,3 +41,8 @@ def test_message_gives_both_hotlines_and_the_resume_hint():
     assert "12356" in CRISIS_MESSAGE
     assert "3114" in CRISIS_MESSAGE
     assert "继续" in CRISIS_MESSAGE
+
+
+def test_model_output_with_newline_inside_crisis_words():
+    from mentor.safety import model_output_is_crisis
+    assert model_output_is_crisis('{"note": "我不想\n活了"}')

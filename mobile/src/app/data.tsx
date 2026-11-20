@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 
 import { Country, deleteMe, exportData, getMe, Me, putMe } from "@/api";
-
-const COUNTRIES: [Country, string][] = [["CN", "中国"], ["FR", "法国"], ["", "别的国家 / 不想说"]];
+import { COUNTRIES } from "@/components/consent";
 
 /** 导出成文件：网页版直接下载，手机上用系统的分享（存到文件、发给自己都行）。 */
 async function saveJson(name: string, text: string) {
@@ -39,7 +38,7 @@ export default function DataScreen() {
   }
 
   const changeCountry = (c: Country) =>
-    run(async () => setMe(await putMe(c, me?.is_adult ?? false, me!.privacy.version)));
+    run(async () => setMe(await putMe(c, me?.is_adult ?? false)));
 
   const doExport = () =>
     run(async () => {

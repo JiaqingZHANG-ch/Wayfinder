@@ -135,7 +135,7 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 
 ## 第 8 周：隐私（同意、导出、删除、按国家的热线）
 
-- 第一次打开先看隐私说明（`src/server/privacy.py`，改了内容就把版本号加 1），选国家、勾成年，点「同意，开始」才进建档；没同意，`POST /onboarding` 回 409。接口：`GET /me`、`PUT /me`。
+- 第一次打开先看隐私说明（`src/server/privacy.py`，改了内容就把版本号加 1，老用户下次打开首页会先看到新版），选国家、勾成年，点「同意，开始」才进建档；没同意，`POST /onboarding` 回 409。接口：`GET /me`、`PUT /me`。
 - 危机提示按国家显示热线：中国 12356、法国 3114（2026-11-14 核实过）；别的国家或没填就两边都列。号码在 `src/mentor/safety.py` 的 `HOTLINES`。
 - 首页「我的数据 →」：换国家、导出（`GET /export`，网页版下载 JSON，手机上走系统分享）、删除（`DELETE /me?confirm=true`，删完回到同意页）。
 - 导出和删除覆盖数据库里的每张表（`db.USER_TABLES`）。已经写进 Google 日历的计划、`var/google/` 里的授权令牌不在删除范围里，页面上说明了。
