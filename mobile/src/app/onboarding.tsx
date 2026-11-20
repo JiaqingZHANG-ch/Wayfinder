@@ -1,16 +1,19 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
 
 import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings } from "@/api";
 import { EnergyPick } from "@/components/chips";
 import { Consent } from "@/components/consent";
+import { Body, Button, Card, CrisisCard, Field, Notice, Row, Screen, Small, Title } from "@/components/ui";
+import { radius, space, type, useColors } from "@/theme";
 
 type Step = "consent" | "chat" | "confirm" | "form";
 
 /** 轻量建档：先看隐私说明并同意 → 聊方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯。 */
 export default function Onboarding() {
+  const c = useColors();
   const [step, setStep] = useState<Step>("chat");
   const [question, setQuestion] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
@@ -76,40 +79,45 @@ export default function Onboarding() {
 
   if (crisis) {
     return (
-      <View style={styles.page}>
-        <Text style={styles.crisis}>{crisis}</Text>
-        <Button label="继续" onPress={() => setCrisis(null)} />
-      </View>
+      <Screen>
+        <CrisisCard message={crisis} />
+        <Button label="继续" variant="secondary" onPress={() => setCrisis(null)} />
+      </Screen>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      {reply && <Text style={styles.reply}>{reply}</Text>}
-      {error && <Text style={styles.error}>{error}</Text>}
+    <Screen>
+      {reply && (
+        <View style={{ alignSelf: "flex-start", maxWidth: "90%", backgroundColor: c.soft, borderRadius: radius.lg,
+          borderTopLeftRadius: radius.sm, padding: space.lg }}>
+          <Text style={[type.body, { color: c.onSoft }]}>{reply}</Text>
+        </View>
+      )}
+      {error && <Notice tone="error">{error}</Notice>}
 
       {step === "consent" && me && <Consent me={me} onDone={startChat} />}
 
+      {step === "chat" && !question && !error && <Body muted>……</Body>}
       {step === "chat" && question && (
         <>
-          <Text style={styles.question}>{question}</Text>
-          <TextInput style={styles.input} value={answer} onChangeText={setAnswer} multiline
-            placeholder="想到什么写什么，一两句就够" />
-          <Button label={busy ? "……" : "说完了"} onPress={sendAnswer} disabled={busy} />
+          <Title>{question}</Title>
+          <Field value={answer} onChangeText={setAnswer} multiline placeholder="想到什么写什么，一两句就够" />
+          <Button label="说完了" busyLabel={busy ? "正在听……" : undefined} disabled={!answer.trim()} onPress={sendAnswer} />
         </>
       )}
 
       {step === "confirm" && proposals.map((p) => (
-        <View key={p.id} style={styles.card}>
-          <Text style={styles.label}>我听到的{p.level}（不对就直接改）：</Text>
-          <TextInput style={styles.input} value={p.content} multiline
+        <Card key={p.id}>
+          <Small muted>我听到的{p.level}（不对就直接改）</Small>
+          <Field value={p.content} multiline accessibilityLabel={`我听到的${p.level}`}
             onChangeText={(content) => setProposals(proposals.map((x) => x.id === p.id ? { ...x, content } : x))} />
           <Button label="对，记下" onPress={() => confirm(p)} />
-        </View>
+        </Card>
       ))}
 
       {step === "form" && <SettingsForm onError={setError} onCrisis={setCrisis} />}
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -137,63 +145,43 @@ function SettingsForm({ onError, onCrisis }: { onError: (m: string) => void; onC
   const minutes = { required: "要填", pattern: { value: /^\d+$/, message: "写分钟数" } };
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.question}>最后几样，排计划要用：</Text>
-      <Field control={control} name="wake" label="几点起床" rules={time} error={errors.wake?.message} />
-      <Field control={control} name="sleep" label="几点上床" rules={time} error={errors.sleep?.message} />
-      <Field control={control} name="title" label="先养一个习惯，叫什么" rules={{ required: "要填" }}
-        error={errors.title?.message} />
-      <Field control={control} name="minutes" label="精神好的时候做几分钟" rules={minutes} error={errors.minutes?.message} />
-      <Field control={control} name="floor_min" label="没电的时候至少做几分钟（保底版）" rules={minutes}
-        error={errors.floor_min?.message} />
-      <View style={styles.field}>
-        <Text style={styles.label}>做这件事对你来说是（可不选）</Text>
+    <>
+      <Title>最后几样，排计划要用</Title>
+      <Card>
+        <Row>
+          <Item control={control} name="wake" label="几点起床" rules={time} error={errors.wake?.message} short />
+          <Item control={control} name="sleep" label="几点上床" rules={time} error={errors.sleep?.message} short />
+        </Row>
+      </Card>
+      <Card>
+        <Item control={control} name="title" label="先养一个习惯，叫什么" rules={{ required: "要填" }}
+          error={errors.title?.message} />
+        <Row>
+          <Item control={control} name="minutes" label="精神好时做几分钟" rules={minutes} error={errors.minutes?.message} short />
+          <Item control={control} name="floor_min" label="没电时至少几分钟" rules={minutes} error={errors.floor_min?.message} short />
+        </Row>
+        <Small muted>做这件事对你来说是（可不选）</Small>
         <Controller control={control} name="energy"
           render={({ field }) => <EnergyPick value={field.value} onChange={field.onChange} />} />
-      </View>
-      <Button label={isSubmitting ? "……" : "排第一张计划"} onPress={handleSubmit(onSubmit)} disabled={isSubmitting} />
-    </View>
+      </Card>
+      <Button label="排第一张计划" busyLabel={isSubmitting ? "正在排……" : undefined} onPress={handleSubmit(onSubmit)} />
+    </>
   );
 }
 
-function Field({ control, name, label, rules, error }: {
+function Item({ control, name, label, rules, error, short }: {
   control: ReturnType<typeof useForm<FormValues>>["control"];
   name: Exclude<keyof FormValues, "energy">;
   label: string;
   rules: object;
   error?: string;
+  short?: boolean;
 }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <Controller control={control} name={name} rules={rules}
-        render={({ field }) => (
-          <TextInput style={styles.input} value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur} />
-        )} />
-      {error && <Text style={styles.error}>{error}</Text>}
-    </View>
+    <Controller control={control} name={name} rules={rules}
+      render={({ field }) => (
+        <Field label={label} error={error} value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur}
+          style={short ? { flex: 1, minWidth: 130 } : undefined} />
+      )} />
   );
 }
-
-function Button({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
-  return (
-    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button"
-      style={[styles.button, disabled && { opacity: 0.5 }]}>
-      <Text style={styles.buttonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  page: { padding: 16, gap: 12, maxWidth: 560, width: "100%", alignSelf: "center" },
-  reply: { color: "#5f6368" },
-  question: { fontSize: 18, fontWeight: "500" },
-  card: { gap: 10 },
-  field: { gap: 4 },
-  label: { color: "#3c4043" },
-  input: { borderWidth: 1, borderColor: "#dadce0", borderRadius: 8, padding: 10 },
-  error: { color: "#b3261e" },
-  crisis: { padding: 16, lineHeight: 22 },
-  button: { backgroundColor: "#1a73e8", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  buttonText: { color: "#fff", fontSize: 16 },
-});

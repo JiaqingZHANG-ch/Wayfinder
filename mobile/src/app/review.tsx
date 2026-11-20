@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { View } from "react-native";
 
 import { Adjustment, answerAdjustment, confirmProfile, getReview, isCrisis, Review } from "@/api";
+import { Body, Button, Card, CrisisCard, Field, Label, Loading, Notice, Row, Screen, Small, Title } from "@/components/ui";
+import { space } from "@/theme";
 
 /** 调整写成人话：数字是后端给的，这里只拼字。 */
 function describe(a: Adjustment): string {
@@ -13,13 +15,14 @@ function describe(a: Adjustment): string {
 export default function ReviewScreen() {
   const [review, setReview] = useState<Review | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [crisis, setCrisis] = useState<string | null>(null);
   const [stillRight, setStillRight] = useState<"asking" | "editing" | "done">("asking");
   const [edited, setEdited] = useState("");
   const [busy, setBusy] = useState(false); // 一次只答一条：连点也只发一个请求
 
   useEffect(() => {
     getReview().then(
-      (r) => (isCrisis(r) ? setMessage(r.message) : setReview(r)),
+      (r) => (isCrisis(r) ? setCrisis(r.message) : setReview(r)),
       (e: Error) => setMessage(e.message),
     );
   }, []);
@@ -27,6 +30,7 @@ export default function ReviewScreen() {
   async function answer(index: number, accept: boolean) {
     if (!review || busy) return;
     setBusy(true);
+    setMessage(null);
     try {
       setReview(await answerAdjustment(review.id, index, accept));
     } catch (e) {
@@ -40,83 +44,65 @@ export default function ReviewScreen() {
     if (!review?.still_right) return;
     try {
       const res = await confirmProfile(review.still_right.id, content);
-      if (isCrisis(res)) setMessage(res.message);
+      if (isCrisis(res)) setCrisis(res.message);
       else setStillRight("done");
     } catch (e) {
       setMessage((e as Error).message);
     }
   }
 
-  if (!review) return <Text style={styles.page}>{message ?? "正在看这 7 天的记录……"}</Text>;
+  if (crisis) return <Screen><CrisisCard message={crisis} /></Screen>;
+  if (!review) return message ? <Screen><Notice tone="error">{message}</Notice></Screen> : <Loading text="正在看这 7 天的记录……" />;
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      {review.last_question && <Text style={styles.muted}>上周带进来的问题：{review.last_question}</Text>}
-      <Text style={styles.summary}>{review.summary}</Text>
+    <Screen>
+      <View style={{ gap: space.xs }}>
+        <Title>这一周</Title>
+        {review.last_question && <Small muted>上周带进来的问题：{review.last_question}</Small>}
+      </View>
+      <Card>
+        <Body>{review.summary}</Body>
+      </Card>
 
-      {review.adjustments.length > 0 && <Text style={styles.heading}>可以试试的调整</Text>}
+      {review.adjustments.length > 0 && <Label>可以试试的调整</Label>}
       {review.adjustments.map((a, i) => (
-        <View key={i} style={styles.card}>
-          <Text style={styles.body}>{describe(a)}</Text>
-          <Text style={styles.muted}>{a.why}</Text>
+        <Card key={i}>
+          <Label>{describe(a)}</Label>
+          <Small muted>{a.why}</Small>
           {a.answer ? (
-            <Text style={styles.muted}>{a.answer === "好" ? "已改，从今天的计划开始" : "先不改"}</Text>
+            <Small muted>{a.answer === "好" ? "✓ 已改，从今天的计划开始" : "先不改"}</Small>
           ) : (
-            <View style={styles.row}>
-              <Pressable style={styles.button} onPress={() => answer(i, true)} disabled={busy} accessibilityRole="button">
-                <Text style={styles.buttonText}>好</Text>
-              </Pressable>
-              <Pressable style={styles.button} onPress={() => answer(i, false)} disabled={busy} accessibilityRole="button">
-                <Text style={styles.buttonText}>先不改</Text>
-              </Pressable>
-            </View>
+            <Row>
+              <Button label="好" onPress={() => answer(i, true)} disabled={busy} />
+              <Button label="先不改" variant="quiet" onPress={() => answer(i, false)} disabled={busy} />
+            </Row>
           )}
-        </View>
+        </Card>
       ))}
 
       {review.still_right && stillRight !== "done" && (
-        <View style={styles.card}>
-          <Text style={styles.body}>{review.still_right.question}</Text>
+        <Card>
+          <Label>{review.still_right.question}</Label>
           {stillRight === "asking" ? (
-            <View style={styles.row}>
-              <Pressable style={styles.button} onPress={() => reconfirm()} accessibilityRole="button">
-                <Text style={styles.buttonText}>还对</Text>
-              </Pressable>
-              <Pressable
-                style={styles.button}
-                onPress={() => (setEdited(review.still_right!.content), setStillRight("editing"))}
-                accessibilityRole="button"
-              >
-                <Text style={styles.buttonText}>要改</Text>
-              </Pressable>
-            </View>
+            <Row>
+              <Button label="还对" onPress={() => reconfirm()} />
+              <Button label="要改" variant="quiet"
+                onPress={() => (setEdited(review.still_right!.content), setStillRight("editing"))} />
+            </Row>
           ) : (
-            <View style={styles.row}>
-              <TextInput style={styles.input} value={edited} onChangeText={setEdited} />
-              <Pressable style={styles.button} onPress={() => reconfirm(edited)} accessibilityRole="button">
-                <Text style={styles.buttonText}>改好了</Text>
-              </Pressable>
-            </View>
+            <>
+              <Field value={edited} onChangeText={setEdited} multiline accessibilityLabel="改成" />
+              <Button label="改好了" onPress={() => reconfirm(edited)} />
+            </>
           )}
-        </View>
+        </Card>
       )}
 
-      <Text style={styles.heading}>带进下周的问题</Text>
-      <Text style={styles.body}>{review.question}</Text>
-      {message && <Text style={styles.muted}>{message}</Text>}
-    </ScrollView>
+      <Card>
+        <Small muted>带进下周的问题</Small>
+        <Title>{review.question}</Title>
+      </Card>
+      {message && <Notice tone="error">{message}</Notice>}
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { padding: 16, gap: 12, maxWidth: 560, width: "100%", alignSelf: "center" },
-  summary: { fontSize: 16, lineHeight: 26 },
-  heading: { fontSize: 15, fontWeight: "600", marginTop: 8 },
-  card: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, padding: 12, gap: 8 },
-  body: { fontSize: 15 },
-  muted: { fontSize: 14, color: "#666" },
-  row: { flexDirection: "row", gap: 8, alignItems: "center" },
-  button: { borderWidth: 1, borderColor: "#1a73e8", borderRadius: 6, paddingVertical: 6, paddingHorizontal: 14 },
-  buttonText: { color: "#1a73e8", fontSize: 15 },
-  input: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 6, fontSize: 15 },
-});

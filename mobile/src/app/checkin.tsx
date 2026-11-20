@@ -1,13 +1,17 @@
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
 
 import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, postCheckin } from "@/api";
+import { Body, Button, Card, Chip, CrisisCard, Field, Label, Loading, Notice, Row, Screen, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
+import { space, type, useColors } from "@/theme";
 
 type Choice = { status?: Status; vs_plan?: VsPlan };
 
 /** 晚间对账：每件事点一下（做了／做了保底／今天没做），想说就写一句。也可以只说一句话，让模型整理。 */
 export default function Checkin() {
+  const c = useColors();
   const [items, setItems] = useState<CheckinItem[] | null>(null);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [note, setNote] = useState("");
@@ -17,21 +21,22 @@ export default function Checkin() {
   const [logged, setLogged] = useState<number | null>(null);
   const [done, setDone] = useState<CheckinResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [crisis, setCrisis] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"buttons" | "sentence" | null>(null);
 
   useEffect(() => {
     getToday().then((plan) => setItems(checkinItems(plan)), (e: Error) => setMessage(e.message));
     getWeek().then((w) => setLogged(w.logged_days), () => {});
   }, []);
 
-  const pick = (id: string, c: Choice) => setChoices({ ...choices, [id]: { ...choices[id], ...c } });
+  const pick = (id: string, ch: Choice) => setChoices({ ...choices, [id]: { ...choices[id], ...ch } });
 
-  async function send(body: Parameters<typeof postCheckin>[0]) {
-    setBusy(true);
+  async function send(body: Parameters<typeof postCheckin>[0], kind: "buttons" | "sentence") {
+    setBusy(kind);
     setMessage(null);
     try {
       const res = await postCheckin(body);
-      if (isCrisis(res)) setMessage(res.message);
+      if (isCrisis(res)) setCrisis(res.message);
       else {
         setDone(res);
         getWeek().then((w) => setLogged(w.logged_days), () => {});
@@ -39,96 +44,81 @@ export default function Checkin() {
     } catch (e) {
       setMessage((e as Error).message); // 一句话没整理出来时，后端会说「请点按钮补上」
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   function saveButtons() {
     const picked: Record<string, { status: Status; vs_plan?: VsPlan }> = {};
-    for (const [id, c] of Object.entries(choices)) {
-      if (c.status) picked[id] = { status: c.status, vs_plan: c.status === "skip" ? undefined : c.vs_plan };
+    for (const [id, ch] of Object.entries(choices)) {
+      if (ch.status) picked[id] = { status: ch.status, vs_plan: ch.status === "skip" ? undefined : ch.vs_plan };
     }
-    send({ result: { items: picked, note, blocker, tomorrow_task: tomorrow } });
+    send({ result: { items: picked, note, blocker, tomorrow_task: tomorrow } }, "buttons");
   }
 
-  if (!items) return <Text style={styles.page}>{message ?? "正在读今天的计划……"}</Text>;
+  if (crisis) return <Screen><CrisisCard message={crisis} /><Button label="继续" variant="secondary" onPress={() => setCrisis(null)} /></Screen>;
+  if (!items) return message ? <Screen><Notice tone="error">{message}</Notice></Screen> : <Loading text="正在读今天的计划……" />;
 
   if (done) {
     return (
-      <ScrollView contentContainerStyle={styles.page}>
-        <Text style={styles.closing}>{done.closing}</Text>
-        {logged !== null && <Text style={styles.muted}>这 7 天记录了 {logged} 天。</Text>}
-        <Pressable style={styles.secondary} onPress={() => setDone(null)} accessibilityRole="button">
-          <Text>再改一下</Text>
-        </Pressable>
-      </ScrollView>
+      <Screen>
+        <Card style={{ paddingVertical: space.xxl, alignItems: "center", gap: space.lg }}>
+          <Text style={[type.title, { color: c.text, textAlign: "center" }]}>{done.closing}</Text>
+          {logged !== null && <Small muted>这 7 天记录了 {logged} 天</Small>}
+        </Card>
+        <Button label="回到今天" variant="secondary" onPress={() => router.replace("/")} />
+        <Button label="再改一下" variant="quiet" onPress={() => setDone(null)} />
+      </Screen>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      {logged !== null && <Text style={styles.muted}>这 7 天记录了 {logged} 天。</Text>}
-      {items.length === 0 && <Text style={styles.muted}>今天的计划里没有要对账的事。</Text>}
-      {items.map((item) => (
-        <View key={item.id} style={styles.item}>
-          <Text style={styles.itemTitle}>{item.title}</Text>
-          <Row options={STATUS_LABELS} value={choices[item.id]?.status} onPick={(status) => pick(item.id, { status })} />
-          {item.project && choices[item.id]?.status && choices[item.id]?.status !== "skip" && (
-            <Row options={VS_PLAN_LABELS} value={choices[item.id]?.vs_plan} onPick={(vs_plan) => pick(item.id, { vs_plan })} />
-          )}
-        </View>
-      ))}
-      <TextInput style={styles.input} placeholder="想说一句也可以，不写也行" value={note} onChangeText={setNote} multiline />
-      <TextInput style={styles.input} placeholder="今天卡在哪（可不填）" value={blocker} onChangeText={setBlocker} />
-      <TextInput style={styles.input} placeholder="明天最想先做的一件事（可不填）" value={tomorrow} onChangeText={setTomorrow} />
-      <Pressable style={[styles.primary, busy && styles.dim]} onPress={saveButtons} disabled={busy} accessibilityRole="button">
-        <Text style={styles.primaryText}>记好了</Text>
-      </Pressable>
+    <Screen>
+      <View style={{ gap: space.xs }}>
+        <Title>今天过得怎么样</Title>
+        <Body muted>每件事点一下就好。{logged !== null ? `这 7 天记录了 ${logged} 天。` : ""}</Body>
+      </View>
 
-      <Text style={styles.or}>懒得点？一句话说完也行</Text>
-      <TextInput style={styles.input} placeholder="比如：英语背了，看书只看了十分钟，复习比预想花得多"
-        value={sentence} onChangeText={setSentence} multiline />
-      <Pressable style={[styles.secondary, busy && styles.dim]} disabled={busy || !sentence.trim()}
-        onPress={() => send({ sentence })} accessibilityRole="button">
-        <Text>{busy ? "正在整理……" : "帮我记"}</Text>
-      </Pressable>
-      {message && <Text style={styles.message}>{message}</Text>}
-    </ScrollView>
+      {items.length === 0 && <Body muted>今天的计划里没有要对账的事。</Body>}
+      {items.map((item) => (
+        <Card key={item.id}>
+          <Label>{item.title}</Label>
+          <Options options={STATUS_LABELS} value={choices[item.id]?.status} onPick={(status) => pick(item.id, { status })} />
+          {item.project && choices[item.id]?.status && choices[item.id]?.status !== "skip" && (
+            <Options options={VS_PLAN_LABELS} value={choices[item.id]?.vs_plan} onPick={(vs_plan) => pick(item.id, { vs_plan })} />
+          )}
+        </Card>
+      ))}
+
+      <Field label="想说一句也可以" placeholder="不写也行" value={note} onChangeText={setNote} multiline />
+      <Field label="今天卡在哪" placeholder="可不填" value={blocker} onChangeText={setBlocker} />
+      <Field label="明天最想先做的一件事" placeholder="可不填，填了明天会先排它" value={tomorrow} onChangeText={setTomorrow} />
+      <Button label="记好了" busyLabel={busy === "buttons" ? "正在记……" : undefined} disabled={!!busy} onPress={saveButtons} />
+
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, marginTop: space.lg }}>
+        <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
+        <Small muted>或者一句话说完</Small>
+        <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
+      </View>
+      <Field placeholder="比如：英语背了，看书只看了十分钟，复习比预想花得多" value={sentence} onChangeText={setSentence}
+        multiline />
+      <Button label="帮我记" variant="secondary" busyLabel={busy === "sentence" ? "正在整理……" : undefined}
+        disabled={!!busy || !sentence.trim()} onPress={() => send({ sentence }, "sentence")} />
+      {message && <Notice tone="error">{message}</Notice>}
+    </Screen>
   );
 }
 
-function Row<K extends string>({ options, value, onPick }: {
+function Options<K extends string>({ options, value, onPick }: {
   options: Record<K, string>;
   value?: K;
   onPick: (k: K) => void;
 }) {
   return (
-    <View style={styles.row}>
+    <Row>
       {(Object.keys(options) as K[]).map((k) => (
-        <Pressable key={k} onPress={() => onPick(k)} accessibilityRole="radio" accessibilityState={{ checked: value === k }}
-          style={[styles.choice, value === k && styles.chosen]}>
-          <Text style={value === k ? styles.chosenText : undefined}>{options[k]}</Text>
-        </Pressable>
+        <Chip key={k} label={options[k]} on={value === k} onPress={() => onPick(k)} />
       ))}
-    </View>
+    </Row>
   );
 }
-
-const styles = StyleSheet.create({
-  page: { padding: 16, gap: 12, maxWidth: 560, width: "100%", alignSelf: "center" },
-  item: { gap: 6 },
-  itemTitle: { fontSize: 16, fontWeight: "500" },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  choice: { borderWidth: 1, borderColor: "#dadce0", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
-  chosen: { backgroundColor: "#1a73e8", borderColor: "#1a73e8" },
-  chosenText: { color: "#fff" },
-  input: { borderWidth: 1, borderColor: "#dadce0", borderRadius: 8, padding: 10 },
-  primary: { backgroundColor: "#1a73e8", borderRadius: 8, paddingVertical: 12, alignItems: "center" },
-  primaryText: { color: "#fff", fontSize: 16 },
-  secondary: { borderWidth: 1, borderColor: "#dadce0", borderRadius: 8, paddingVertical: 10, alignItems: "center" },
-  dim: { opacity: 0.5 },
-  or: { marginTop: 16, color: "#5f6368" },
-  muted: { color: "#5f6368" },
-  closing: { fontSize: 16, lineHeight: 24 },
-  message: { color: "#b3261e" },
-});
