@@ -164,3 +164,16 @@
 - `DELETE /plan/block/{block_id}?version=N`：返回 `GET /today` 的形状。
 - `POST /plan/reflow {version}`：返回 `GET /today` 的形状，另加 `before: Block[]`，是重排前那一版的块，给 `planDiff` 用。
 - `POST /transcribe`（multipart，字段名 `audio`）：返回 `{text}`；没配转写返回 501。
+
+## 评审后补的约定（分支评审第 1–7、10、13、14 条）
+- 所有重排今天的地方（`/energy`、改设置、`/plan/reflow`、`/day/say`）走同一个函数 `reflow`：
+  - 还没到起床时间就排整天；过了起床时间只排现在之后，已经过去和正在做的块照存着的原样留下。`/day/say` 也一样，今天还没有计划时先按设置排出今天本来的样子当「过去」（不存）。凌晨还算昨天时 `/day/say` 和 `/energy` 一样返回 409。
+  - 钉住的块就是最新版计划里 `pinned: true` 的块，每次重排都带着：还没开始的当 fixed 喂求解器，排完换回原样；和正在做的块重叠、求解器没留下的也原样加回（允许重叠）。`/day/say` 替换事项时，原来事项的块不再钉住。
+  - 今天必做的排不完不再 422：能排多少排多少，`warnings` 里加一句「今天剩下的时间排不下：写报告（还差 40 分钟）」。固定事项冲突等别的排不下照旧 422。已经过去和正在做的今天必做块按钟点分钟扣掉。
+- 计划 JSON 多一个 `skipped: string[]`：今天删掉的习惯、可选项（块 id）和设置里的项目（任务 id），之后任何重排都不排它们。
+- `/plan/edit`：带 `item_id` 的块（包括输出成 class 的说的固定事项）都能改。改了时长，事项的 `minutes` 改成今天排的总长、`estimated: false`、`source: "说的"`；说的固定事项挪了，事项的 `start`、`end` 跟着改。
+- `DELETE /plan/block/{id}`：只有 must、proj、flex 和带 `item_id` 的块能删，课、吃饭、路上返回 422。
+- `POST /plan/reflow` 另加 `overlaps: string[]`：和钉住的块撞上的块（两边都列）。
+- 今天必做的块长按 5 分钟取整，不凑成 30 分钟的番茄（C28）。
+- `/day/say` 一句话里有不合格的项：丢掉那一项，其余照排；全都不合格才 422「没听清」。
+- `/transcribe`：先看 `Content-Length`（没有 411，超过 413），再看 `Origin`（不在白名单 403），然后才收请求体。

@@ -96,9 +96,16 @@ def parse_day(model: ModelPort, sentence: str, remembered: Callable[[str], int |
         if model_output_is_crisis(raw):  # 先查危机，再查格式
             return "crisis", None
         try:
-            items = [_clean(x, remembered) for x in json.loads(raw)["items"]]
+            got = json.loads(raw)["items"]
+            iter(got)
         except (ValueError, KeyError, TypeError, RecursionError):
             continue
+        items = []
+        for x in got:  # 不合格的那一项丢掉，其余照排；全都不合格才算没听清
+            try:
+                items.append(_clean(x, remembered))
+            except (ValueError, TypeError, RecursionError):
+                pass
         if items:
             return "ok", items
     return "bad", None

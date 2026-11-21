@@ -202,4 +202,5 @@ $env:WHISPER_MODEL = 'U:\Obsidian\AI知识库\AI工作空间\模型\faster-whisp
 ```
 
 - 每次请求都重新加载模型（代码里有 `shortcut:` 注释），超时 120 秒。
+- 先看请求头再收请求体：没有 `Content-Length` 返回 411，超过 5MB（加 64KB 的 multipart 余量）直接 413，不先落盘；带了 `Origin` 又不在 CORS 白名单（`WEB_ORIGINS`）里的返回 403（multipart 不走预检，别的网页也能直接发）。手机 App 不带 `Origin`，照常放行。
 - 实测（2026-11-21，本机 CPU，small、int8）：1 秒静音 wav 单跑脚本约 1.0 秒，经 `/transcribe` 约 1.0 秒，返回空字符串。静音段被 VAD 跳过，这个数只是加载模型的开销；真说话的耗时和准确度还没测。

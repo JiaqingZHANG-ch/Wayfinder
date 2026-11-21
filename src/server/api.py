@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StrictInt, ValidationError
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile as StarletteUpload
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.council import CARDS_DIR, Card, load_cards, run_quarter_council, run_versions_council
@@ -50,6 +52,7 @@ WEB_ORIGINS = ["http://localhost:8081", "http://127.0.0.1:8081"]
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[2] / "planner" / "examples" / "users" / "学生.json"
 TRANSCRIBE_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "transcribe_once.py"
 MAX_AUDIO = 5 * 1024 * 1024
+MULTIPART_SLACK = 64 * 1024  # multipart 的分隔行和字段头，录音本身另外按 MAX_AUDIO 查
 TRANSCRIBE_SECONDS = 120
 
 
@@ -291,11 +294,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                                                 "deadline": (day + timedelta(days=1)).isoformat()}]
         return d
 
+    def skipped(day) -> list[str]:
+        """今天删掉、不再排的习惯、可选项和设置里的项目（id）：跟着当天的计划存，每一版都带着。"""
+        latest = db.latest_plan(USER_ID, day)
+        return latest["plan"].get("skipped", []) if latest else []
+
     def day_input(raw: dict, day) -> dict:
         """day_raw 再并进用户今天说的事项：fixed 的进 fixed（meeting），task 的进 tasks（截止写成当天、今天必做）。
         说的固定事项和设置里的课、固定事项撞了，以说的为准：今天去掉设置里那一项，提示放进 _warnings
-        （求解器不读下划线开头的键，tag_items 拿去给前端）。所有排今天的地方都走这里，重排时当天事项才不会丢。"""
+        （求解器不读下划线开头的键，tag_items 拿去给前端）。所有排今天的地方都走这里，重排时当天事项才不会丢。
+        今天删掉的习惯、可选项和设置里的项目（skipped）也在这里去掉。"""
         d = day_raw(raw, day)
+        if skip := set(skipped(day)):
+            for k in ("habits", "flex", "tasks"):
+                d[k] = [x for x in d.get(k, []) if x["id"] not in skip]
+            d["habit_block"] = [i for i in d.get("habit_block", []) if i not in skip]
         items = db.day_items(USER_ID, day)
         cost = {**d.get("energy", {}).get("cost", {}), **{i["id"]: EFFORT_COST[i["effort"]] for i in items if i["kind"] == "task"}}
         said = [i for i in items if i["kind"] == "fixed"]
@@ -323,7 +336,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         except InputError as e:
             raise HTTPException(422, str(e)) from None
         if latest is None:
-            return solved(lambda: solve_day(inp)), None
+            return solved(lambda: solve_day(inp, soft_must=True)), None
         old = db.plan_input(USER_ID)
         if old is not None and input_from_dict({**day_input(old, day), **({"energy_level": level} if level else {})}) == inp:
             return latest["plan"], level  # 改的东西不影响今天怎么排（比如只改了提醒时间）：今天的计划一点不动
@@ -331,9 +344,63 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         blocks = latest["plan"]["blocks"]
         # 凌晨还算昨天（昨天没有「之后」了），或者今天已经走完：只检查新设置排得出来，今天的计划和电量不动
         if t.date() != day or (blocks and all(to_min(b["end"]) <= now_min for b in blocks)):
-            solved(lambda: solve_day(inp))
+            solved(lambda: solve_day(inp, soft_must=True))
             return latest["plan"], level
-        return solved(lambda: replan_after(inp, blocks, now_min)), level
+        return reflow(day, raw, latest, now_min, level), level
+
+    def reflow(day, raw: dict, stored: dict | None, now_min: int, level: int | None,
+               done_ids: list[str] = (), unpin: set[str] = frozenset()) -> dict:
+        """所有重排今天的地方（报电量、改设置、/plan/reflow、说一句话）都走这里。
+        还没到起床时间（或今天还没有计划）就排整天；不然只排现在之后，已经过去和正在做的块照存着的原样留下。
+        钉住的块（unpin 里的除外）：还没开始的当固定事项喂求解器，排完按 id 换回原样（kind、pinned、task_id）；
+        求解器没留下的（比如和正在做的块重叠）也原样加回去，允许重叠。今天跳过的不排，今天必做的排不完只提醒。"""
+        before = stored["plan"]["blocks"] if stored else []
+        pins = {b["id"]: b for b in before if b.get("pinned") and b["id"] not in unpin}
+        fresh = {i: b for i, b in pins.items() if to_min(b["start"]) >= now_min}  # 已经开始的 replan_from 当过去的留着
+        took: dict[str, int] = {}
+        for b in fresh.values():
+            if b.get("task_id"):
+                took[b["task_id"]] = took.get(b["task_id"], 0) + minutes(b)
+        d = day_input(raw, day)
+        d["fixed"] = [*(x for x in d.get("fixed", []) if x["id"] not in fresh),
+                      *({"id": b["id"], "title": b["title"], "start": b["start"], "end": b["end"],
+                         "where": "home", "kind": "meeting"} for b in fresh.values())]
+        for k in ("habits", "flex"):  # 钉住的习惯、可选项已经有位置了，别再排一遍
+            d[k] = [x for x in d.get(k, []) if x["id"] not in fresh]
+        d["habit_block"] = [i for i in d.get("habit_block", []) if i not in fresh]
+        # 钉住的任务块已经占的分钟从还要做的里扣掉，免得同一件事排两遍
+        d["tasks"] = [{**x, "remaining_min": x["remaining_min"] - took.get(x["id"], 0)}
+                      for x in d.get("tasks", []) if x["remaining_min"] > took.get(x["id"], 0)]
+        if level:
+            d["energy_level"] = level
+        try:
+            inp = input_from_dict(d)
+        except InputError as e:
+            raise HTTPException(422, str(e)) from None
+        whole = (stored is None or now_min <= inp.wake) and not done_ids
+        plan = solved(lambda: solve_day(inp, soft_must=True) if whole else replan_after(inp, before, now_min, done_ids))
+        blocks, names = [], {b["id"] for b in plan["blocks"]} | set(pins)
+        for b in plan["blocks"]:
+            p = pins.get(b["id"])
+            if p and (b["start"], b["end"]) == (p["start"], p["end"]):
+                continue  # 钉住的块本身（求解器输出成了 class）：下面原样加回
+            if b["id"].startswith("free-") and any(hits(b, x) for x in pins.values()):
+                continue
+            if p:  # 新排的块和钉住的撞了 id（同一个任务拆出来的 x-0）就改名
+                while b["id"] in names:
+                    b = {**b, "id": b["id"] + "-r"}
+                names.add(b["id"])
+            blocks.append(b)
+        return {**plan, "blocks": sorted(blocks + list(pins.values()), key=lambda b: to_min(b["start"])),
+                "skipped": stored["plan"].get("skipped", []) if stored else []}
+
+    def hits(a: dict, b: dict) -> bool:
+        return to_min(a["start"]) < to_min(b["end"]) and to_min(b["start"]) < to_min(a["end"])
+
+    def overlaps(blocks: list[dict]) -> list[str]:
+        """和钉住的块撞上的块（两边都算，自由时间不算）。"""
+        real = [b for b in blocks if not b["id"].startswith("free-")]
+        return [x["id"] for x in real if any(y is not x and (x.get("pinned") or y.get("pinned")) and hits(x, y) for y in real)]
 
     def check_week(raw: dict, day) -> None:
         """今天之外的六天也各试排一次：哪天排不下就不让存，免得到那天首页打不开。"""
@@ -430,8 +497,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         inp = plan_input(day, body.level)
         at = body.now or to_hhmm(t.hour * 60 + t.minute)
         stored = db.latest_plan(USER_ID, day)  # 「已经过去的」照存着的计划（他真看到的），不按设置假想一遍上午
-        plan = solved(lambda: replan_after(inp, stored["plan"]["blocks"], to_min(at), body.done_ids) if stored
-                      else replan_from(inp, at, body.done_ids))
+        done = [i for i in body.done_ids if i not in skipped(day)]  # 今天删掉的本来就不排了
+        plan = reflow(day, db.plan_input(USER_ID), stored, to_min(at), body.level, done) if stored \
+            else solved(lambda: replan_from(inp, at, done, soft_must=True))
         if body.preview:  # 预览不存：关掉面板，今天的计划和电量都不变；version 0 表示「还没存」
             return {"day": day.isoformat(), "version": 0, "confirmed": False, "energy_level": body.level,
                     **tag_items(day, plan)}
@@ -440,28 +508,37 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
     @app.post("/day/say", summary="说一句今天要做的事 → 拆成事项（替换当天全部事项）→ 重排 → 返回未确认的新计划")
     def post_day_say(body: DaySayIn):
-        day = logical_date(clock())
+        t = clock()
+        day = logical_date(t)
         if crisis := screen(body, day):
             return crisis
         if len(body.text) > MAX_INPUT:
             raise HTTPException(422, f"一次最多 {MAX_INPUT} 字")
         if db.plan_input(USER_ID) is None:
             raise HTTPException(409, "还没有设置，先完成建档")
+        latest = db.latest_plan(USER_ID, day)
+        if latest and t.date() != day:  # 凌晨还算昨天，和报电量一样：昨天已经没有「之后」可排了
+            raise HTTPException(409, "今天已经过完了，早上再看新的计划")
         outcome, items = parse_day(model, body.text, lambda k: db.remembered_duration(USER_ID, k))
         if outcome == "crisis":
             db.log_crisis(USER_ID, day, body.text)
             return crisis_reply()
         if outcome == "bad":
             raise HTTPException(422, "没听清，换个说法或直接加")
-        latest = db.latest_plan(USER_ID, day)
         old = db.day_items(USER_ID, day)
+        level = latest["energy_level"] if latest else None
+        # 今天还没有计划（没打开过首页）：先按现在的设置排出今天本来的样子当「已经过去的」，只是不存
+        base = latest or {"plan": solved(lambda: solve_day(plan_input(day), soft_must=True))}
+        # 这次说的替换掉原来的全部事项：原来那些事项的块不再钉住（还没开始的跟着事项一起没了）
+        unpin = {b["id"] for b in latest["plan"]["blocks"] if any(i["id"] in (b["id"], b.get("task_id")) for i in old)} \
+            if latest else set()
         db.set_day_items(USER_ID, day, items)
         try:  # 排不下就把原来的事项放回去，别留下一份排不出来的
-            plan = solved(lambda: solve_day(plan_input(day, latest["energy_level"] if latest else None)))
+            plan = reflow(day, db.plan_input(USER_ID), base, t.hour * 60 + t.minute, level, unpin=unpin)
         except HTTPException:
             db.set_day_items(USER_ID, day, old)
             raise
-        db.add_plan(USER_ID, day, plan, latest["energy_level"] if latest else None)
+        db.add_plan(USER_ID, day, plan, level)
         return today_body(day)
 
     @app.post("/plan/confirm", summary="确认计划，再写入「Wayfinder 计划」日历；calendar：off / written / reconnect / failed")
@@ -507,7 +584,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         day = logical_date(clock())
         stored = latest_for(day, body.version)
         b = find_block(stored, body.block_id)
-        if b["kind"] in ("class", "life"):
+        item = item_of(day, b)
+        if b["kind"] in ("class", "life") and not item:  # 说的固定事项求解器也输出成 class，它能改
             raise HTTPException(422, "课、吃饭和路上的块不能改时间")
         s, e = to_min(body.start), to_min(body.end)
         inp = plan_input(day)
@@ -519,75 +597,51 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(422, f"一块至少 {MIN_BLOCK} 分钟")
         new = {**b, "start": body.start, "end": body.end, "pinned": True}
         blocks = sorted((new if x is b else x for x in stored["plan"]["blocks"]), key=lambda x: to_min(x["start"]))
-        if (item := item_of(day, b)) and e - s != minutes(b):
-            # 一件事可能拆成了几块：记这件事今天一共排了多久
+        if item:
+            # 一件事可能拆成了几块：按这件事今天一共排了多久
             total = sum(minutes(x) for x in blocks if item["id"] in (x["id"], x.get("task_id")))
-            db.remember_duration(USER_ID, memory_key(item["title"]), min(total, MAX_REMEMBER))
+            new_item = dict(item)
+            if item["kind"] == "fixed":  # 说的固定事项挪了，事项的起止跟着改，重排时才按新时间
+                new_item |= {"start": body.start, "end": body.end}
+            if e - s != minutes(b):  # 用户自己定了时长：事项按今天排的总长，不再标「估」
+                new_item |= {"minutes": total, "estimated": False, "source": "说的"}
+                db.remember_duration(USER_ID, memory_key(item["title"]), min(total, MAX_REMEMBER))
+            db.set_day_items(USER_ID, day, [new_item if i["id"] == item["id"] else i for i in db.day_items(USER_ID, day)])
         db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"])
         hit = [x["id"] for x in blocks if x is not new and not x["id"].startswith("free-")
                and to_min(x["start"]) < e and s < to_min(x["end"])]
         return {**today_body(day), "overlaps": hit}
 
-    @app.delete("/plan/block/{block_id}", summary="从最新版删掉一块，存成新版本；来自当天事项的连事项一起去掉，重排时不再冒出来")
+    @app.delete("/plan/block/{block_id}", summary="从最新版删掉一块，存成新版本；当天事项连事项一起去掉，习惯、可选项、项目今天跳过；重排时都不再冒出来")
     def delete_plan_block(block_id: str, version: int):
         day = logical_date(clock())
         stored = latest_for(day, version)
         b = find_block(stored, block_id)
         item = item_of(day, b)
+        if b["kind"] not in ("must", "proj", "flex") and not item:
+            raise HTTPException(422, "课、吃饭和路上的块不能删")
+        skip = stored["plan"].get("skipped", [])
         if item:
+            key = item["id"]
             db.set_day_items(USER_ID, day, [i for i in db.day_items(USER_ID, day) if i["id"] != item["id"]])
-        # 事项没了，它拆出来的别的块也一起删
-        blocks = [x for x in stored["plan"]["blocks"]
-                  if x["id"] != block_id and not (item and item["id"] in (x["id"], x.get("task_id")))]
-        db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"])
+        else:  # 习惯、可选项按块 id，项目按任务 id：今天跳过，记在计划里
+            key = b.get("task_id") or b["id"]
+            skip = [*skip, key]
+        # 事项（或项目）没了，它拆出来的别的块也一起删
+        blocks = [x for x in stored["plan"]["blocks"] if x["id"] != block_id and key not in (x["id"], x.get("task_id"))]
+        db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks, "skipped": skip}, stored["energy_level"])
         return today_body(day)
 
-    @app.post("/plan/reflow", summary="钉住的块和已经开始的块不动，其余按精力重排 → 新版本（未确认）；before 是重排前的块")
+    @app.post("/plan/reflow", summary="钉住的块和已经开始的块不动，其余按精力重排 → 新版本（未确认）；before 是重排前的块，overlaps 是和钉住的块撞上的")
     def post_reflow(body: ConfirmIn):
         t = clock()
         day = logical_date(t)
         stored = latest_for(day, body.version)
         if t.date() != day:
             raise HTTPException(409, "今天已经过完了，早上再看新的计划")
-        now_min = t.hour * 60 + t.minute
-        before = stored["plan"]["blocks"]
-        # 已经开始的钉住块 replan_from 会原样留下，这里只管还没开始的
-        pins = {b["id"]: b for b in before if b.get("pinned") and to_min(b["start"]) >= now_min}
-        took: dict[str, int] = {}
-        for b in pins.values():
-            if b.get("task_id"):
-                took[b["task_id"]] = took.get(b["task_id"], 0) + minutes(b)
-        d = day_input(db.plan_input(USER_ID), day)
-        d["fixed"] = [*(x for x in d.get("fixed", []) if x["id"] not in pins),
-                      *({"id": b["id"], "title": b["title"], "start": b["start"], "end": b["end"],
-                         "where": "home", "kind": "meeting"} for b in pins.values())]
-        for k in ("habits", "flex"):  # 钉住的习惯、可选项已经有位置了，别再排一遍
-            d[k] = [x for x in d.get(k, []) if x["id"] not in pins]
-        d["habit_block"] = [i for i in d.get("habit_block", []) if i not in pins]
-        # 钉住的任务块已经占的分钟从还要做的里扣掉，免得同一件事排两遍
-        d["tasks"] = [{**x, "remaining_min": x["remaining_min"] - took.get(x["id"], 0)}
-                      for x in d.get("tasks", []) if x["remaining_min"] > took.get(x["id"], 0)]
-        if stored["energy_level"]:
-            d["energy_level"] = stored["energy_level"]
-        try:
-            inp = input_from_dict(d)
-        except InputError as e:
-            raise HTTPException(422, str(e)) from None
-        plan = solved(lambda: replan_after(inp, before, now_min))
-        # 求解器把 fixed 一律输出成 class：钉住的块按 id 换回原来的样子（kind、pinned、task_id）；
-        # 新排的块和钉住的撞了 id（同一个任务拆出来的 x-0）就改名
-        ids = {b["id"] for b in plan["blocks"]}
-        blocks = []
-        for b in plan["blocks"]:
-            if b["id"] in pins and b["kind"] == "class":
-                b = pins[b["id"]]
-            elif b["id"] in pins:
-                while b["id"] in ids:
-                    b = {**b, "id": b["id"] + "-r"}
-                ids.add(b["id"])
-            blocks.append(b)
-        db.add_plan(USER_ID, day, {**plan, "blocks": blocks}, stored["energy_level"])
-        return {**today_body(day), "before": tag_items(day, stored["plan"])["blocks"]}
+        plan = reflow(day, db.plan_input(USER_ID), stored, t.hour * 60 + t.minute, stored["energy_level"])
+        db.add_plan(USER_ID, day, plan, stored["energy_level"])
+        return {**today_body(day), "before": tag_items(day, stored["plan"])["blocks"], "overlaps": overlaps(plan["blocks"])}
 
     def merge_log(day, result: dict, explicit: set[str]) -> dict:
         """和今天已有的记录合并（只补这次说到的，explicit 里的字段可以清空），补上电量，存下，返回整条。"""
@@ -1219,13 +1273,29 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return talk_state()
 
     @app.post("/transcribe", summary="录音（multipart 字段 audio，≤5MB）→ 文字；只回文字，App 填进输入框，用户看过再排")
-    def post_transcribe(audio: UploadFile):
+    async def post_transcribe(request: Request):
+        # 不用 UploadFile 参数：那样框架会先把整个请求体收完落盘才进来。先看请求头再读
+        size = request.headers.get("content-length", "")
+        if not size.isdigit():
+            raise HTTPException(411, "请求要带 Content-Length")
+        if int(size) > MAX_AUDIO + MULTIPART_SLACK:
+            raise HTTPException(413, "录音太长了，最多 5MB，分几段说")
+        # multipart 是 CORS 的简单请求，浏览器不先问就发：别的网页带着自己的 Origin 来，直接拒；手机 App 不带 Origin
+        if (origin := request.headers.get("origin")) is not None and origin not in WEB_ORIGINS:
+            raise HTTPException(403, "只接受 Wayfinder 自己发来的录音")
         python = os.environ.get("WHISPER_PYTHON")
         if not python:
             raise HTTPException(501, "这台电脑没装语音转写，先打字或用键盘上的话筒")
-        data = audio.file.read(MAX_AUDIO + 1)
+        async with request.form() as form:
+            audio = form.get("audio")
+            if not isinstance(audio, StarletteUpload):
+                raise HTTPException(422, "要带录音（multipart 字段 audio）")
+            data = await audio.read(MAX_AUDIO + 1)
         if len(data) > MAX_AUDIO:
             raise HTTPException(413, "录音太长了，最多 5MB，分几段说")
+        return await run_in_threadpool(transcribe, python, data)
+
+    def transcribe(python: str, data: bytes) -> dict:
         with tempfile.NamedTemporaryFile(delete=False) as f:  # 不带扩展名：PyAV 按内容认格式
             f.write(data)
         try:

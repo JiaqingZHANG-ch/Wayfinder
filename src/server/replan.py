@@ -12,5 +12,5 @@ def _block(b: dict) -> Block:
 
 
 def replan_after(inp: PlanInput, stored: list[dict], now: int, done_ids: list[str] = ()) -> DayPlan:
-    """stored 是今天存着的计划块，now 是现在（分钟），done_ids 是提前做完、不用再排的事。"""
-    return replan_from(inp, to_hhmm(now), done_ids, before=[_block(b) for b in stored])
+    """stored 是今天存着的计划块，now 是现在（分钟），done_ids 是提前做完、不用再排的事。今天必做的排不完只提醒，不报错。"""
+    return replan_from(inp, to_hhmm(now), done_ids, before=[_block(b) for b in stored], soft_must=True)

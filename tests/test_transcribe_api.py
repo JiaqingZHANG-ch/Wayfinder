@@ -60,3 +60,21 @@ def test_script_failure_and_timeout(client, monkeypatch):
 
     monkeypatch.setattr(api.subprocess, "run", slow)
     assert post(client).status_code == 504
+
+
+def test_oversized_body_rejected_before_reading_it(client, monkeypatch):
+    # 只看 Content-Length 就拦：不去解析（落盘）请求体
+    monkeypatch.setenv("WHISPER_PYTHON", "whisper-python")
+    monkeypatch.setattr(api.Request, "form", lambda *a, **k: pytest.fail("不该读请求体"))
+    r = post(client, b"x" * (api.MAX_AUDIO + api.MULTIPART_SLACK))
+    assert r.status_code == 413
+
+
+def test_other_sites_cannot_post(client, monkeypatch):
+    # multipart 不走 CORS 预检：别的网页带着自己的 Origin 发来，拒掉；白名单里的和不带 Origin 的（手机 App）照常
+    monkeypatch.setenv("WHISPER_PYTHON", "whisper-python")
+    monkeypatch.setattr(api.subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(args, 0, "好", ""))
+    files = {"audio": ("say.m4a", b"fake", "audio/m4a")}
+    assert client.post("/transcribe", files=files, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post("/transcribe", files=files, headers={"Origin": api.WEB_ORIGINS[0]}).status_code == 200
+    assert post(client).status_code == 200

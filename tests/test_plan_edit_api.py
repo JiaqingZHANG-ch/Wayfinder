@@ -8,7 +8,8 @@ from mentor.day_parse import memory_key
 from mentor.model import FakeModel
 from server.api import create_app
 from server.db import Db
-from test_day_say_api import MEETING, REPORT, TEMPLATE, reply, say
+from planner.model import to_hhmm, to_min
+from test_day_say_api import MEETING, REPORT, TEMPLATE, clocked, item, reply, say
 
 DAY = date(2026, 11, 20)
 
@@ -140,3 +141,111 @@ def test_reflow_infeasible_is_422_with_reason(setup):
     r = client.post("/plan/reflow", json={"version": edited["version"]})
     assert r.status_code == 422 and "冲突" in r.json()["detail"]
     assert client.get("/today").json()["version"] == edited["version"]
+
+
+def mins(b):
+    return to_min(b["end"]) - to_min(b["start"])
+
+
+def test_shrunk_item_updates_day_item_and_stays_short(setup):
+    # 把写报告从 90 拉短到 45：事项跟着改成 45、不再标「估」；重排、报电量都不再补出被砍掉的那段（评审 3）
+    client, db, _, plan = setup
+    b = report_block(plan)
+    r = edit(client, plan, b["id"], b["start"], to_hhmm(to_min(b["start"]) + 45)).json()
+    report = next(i for i in r["items"] if i["title"] == "写报告")
+    assert (report["minutes"], report["estimated"], report["source"]) == (45, False, "说的")
+    assert db.day_items(1, DAY) == r["items"]
+    r = client.post("/plan/reflow", json={"version": r["version"]}).json()
+    assert [mins(x) for x in r["blocks"] if x["title"] == "写报告"] == [45]
+    r = client.post("/energy", json={"level": 3}).json()
+    assert [(mins(x), x.get("pinned")) for x in r["blocks"] if x["title"] == "写报告"] == [(45, True)]
+
+
+def test_said_fixed_can_be_moved_and_deleted(setup):
+    # 说的固定事项（求解器输出成 class、带 item_id）能拖能删，拖了以后事项的起止跟着改（评审 7）
+    client, db, _, plan = setup
+    meeting = next(x for x in plan["blocks"] if x["title"] == "开会")
+    assert meeting["kind"] == "class" and meeting["item_id"] == meeting["id"]
+    r = edit(client, plan, meeting["id"], "20:00", "21:30")
+    assert r.status_code == 200
+    item = next(i for i in db.day_items(1, DAY) if i["title"] == "开会")
+    assert (item["start"], item["end"], item["minutes"]) == ("20:00", "21:30", 90)
+    r = client.post("/plan/reflow", json={"version": r.json()["version"]}).json()
+    moved = next(x for x in r["blocks"] if x["title"] == "开会")
+    assert (moved["start"], moved["end"], moved["kind"], moved["pinned"]) == ("20:00", "21:30", "class", True)
+    r = client.delete(f"/plan/block/{meeting['id']}?version={r['version']}")
+    assert r.status_code == 200 and [i["title"] for i in r.json()["items"]] == ["写报告"]
+    assert not any(x["title"] == "开会" for x in r.json()["blocks"])
+
+
+def test_pins_survive_energy_and_settings_in_the_afternoon(tmp_path):
+    # 钉住的块存在当天的计划里：12:30 报电量、改设置都不挪它们，pinned 也还在（评审 4）
+    client, _, model, t = clocked(tmp_path)
+    model.replies.append(reply(REPORT))
+    plan = say(client).json()
+    plan = edit(client, plan, report_block(plan)["id"], "20:00", "21:30").json()
+    plan = edit(client, plan, "reading", "13:00", "13:30").json()
+    t[0], t[1] = 12, 30
+
+    def pinned(p):
+        return {x["title"]: (x["start"], x["end"]) for x in p["blocks"] if x.get("pinned")}
+
+    want = {"写报告": ("20:00", "21:30"), "看书": ("13:00", "13:30")}
+    assert pinned(client.post("/energy", json={"level": 3}).json()) == want
+    form = client.get("/settings").json()
+    form["habits"][0]["minutes"] = 40
+    assert client.put("/settings", json=form).status_code == 200
+    today = client.get("/today").json()
+    assert pinned(today) == want and [x["title"] for x in today["blocks"]].count("看书") == 1
+
+
+def test_resaying_clears_pins_of_replaced_items(tmp_path):
+    client, _, model, t = clocked(tmp_path)
+    model.replies.append(reply(REPORT))
+    plan = say(client).json()
+    edit(client, plan, report_block(plan)["id"], "20:00", "21:30")
+    t[0] = 15
+    model.replies.append(reply(item("买菜", effort="light")))
+    r = say(client, "买菜").json()
+    assert not any(x["title"] == "写报告" for x in r["blocks"])
+    assert any(x["title"] == "买菜" and x["start"] >= "15:00" for x in r["blocks"])
+
+
+@pytest.mark.parametrize("block_id", ["math", "lunch", "bus-out"])
+def test_class_meal_and_commute_cannot_be_deleted(setup, block_id):
+    client, _, _, plan = setup
+    r = client.delete(f"/plan/block/{block_id}?version={plan['version']}")
+    assert r.status_code == 422 and isinstance(r.json()["detail"], str)
+    assert client.get("/today").json()["version"] == plan["version"]
+
+
+def test_deleted_habit_is_skipped_today(tmp_path):
+    # 删掉的习惯今天跳过：下午重排、报电量都不再冒出来（评审 5）
+    client, _, model, t = clocked(tmp_path)
+    plan = client.get("/today").json()
+    r = client.delete(f"/plan/block/reading?version={plan['version']}").json()
+    assert not any(x["id"] == "reading" for x in r["blocks"])
+    t[0] = 15
+    r = client.post("/plan/reflow", json={"version": r["version"]}).json()
+    assert not any(x["title"] == "看书" for x in r["blocks"])
+    r = client.post("/energy", json={"level": 4, "done_ids": ["reading"]}).json()
+    assert not any(x["title"] == "看书" for x in r["blocks"])
+    model.replies.append(reply(REPORT))
+    assert not any(x["title"] == "看书" for x in say(client).json()["blocks"])
+
+
+def test_pin_overlapping_block_in_progress_is_kept(tmp_path):
+    # 钉住的块压在正在做的块后半段：重排时照样留着（允许重叠），overlaps 里点出来（评审 6）
+    client, _, model, t = clocked(tmp_path)
+    model.replies.append(reply(REPORT))
+    plan = say(client).json()
+    on = next(x for x in plan["blocks"] if x["id"] == "exam-prep-0")
+    s = to_min(on["start"])
+    plan = edit(client, plan, report_block(plan)["id"], to_hhmm(s + 20), to_hhmm(s + 110)).json()
+    t[0], t[1] = divmod(s + 10, 60)  # 下午，复习正在做
+    r = client.post("/plan/reflow", json={"version": plan["version"]})
+    assert r.status_code == 200
+    r = r.json()
+    report = [x for x in r["blocks"] if x["title"] == "写报告"]
+    assert [(x["start"], x["end"], x["pinned"]) for x in report] == [(to_hhmm(s + 20), to_hhmm(s + 110), True)]
+    assert {"exam-prep-0", report[0]["id"]} <= set(r["overlaps"])
