@@ -92,7 +92,7 @@ def _ask(model: ModelPort, system: str, user: str, parse) -> tuple[Literal["ok",
             return "crisis", None
         try:
             return "ok", parse(json.loads(raw))
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
             continue
     return "ok", None
 
@@ -140,6 +140,8 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
             '"tomorrow": "……"}')
 
         def parse(o):
+            if not isinstance(o["goals"], list):
+                raise ValueError
             goals = [_text(g, 30) for g in o["goals"][:3]]
             p, proto = o.get("prototype"), None
             if isinstance(p, dict):
@@ -150,7 +152,8 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
             return {"mission": _text(o["mission"], MAX_DIRECTION), "goals": goals, "prototype": proto,
                     "tomorrow": _text(tomorrow, 60) if tomorrow else None}
         a4 = answers.get(4, {})
-        picked = a4.get(f"v{int(a4.get('choose', 0)) + 1}", "")
+        choose = a4.get("choose")
+        picked = a4.get(f"v{choose + 1}", "") if type(choose) is int and 0 <= choose <= 2 else ""
         fallback = {"mission": str(picked).strip()[:MAX_DIRECTION], "goals": [], "prototype": None, "tomorrow": None}
     status, out = _ask(model, system, _dump(answers, step), parse)
     return ("crisis", {}) if status == "crisis" else ("ok", out or fallback)

@@ -92,3 +92,18 @@ def test_invest_love_puts_skill_first():
 
 def test_invest_empty_when_habits_full():
     assert invest_suggestions({}, [{"title": "a"}, {"title": "b"}, {"title": "c"}]) == []
+
+
+def test_propose_step4_messy_output_reaches_fallback():
+    answers = {4: {"v1": "x", "v2": "y", "v3": "z", "choose": 0}}
+    empty = {"mission": "x", "goals": [], "prototype": None, "tomorrow": None}
+    infinite = '{"mission": "m", "goals": [], "prototype": {"title": "t", "minutes": Infinity, "floor_min": 1}}'
+    assert propose(FakeModel([infinite, infinite]), 4, answers) == ("ok", empty)  # Infinity 不崩
+    goals_str = json.dumps({"mission": "m", "goals": "abcdef", "prototype": None, "tomorrow": None})
+    assert propose(FakeModel([goals_str, goals_str]), 4, answers) == ("ok", empty)  # goals 不是列表
+
+
+@pytest.mark.parametrize("choose", ["abc", 7, -1, None, True, 1.5])
+def test_propose_step4_bad_choose_gives_empty_mission(choose):
+    out = propose(FakeModel([]), 4, {4: {"v1": "x", "v2": "y", "v3": "z", "choose": choose}})
+    assert out[1]["mission"] == ""

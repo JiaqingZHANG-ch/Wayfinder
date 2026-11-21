@@ -2,7 +2,7 @@
 -- user_quotes 那条在第 7 周循环 ③ 写好规则之前是红的。
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(17);
 
 -- 以管理员身份（不受 RLS 管）给 A、B 各放一份数据
 insert into auth.users (id, email) values
@@ -31,6 +31,7 @@ begin
       values (u, '2026-11-20', '{}', '这 7 天记录了 7 天。', '[]', '下周哪天最容易被打乱？', p);
     insert into public.model_calls (user_id, model, request, reply, ms) values (u, 'fake', '{}', '{}', 1);
     insert into public.crisis_events (user_id, day, text) values (u, '2026-11-20', '（测试）');
+    insert into public.deep_talks (user_id, round, step, answers) values (u, 1, 1, '{"scores": {}}');
   end loop;
 end $$;
 
@@ -49,6 +50,7 @@ select is((select count(*)::int from public.profiles), 1, 'A 只看到自己的 
 select is((select count(*)::int from public.weekly_reviews), 1, 'A 只看到自己的 weekly_reviews');
 select is((select count(*)::int from public.model_calls), 1, 'A 只看到自己的 model_calls');
 select is((select count(*)::int from public.crisis_events), 1, 'A 只看到自己的 crisis_events');
+select is((select count(*)::int from public.deep_talks), 1, 'A 只看到自己的 deep_talks');
 
 select throws_ok(
   $$insert into public.profiles (user_id, level, content, source)
