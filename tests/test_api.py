@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin", "goals")} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin", "goals", "items")} == after
 
 
 def test_energy_preview_changes_nothing_until_reported(setup):
@@ -477,6 +477,8 @@ def test_export_has_everything_and_delete_removes_it(setup):
     db.upsert_deep_talk(1, 1, 1, answers={"scores": {"健康": 4}})
     db.add_letter(1, datetime(2026, 11, 20).date(), 30, "给自己", None, None)
     db.add_quarter(1, datetime(2026, 11, 20).date(), {"健康": 5}, "健康", "跑步", "", "", [])
+    db.set_day_items(1, datetime(2026, 11, 20).date(), [])
+    db.remember_duration(1, "写报告", 60)
     client.post("/checkin", json={"sentence": "我想死"})
     db.consent(1, "隐私", PRIVACY_VERSION)
     tables = client.get("/export").json()["tables"]

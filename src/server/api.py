@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, StrictInt, ValidationError
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.council import CARDS_DIR, Card, load_cards, run_quarter_council, run_versions_council
+from mentor.day_parse import parse_day
 from mentor.deep_talk import STEPS, invest_suggestions, next_screen, propose, should_invite
 from mentor.deep_talk import reply as talk_reply
 from mentor.mentor import MAX_INPUT, logical_date
@@ -52,6 +53,13 @@ class EnergyIn(BaseModel):
     now: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="从几点开始重排，不填 = 现在")
     done_ids: list[str] = Field(default_factory=list, description="今天已经做完的事项 id")
     preview: bool = Field(False, description="只算不存：面板里点一格先看会改什么，点「就这样」再正式报")
+
+
+class DaySayIn(BaseModel):
+    text: str = Field(min_length=1, description="用户说（或打）的今天要做的事")
+
+
+EFFORT_COST = {"light": ENERGY_COST["recharge"], "normal": ENERGY_COST["drain"], "heavy": ENERGY_COST["drain"]}
 
 
 class ConfirmIn(BaseModel):
@@ -267,19 +275,34 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                                                 "deadline": (day + timedelta(days=1)).isoformat()}]
         return d
 
+    def day_input(raw: dict, day) -> dict:
+        """day_raw 再并进用户今天说的事项：fixed 的进 fixed（meeting），task 的进 tasks（截止写成当天）。
+        所有排今天的地方都走这里，重排时当天事项才不会丢。"""
+        d = day_raw(raw, day)
+        items = db.day_items(USER_ID, day)
+        cost = {**d.get("energy", {}).get("cost", {}), **{i["id"]: EFFORT_COST[i["effort"]] for i in items if i["kind"] == "task"}}
+        d["fixed"] = [*d.get("fixed", []), *({"id": i["id"], "title": i["title"], "start": i["start"], "end": i["end"],
+                                              "where": "home", "kind": "meeting"} for i in items if i["kind"] == "fixed")]
+        d["tasks"] = [*d.get("tasks", []), *({"id": i["id"], "project": i["title"], "title": i["title"],
+                                              "remaining_min": i["minutes"], "deadline": day.isoformat(),
+                                              "heavy": i["effort"] == "heavy"} for i in items if i["kind"] == "task")]
+        if items:
+            d["energy"] = {**d.get("energy", {}), "cost": cost}
+        return d
+
     def replan_today(day, raw: dict) -> tuple[dict, int | None]:
         """按新设置重排今天，只动「现在之后」：已经过去的和正在做的块，照存着的计划原样留下；
         那些块里已经排过的习惯、三餐不再排一遍。今天报过电量就沿用（和报电量一样）。"""
         latest, t = db.latest_plan(USER_ID, day), clock()
         level = latest["energy_level"] if latest else None
         try:
-            inp = input_from_dict({**day_raw(raw, day), **({"energy_level": level} if level else {})})
+            inp = input_from_dict({**day_input(raw, day), **({"energy_level": level} if level else {})})
         except InputError as e:
             raise HTTPException(422, str(e)) from None
         if latest is None:
             return solved(lambda: solve_day(inp)), None
         old = db.plan_input(USER_ID)
-        if old is not None and input_from_dict({**day_raw(old, day), **({"energy_level": level} if level else {})}) == inp:
+        if old is not None and input_from_dict({**day_input(old, day), **({"energy_level": level} if level else {})}) == inp:
             return latest["plan"], level  # 改的东西不影响今天怎么排（比如只改了提醒时间）：今天的计划一点不动
         now_min = t.hour * 60 + t.minute
         blocks = latest["plan"]["blocks"]
@@ -302,7 +325,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         raw = db.plan_input(USER_ID)
         if raw is None:
             raise HTTPException(409, "还没有设置，先完成建档")
-        raw = day_raw(raw, day)
+        raw = day_input(raw, day)
         if energy_level is not None:
             raw["energy_level"] = energy_level
         try:
@@ -316,9 +339,15 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         except (InputError, PlanInfeasible) as e:
             raise HTTPException(422, str(e)) from None
 
+    def tag_items(day, plan: dict) -> dict:
+        """来自当天事项的块带上 item_id：fixed 块的 id、task 块的 task_id 就是事项 id。"""
+        ids = {i["id"] for i in db.day_items(USER_ID, day)}
+        return {**plan, "blocks": [{**b, "item_id": k} if (k := next((x for x in (b["id"], b.get("task_id")) if x in ids), None))
+                                   else b for b in plan["blocks"]]}
+
     def out(day, stored: dict) -> dict:
         return {"day": day.isoformat(), "version": stored["version"], "confirmed": stored["confirmed_at"] is not None,
-                "energy_level": stored["energy_level"], **stored["plan"]}
+                "energy_level": stored["energy_level"], **tag_items(day, stored["plan"])}
 
     def today_plan(day) -> dict:
         stored = db.latest_plan(USER_ID, day)
@@ -344,14 +373,16 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
     @app.get("/today", summary="今日计划，没有就生成；reminders 是手机要定的两条本地提醒")
     def get_today():
-        day = logical_date(clock())
+        return today_body(logical_date(clock()))
+
+    def today_body(day) -> dict:
         stored = today_plan(day)
         settings = (db.plan_input(USER_ID) or {}).get("reminders")
         log = db.logs_between(USER_ID, day, day)  # 今晚对过账没有：首页据此换成「今天收好了」
         # 对过账就不再提醒对账，报过电量就不再提醒报电量
         reminders = [r for r in todays_reminders(stored["plan"], settings)
                      if not (r["kind"] == "evening" and log) and not (r["kind"] == "after_class" and stored["energy_level"])]
-        return {**out(day, stored), "reminders": reminders,
+        return {**out(day, stored), "reminders": reminders, "items": db.day_items(USER_ID, day),
                 "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
                 # 往后 6 天的提醒也一起给：手机一次定好，那几天不打开 App 也会响
                 "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
@@ -378,9 +409,36 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         plan = solved(lambda: replan_after(inp, stored["plan"]["blocks"], to_min(at), body.done_ids) if stored
                       else replan_from(inp, at, body.done_ids))
         if body.preview:  # 预览不存：关掉面板，今天的计划和电量都不变；version 0 表示「还没存」
-            return {"day": day.isoformat(), "version": 0, "confirmed": False, "energy_level": body.level, **plan}
+            return {"day": day.isoformat(), "version": 0, "confirmed": False, "energy_level": body.level,
+                    **tag_items(day, plan)}
         db.add_plan(USER_ID, day, plan, body.level)
         return out(day, db.latest_plan(USER_ID, day))
+
+    @app.post("/day/say", summary="说一句今天要做的事 → 拆成事项（替换当天全部事项）→ 重排 → 返回未确认的新计划")
+    def post_day_say(body: DaySayIn):
+        day = logical_date(clock())
+        if crisis := screen(body, day):
+            return crisis
+        if len(body.text) > MAX_INPUT:
+            raise HTTPException(422, f"一次最多 {MAX_INPUT} 字")
+        if db.plan_input(USER_ID) is None:
+            raise HTTPException(409, "还没有设置，先完成建档")
+        outcome, items = parse_day(model, body.text, lambda k: db.remembered_duration(USER_ID, k))
+        if outcome == "crisis":
+            db.log_crisis(USER_ID, day, body.text)
+            return crisis_reply()
+        if outcome == "bad":
+            raise HTTPException(422, "没听清，换个说法或直接加")
+        latest = db.latest_plan(USER_ID, day)
+        old = db.day_items(USER_ID, day)
+        db.set_day_items(USER_ID, day, items)
+        try:  # 排不下就把原来的事项放回去，别留下一份排不出来的
+            plan = solved(lambda: solve_day(plan_input(day, latest["energy_level"] if latest else None)))
+        except HTTPException:
+            db.set_day_items(USER_ID, day, old)
+            raise
+        db.add_plan(USER_ID, day, plan, latest["energy_level"] if latest else None)
+        return today_body(day)
 
     @app.post("/plan/confirm", summary="确认计划，再写入「Wayfinder 计划」日历；calendar：off / written / reconnect / failed")
     def post_confirm(body: ConfirmIn):
@@ -774,8 +832,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if mine["energy_changed"]:  # 小结页列「明天改了哪几处」：用改前、改后的设置各排一次明天
                 nxt = day + timedelta(days=1)
                 try:
-                    tomorrow_change = {"before": _plan_json(solve_day(input_from_dict(day_raw(old_raw, nxt))))["blocks"],
-                                       "after": _plan_json(solve_day(input_from_dict(day_raw(new_raw, nxt))))["blocks"]}
+                    tomorrow_change = {"before": _plan_json(solve_day(input_from_dict(day_input(old_raw, nxt))))["blocks"],
+                                       "after": _plan_json(solve_day(input_from_dict(day_input(new_raw, nxt))))["blocks"]}
                 except (InputError, PlanInfeasible):
                     tomorrow_change = None  # 存设置时已经试排过一周，到这里排不出来只是不列对比
         answers = {**answers, body.step: mine}

@@ -28,6 +28,8 @@ def full_db(path):
         db.upsert_deep_talk(u, 1, 1, answers={"why": "x"})
         db.add_letter(u, date(2026, 11, 20), 30, "给自己", None, None)
         db.add_quarter(u, date(2026, 11, 20), {"健康": 5}, "健康", "跑步", "", "", [])
+        db.set_day_items(u, DAY, [])
+        db.remember_duration(u, "写报告", 60)
     return db
 
 

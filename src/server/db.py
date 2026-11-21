@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS quarterly_reviews (
     day TEXT NOT NULL, scores TEXT NOT NULL, focus TEXT NOT NULL, start TEXT NOT NULL, stop TEXT NOT NULL,
     keep TEXT NOT NULL, goals TEXT NOT NULL, created_at TEXT NOT NULL,
     council TEXT, council_status TEXT);
+-- 当天事项：用户说一句话排今天时存的（每次说都整份替换）；items 是 DayItem 列表
+CREATE TABLE IF NOT EXISTS day_items (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, items TEXT NOT NULL,
+    PRIMARY KEY (user_id, day));
+-- 时长记忆：用户上次给这件事定的分钟数。key 是去掉空格和数字的标题
+CREATE TABLE IF NOT EXISTS duration_memory (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, minutes INTEGER NOT NULL,
+    updated_at TEXT NOT NULL, PRIMARY KEY (user_id, key));
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -77,7 +85,7 @@ CREATE TABLE IF NOT EXISTS crisis_events (
 # 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
 USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles", "deep_talks",
                "weekly_reviews", "model_calls", "crisis_events", "letters",
-               "quarterly_reviews")
+               "quarterly_reviews", "day_items", "duration_memory")
 JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council", "scores", "goals")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
@@ -243,6 +251,25 @@ class Db:
             return None
         version, plan, energy, confirmed = row
         return {"version": version, "plan": json.loads(plan), "energy_level": energy, "confirmed_at": confirmed}
+
+    # 当天事项和时长记忆
+    def set_day_items(self, user_id: int, day: date, items: list[dict]) -> None:
+        self._run(lambda c: c.execute("INSERT OR REPLACE INTO day_items (user_id, day, items) VALUES (?, ?, ?)",
+                                      (user_id, day.isoformat(), json.dumps(items, ensure_ascii=False))))
+
+    def day_items(self, user_id: int, day: date) -> list[dict]:
+        row = self._run(lambda c: c.execute("SELECT items FROM day_items WHERE user_id = ? AND day = ?",
+                                            (user_id, day.isoformat())).fetchone())
+        return json.loads(row[0]) if row else []
+
+    def remember_duration(self, user_id: int, key: str, minutes: int) -> None:
+        self._run(lambda c: c.execute("INSERT OR REPLACE INTO duration_memory (user_id, key, minutes, updated_at) "
+                                      "VALUES (?, ?, ?, ?)", (user_id, key, minutes, _now())))
+
+    def remembered_duration(self, user_id: int, key: str) -> int | None:
+        row = self._run(lambda c: c.execute("SELECT minutes FROM duration_memory WHERE user_id = ? AND key = ?",
+                                            (user_id, key)).fetchone())
+        return row[0] if row else None
 
     def confirm_plan(self, user_id: int, day: date, version: int) -> bool:
         cur = self._run(lambda c: c.execute(

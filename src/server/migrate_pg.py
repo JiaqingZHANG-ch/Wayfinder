@@ -36,6 +36,8 @@ TABLES = {
     "quarterly_reviews": {"id": "int", "day": "text", "scores": "json", "focus": "text", "start": "text",
                           "stop": "text", "keep": "text", "goals": "json", "created_at": "text",
                           "council": "json", "council_status": "text"},
+    "day_items": {"day": "text", "items": "json"},
+    "duration_memory": {"key": "text", "minutes": "int", "updated_at": "text"},
 }
 
 

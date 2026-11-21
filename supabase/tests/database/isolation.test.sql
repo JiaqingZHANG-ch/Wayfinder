@@ -2,7 +2,7 @@
 -- user_quotes 那条在第 7 周循环 ③ 写好规则之前是红的。
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(19);
+select plan(21);
 
 -- 以管理员身份（不受 RLS 管）给 A、B 各放一份数据
 insert into auth.users (id, email) values
@@ -36,6 +36,8 @@ begin
       values (u, '2026-11-20', '2026-12-20', 30, '给自己', '2026-11-20T21:00:00+00:00');
     insert into public.quarterly_reviews (user_id, day, scores, focus, start, stop, keep, goals, created_at)
       values (u, '2026-11-20', '{"健康": 5}', '健康', '跑步', '', '', '[]', '2026-11-20T21:00:00+00:00');
+    insert into public.day_items (user_id, day, items) values (u, '2026-11-20', '[]');
+    insert into public.duration_memory (user_id, key, minutes) values (u, '写报告', 60);
   end loop;
 end $$;
 
@@ -57,6 +59,8 @@ select is((select count(*)::int from public.crisis_events), 1, 'A 只看到自�
 select is((select count(*)::int from public.deep_talks), 1, 'A 只看到自己的 deep_talks');
 select is((select count(*)::int from public.letters), 1, 'A 只看到自己的 letters');
 select is((select count(*)::int from public.quarterly_reviews), 1, 'A 只看到自己的 quarterly_reviews');
+select is((select count(*)::int from public.day_items), 1, 'A 只看到自己的 day_items');
+select is((select count(*)::int from public.duration_memory), 1, 'A 只看到自己的 duration_memory');
 
 select throws_ok(
   $$insert into public.profiles (user_id, level, content, source)
