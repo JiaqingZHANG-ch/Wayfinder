@@ -517,6 +517,8 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     # 正在做的那块做完再说；专注块做完还要放松，这段只挡新的专注，吃饭、健身照样可以排（和排整天时一样）
     cutoff, focus_free_at = _cutoff(inp, keep, t)
     drop = {b.id for b in keep} | set(done_ids)
+    # 和排整天时一样：非生活类的块后面留 min_gap_min，正在做的那块也算（UI 评审 r6：打球曾贴着高数开始）
+    work_lo = max([cutoff] + [b.end + inp.rules.min_gap_min for b in keep if b.kind != "life"])
     inp = _low_energy(inp, drop)  # 已经做过的习惯不算「省下」的精力
 
     progress: dict[str, int] = {}
@@ -526,7 +528,7 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     tasks = [replace(x, remaining_min=max(0, x.remaining_min - math.ceil(progress.get(x.id, 0) / x.est_factor)))
              for x in inp.tasks if x.id not in drop]
 
-    start = focus_free_at or cutoff  # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
+    start = max(focus_free_at or cutoff, work_lo)  # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
     habit_block = inp.habit_block
     block_on = sum(h.id in habit_block for h in inp.habits) >= 2
     if block_on and sum(h.minutes for h in inp.habits if h.id in habit_block and h.id not in drop) > inp.sleep - start:
@@ -551,11 +553,11 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     gym_done = inp.energy.gym_id in kept_ids or inp.energy.gym_id in done_ids
     en = inp.energy
     past_free = sum(min(b.end, t) - b.start for b in before if b.id.startswith("free-") and b.start < t)
-    free_left = min(max(0, en.min_free_min - past_free), max(0, inp.sleep - cutoff))
+    free_left = min(max(0, en.min_free_min - past_free), max(0, inp.sleep - work_lo))
     energy = replace(en, base_min=en.base_min + en.gym_bonus_min * gym_done - past_cost / en.load,
                      min_free_min=free_left if free_left >= FREE_MIN_GAP else 0)
     ids = {h.id for h in habits}
-    rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=0), habits=habits, meals=meals,
+    rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=work_lo - cutoff), habits=habits, meals=meals,
                    flex=[f for f in inp.flex if f.id not in drop], tasks=tasks, energy=energy,
                    habit_block=[i for i in habit_block if i in ids], focus_free_at=focus_free_at)
     after = solve_day(rest)

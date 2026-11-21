@@ -296,3 +296,17 @@ def test_low_energy_replan_never_lengthens(now, level):
     normal = later(replan_from(inp, now, before=before))
     low = later(replan_from(replace(inp, energy_level=level), now, before=before))
     assert all(m <= normal.get(k, 0) for k, m in low.items()), (normal, low)
+
+
+@pytest.mark.parametrize("level", [None, 1, 5])
+def test_replan_mid_block_keeps_gap_after_it(level):
+    """UI 评审 r6：16:45 高数正在做时报电量，打球贴着 17:40 开始，后面整体提前 5 分钟。正在做的那块后面也要留 min_gap_min。"""
+    from dataclasses import replace
+
+    from planner.solve import replan_from
+    inp = load_input(STUDENT)
+    before = solve_day(inp).blocks
+    running = next(b for b in before if b.start < to_min("16:45") < b.end)
+    after = replan_from(replace(inp, energy_level=level), "16:45", before=before)
+    nxt = min((b for b in after.blocks if b.start >= running.end and b.kind != "life"), key=lambda b: b.start)
+    assert nxt.start >= running.end + inp.rules.min_gap_min, (running.id, nxt.id, to_hhmm(nxt.start))
