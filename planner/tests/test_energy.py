@@ -269,3 +269,30 @@ def test_replan_at_low_energy_keeps_morning_and_floors_evening(home_day):
     assert all(any(a.id == b.id and a.end - a.start == b.end - b.start for a in after.blocks) for b in kept)
     later = [b for b in after.blocks if b.kind == "must" and b.start >= to_min("12:00")]
     assert later and all(b.title.endswith("（保底）") for b in later)
+
+
+STUDENT = Path(__file__).parent.parent / "examples" / "users" / "学生.json"
+
+
+@pytest.mark.parametrize("now", ["16:40", "17:00", "18:13", "19:30"])
+@pytest.mark.parametrize("level", [1, 2])
+def test_low_energy_replan_never_lengthens(now, level):
+    """UI 评审 r5：学生模板报 1 格后高数复习从 60 变 90。电量低时，现在之后每件事的总时长都不能比照原计划长。"""
+    from dataclasses import replace
+
+    from planner.solve import replan_from
+    inp = load_input(STUDENT)
+    before = solve_day(inp).blocks
+    t = to_min(now)
+
+    def later(plan):
+        out = {}
+        for b in plan.blocks:
+            if b.start >= t and b.kind in ("proj", "flex", "must"):
+                key = b.task_id or b.id
+                out[key] = out.get(key, 0) + b.end - b.start
+        return out
+
+    normal = later(replan_from(inp, now, before=before))
+    low = later(replan_from(replace(inp, energy_level=level), now, before=before))
+    assert all(m <= normal.get(k, 0) for k, m in low.items()), (normal, low)

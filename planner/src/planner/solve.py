@@ -448,12 +448,18 @@ def _diagnose(inp: PlanInput, c: Commute) -> str:
 LOW_ENERGY = 2  # 电量不超过这个数：习惯只排保底版（C26）
 
 
-def _low_energy(inp: PlanInput) -> PlanInput:
-    """C26 低电量用保底版：电量 ≤2 时，有保底版的习惯换成保底分钟数，标题加「（保底）」。再调一次不会再变。"""
+def _low_energy(inp: PlanInput, skip: set[str] = frozenset()) -> PlanInput:
+    """C26 低电量用保底版：电量 ≤2 时，有保底版的习惯换成保底分钟数，标题加「（保底）」。再调一次不会再变。
+
+    习惯省下的精力从总账里一起扣掉：不然会全给项目，累的时候项目反而变长（UI 评审 r5）。skip 里的习惯（已经做过的）不动。
+    """
     if inp.energy_level is None or inp.energy_level > LOW_ENERGY:
         return inp
-    return replace(inp, habits=[replace(h, minutes=h.floor_min, title=f"{h.title}（保底）") if h.floor_min < h.minutes
-                                else h for h in inp.habits])
+    low = replace(inp, habits=[replace(h, minutes=h.floor_min, title=f"{h.title}（保底）")
+                               if h.floor_min < h.minutes and h.id not in skip else h for h in inp.habits])
+    c = pick_commute(inp)
+    saved = fixed_cost(inp, c) - fixed_cost(low, c)
+    return replace(low, energy=replace(inp.energy, base_min=inp.energy.base_min - saved / inp.energy.load))
 
 
 def solve_day(inp: PlanInput) -> DayPlan:
@@ -506,12 +512,12 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     orig = inp
     if before is None:
         before = solve_day(replace(inp, energy_level=None)).blocks  # 上午照原计划排的，不受刚报的电量影响
-    inp = _low_energy(inp)
     past = [b for b in before if b.start < t and not b.id.startswith("free-")]
     keep = [b for b in past if b.kind != "class" and not b.id.startswith(MOVE_PREFIXES)]
     # 正在做的那块做完再说；专注块做完还要放松，这段只挡新的专注，吃饭、健身照样可以排（和排整天时一样）
     cutoff, focus_free_at = _cutoff(inp, keep, t)
     drop = {b.id for b in keep} | set(done_ids)
+    inp = _low_energy(inp, drop)  # 已经做过的习惯不算「省下」的精力
 
     progress: dict[str, int] = {}
     for b in keep:
