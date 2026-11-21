@@ -5,6 +5,8 @@
 import json
 import logging
 import os
+import subprocess
+import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import asdict
@@ -13,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -46,6 +48,9 @@ _log = logging.getLogger(__name__)
 USER_ID = 1
 WEB_ORIGINS = ["http://localhost:8081", "http://127.0.0.1:8081"]
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[2] / "planner" / "examples" / "users" / "学生.json"
+TRANSCRIBE_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "transcribe_once.py"
+MAX_AUDIO = 5 * 1024 * 1024
+TRANSCRIBE_SECONDS = 120
 
 
 class EnergyIn(BaseModel):
@@ -1212,6 +1217,29 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def post_deep_talk_restart():
         db.upsert_deep_talk(USER_ID, db.deep_talk_round(USER_ID) + 1, 1)
         return talk_state()
+
+    @app.post("/transcribe", summary="录音（multipart 字段 audio，≤5MB）→ 文字；只回文字，App 填进输入框，用户看过再排")
+    def post_transcribe(audio: UploadFile):
+        python = os.environ.get("WHISPER_PYTHON")
+        if not python:
+            raise HTTPException(501, "这台电脑没装语音转写，先打字或用键盘上的话筒")
+        data = audio.file.read(MAX_AUDIO + 1)
+        if len(data) > MAX_AUDIO:
+            raise HTTPException(413, "录音太长了，最多 5MB，分几段说")
+        with tempfile.NamedTemporaryFile(delete=False) as f:  # 不带扩展名：PyAV 按内容认格式
+            f.write(data)
+        try:
+            # shortcut: 每次都重新加载模型，慢了再改成常驻服务
+            done = subprocess.run([python, str(TRANSCRIBE_SCRIPT), f.name], capture_output=True, encoding="utf-8",
+                                  errors="replace", timeout=TRANSCRIBE_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(504, "转写太久了，先打字或用键盘上的话筒") from None
+        finally:
+            os.unlink(f.name)
+        if done.returncode != 0:
+            _log.warning("转写失败：%s", done.stderr[-2000:])
+            raise HTTPException(502, "没转出来，先打字或用键盘上的话筒")
+        return {"text": done.stdout.strip()}
 
     @app.get("/me", summary="国家、是否成年、隐私说明和有没有同意过这一版")
     def get_me():

@@ -188,3 +188,18 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - 习惯多了 `source`（自己加 / 长谈 / 投资自己）和 `goal_id`，存在计划输入的 `habit_meta`；`GET /today` 多了 `goals`，时间线上写「为了：…」。
 - 导师和智囊团只提议，写进档案、习惯、明天的计划都要你点「对 / 好」。
 - 试用：`MODEL=ollama` 时第 4 次的智囊团本机跑约一分钟；不开模型时每一步都用兜底走完，智囊团显示「这次顾问们没能看完」。
+
+## 语音转写（`POST /transcribe`，分支 `say-the-day`）
+
+App 录完音传上来（multipart 字段 `audio`，最多 5MB），后端用 subprocess 跑 `scripts/transcribe_once.py`，转出来的字只填进输入框，用户看过再点「排一下」。不配就返回 501，App 提示先打字或用键盘上的话筒。
+
+```powershell
+# 本机已经装好的 faster-whisper 环境（带 PyAV，m4a、webm 都能直接读）
+$env:WHISPER_PYTHON = 'U:\Obsidian\AI知识库\AI工作空间\工具与运行环境\Python\asr\Scripts\python.exe'
+# 可不设，默认就是本机 small 模型；想更准换成 medium 的 snapshots 目录
+$env:WHISPER_MODEL = 'U:\Obsidian\AI知识库\AI工作空间\模型\faster-whisper\models--Systran--faster-whisper-small\snapshots\536b0662742c02347bc0e980a01041f333bce120'
+.\serve.ps1
+```
+
+- 每次请求都重新加载模型（代码里有 `shortcut:` 注释），超时 120 秒。
+- 实测（2026-11-21，本机 CPU，small、int8）：1 秒静音 wav 单跑脚本约 1.0 秒，经 `/transcribe` 约 1.0 秒，返回空字符串。静音段被 VAD 跳过，这个数只是加载模型的开销；真说话的耗时和准确度还没测。
