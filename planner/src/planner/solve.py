@@ -303,10 +303,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             if hard:
                 return None
             continue
-        nb = BLOCKS_PER_TASK
-        if t.must_today:  # 块数要够：就算全落在效率最低的时段，也能做完
-            worst = max(1, block_progress(min(eff for _, _, eff in periods), N, decay))
-            nb = max(nb, -(-need_min(t) // worst))
+        # 今天必做的块数要够排完；不占「最多 3 块」的名额
+        nb = max(BLOCKS_PER_TASK, -(-need_min(t) // (POMODORO_MIN * N))) if t.must_today else BLOCKS_PER_TASK
         prev, progs, lasts, ps = None, [], [], []
         for k in range(nb):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
@@ -321,10 +319,13 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             for (j, n), v in y.items():
                 m.Add(s >= periods[j][0]).OnlyEnforceIf(v)
                 m.Add(e <= periods[j][1]).OnlyEnforceIf(v)
-            prog = sum(block_progress(periods[j][2], n, decay) * v for (j, n), v in y.items())
-            lasts.append(sum((block_progress(periods[j][2], n, decay) - block_progress(periods[j][2], n - 1, decay)) * v
-                             for (j, n), v in y.items()))
-            progs.append(prog)
+            if t.must_today:  # 用户说的分钟数就是要排的钟点时长，不按时段效率折算
+                progs.append(d)
+                lasts.append(POMODORO_MIN * p)
+            else:
+                progs.append(sum(block_progress(periods[j][2], n, decay) * v for (j, n), v in y.items()))
+                lasts.append(sum((block_progress(periods[j][2], n, decay) - block_progress(periods[j][2], n - 1, decay)) * v
+                                 for (j, n), v in y.items()))
             if prev:  # 第 k 块只在第 k-1 块存在时才用，并且排在它后面：编号和时间顺序一致
                 pp, pe = prev
                 m.AddImplication(p, pp)
@@ -351,7 +352,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             ps.append(p)
             blk = Block(f"{t.id}-{k}", t.title, 0, 0, "proj", task_id=t.id, why=_why(t, inp, cap))
             optional.append((blk, s, d, p))
-            fills.append((blk, [(periods[j][2], n, v) for (j, n), v in y.items()]))
+            fills.append((blk, [(periods[j][2], n, v) for (j, n), v in y.items()], t.must_today))
         total = sum(progs)
         credited = m.NewIntVar(0, need_min(t), f"{t.id}-credited")  # 超出还差的进度不算分，免得为凑分多排几块
         m.Add(credited <= total)
@@ -438,10 +439,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             blocks.append(b)
             if b.kind == "proj":
                 projects.append(b)
-    for b, ys in fills:
+    for b, ys, must in fills:
         for eff, n, v in ys:
             if solver.Value(v):
-                b.pomodoros, b.progress_min = n, block_progress(eff, n, inp.energy.pomodoro_decay)
+                b.pomodoros, b.progress_min = n, n * POMODORO_MIN if must else block_progress(eff, n, inp.energy.pomodoro_decay)
     for i, b in enumerate(sorted(projects, key=lambda b: b.start)):
         b.slot = f"p{i + 1}"
     used = spent / 100 + sum((b.end - b.start) * (task_cost(inp, b.task_id) if b.kind == "proj" else cost.get(b.id, 0))

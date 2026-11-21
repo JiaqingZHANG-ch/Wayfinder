@@ -27,7 +27,7 @@ def test_energy_over_cap_still_scheduled():
     inp = student()
     inp.energy.base_min = 300  # 上限 240，课和必做就要 350
     plan = solve_day(inp)
-    assert progress(plan) >= 120
+    assert progress(plan) == sum(b.end - b.start for b in plan.blocks if b.task_id == "say-1") == 120  # 按钟点算，不按效率折算
     assert progress(plan, "exam-prep") == 0  # 普通项目照旧受精力上限管
     assert plan.energy_used > plan.energy_cap  # 耗能照样记账
     assert not any("写报告" in w for w in plan.warnings)  # 截止日写的是今天，也不报「截止日已到」
