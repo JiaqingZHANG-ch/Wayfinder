@@ -102,7 +102,7 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title, acti
         {blocks.map((b, i) => (
           <Animated.View key={b.id} entering={FadeIn.duration(200)} layout={LinearTransition.duration(260).easing(EASE)}>
             {i === lineAt && now !== undefined && <NowLine now={now} />}
-            <BlockRow b={b} last={i === blocks.length - 1}
+            <BlockRow b={b} goal={plan.goals?.[b.id]} last={i === blocks.length - 1}
               state={now === undefined ? "plain" : i === current ? "now" : toMin(b.end) <= now ? "past" : "plain"} />
           </Animated.View>
         ))}
@@ -117,7 +117,7 @@ const span = (b: Block) => {
   return m < 60 ? `${m} 分钟` : m % 60 ? `${h} 小时 ${m % 60} 分` : `${h} 小时`;
 };
 
-function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" | "now" | "past" }) {
+function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boolean; state: "plain" | "now" | "past" }) {
   const c = useColors();
   const quiet = b.kind === "life";
   const live = state === "now";
@@ -128,7 +128,7 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
   const tint = c.kind[b.kind];
   return (
     <View style={{ flexDirection: "row", gap: space.md, minHeight: h }}
-      accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${live ? "，正在进行" : ""}`}>
+      accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${goal && b.kind === "must" ? `，为了：${goal}` : ""}${live ? "，正在进行" : ""}`}>
       <Text style={[type.small, type.num, { width: 44, color: live ? c.primary : c.muted, paddingTop: quiet ? 2 : 7 }]}>
         {b.start}
       </Text>
@@ -155,8 +155,9 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
           {quiet ? `${b.title.split("：")[0]}${live ? "" : ` · ${span(b)}`}` : b.title}
         </Text>
         {(!quiet || live) && (
-          <Small color={live && !quiet ? c.onSoft : c.muted}>
-            {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
+          <Small color={live && !quiet ? c.onSoft : c.muted} lines={goal ? 1 : undefined}>
+            {(live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · "))
+              + (goal && b.kind === "must" ? ` · 为了：${goal}` : "")}
           </Small>
         )}
       </View>

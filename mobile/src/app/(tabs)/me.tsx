@@ -4,11 +4,11 @@ import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { getSettings, Settings } from "@/api";
+import { DeepTalkState, getDeepTalk, getProfile, getSettings, Profile, restartDeepTalk, Settings } from "@/api";
 import { Arc, Glyph } from "@/components/art";
-import { enter } from "@/components/motion";
+import { enter, Pressy } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
-import { Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
+import { Body, Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
 import { space, TAB_SPACE, type, useColors } from "@/theme";
 
 /** 「我」：一行真的小结（几点起、几门课、几个习惯），下面是计划设置和隐私数据的入口，像系统设置那样分组。 */
@@ -16,7 +16,20 @@ export default function MeScreen() {
   const c = useColors();
   const now = useNow();
   const [s, setS] = useState<Settings | null>(null);
-  useFocusEffect(useCallback(() => { getSettings().then(setS, () => {}); }, [])); // 拿不到就不写小结
+  const [dir, setDir] = useState<{ talk: DeepTalkState; confirmed: Profile[] } | null>(null);
+  useFocusEffect(useCallback(() => {
+    getSettings().then(setS, () => {}); // 拿不到就不写小结
+    Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => {}); // 拿不到就不显示方向卡
+  }, []));
+  const latest = (level: string) => dir?.confirmed.filter((p) => p.level === level).sort((a, b) => b.id - a.id)[0];
+  const mission = latest("使命") || latest("方向");
+  const roundIds = new Set(Object.values(dir?.talk.answers ?? {}).flatMap((a) => a.profile_ids ?? []));
+  const goals = (dir?.confirmed ?? []).filter((p) => p.level === "目标" && roundIds.has(p.id)).slice(0, 3);
+  const doneN = dir?.talk.steps.filter((x) => x.status === "done").length ?? 0;
+  const needChoose = dir?.talk.steps.some((x) => x.step === 4 && x.status === "done") && !dir.talk.answers["4"]?.choose;
+  const next = needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
+    : doneN < 4 ? { label: `接着聊 · 长谈 ${doneN}/4`, go: () => router.push("/deep-talk") }
+    : { label: "重新聊一次", go: () => restartDeepTalk().then(() => router.push("/deep-talk"), () => {}) };
 
   const classes = new Set((s?.timetable ?? []).map((x) => x.title)).size;
   const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : "",
@@ -32,6 +45,19 @@ export default function MeScreen() {
         <Text style={[type.eyebrow, type.num, { color: c.muted, minHeight: 16, letterSpacing: 0.5 }]}>{summary || " "}</Text>
         <Display>我</Display>
       </Animated.View>
+
+      {dir && (
+        <Animated.View entering={enter(1)}>
+          <Card style={{ gap: space.xs }}>
+            <Small muted>我的方向</Small>
+            {mission ? <Body>{mission.content}</Body> : <Body muted>聊完几次，这里会写下你想去的方向</Body>}
+            {goals.map((g) => <Small key={g.id}>{`· ${g.content}`}</Small>)}
+            <Pressy onPress={next.go} accessibilityRole="button" accessibilityLabel={next.label} style={{ paddingTop: space.sm }}>
+              <Text style={[type.small, { color: c.primary, fontWeight: "500" }]}>{next.label}</Text>
+            </Pressy>
+          </Card>
+        </Animated.View>
+      )}
 
       {s && marks.length > 0 && marks.length <= 4 && (
         // 我的一天：从起床到睡觉一道弧，弧下站着我的记号（和时间线、本周页里长一样）

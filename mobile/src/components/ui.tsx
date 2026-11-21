@@ -78,13 +78,13 @@ export function Card({ children, style, onPress, label, i }: {
   return i === undefined ? body : <Animated.View entering={enter(i)}>{body}</Animated.View>;
 }
 
-type TextProps = { children: ReactNode; muted?: boolean; center?: boolean; color?: string };
+type TextProps = { children: ReactNode; muted?: boolean; center?: boolean; color?: string; lines?: number };
 
 function make(variant: keyof typeof type, role?: "header") {
-  return function T({ children, muted, center, color }: TextProps) {
+  return function T({ children, muted, center, color, lines }: TextProps) {
     const c = useColors();
     return (
-      <Text accessibilityRole={role} style={[type[variant], { color: color ?? (muted ? c.muted : c.text) },
+      <Text accessibilityRole={role} numberOfLines={lines} style={[type[variant], { color: color ?? (muted ? c.muted : c.text) },
         center && { textAlign: "center" }]}>{children}</Text>
     );
   };

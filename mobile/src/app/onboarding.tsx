@@ -187,6 +187,7 @@ export default function Onboarding() {
               <Button label="对，记下" onPress={() => confirm(p)} />
             </Card>
           ))}
+          <Small muted>接下来几个晚上，对完账我们再聊几次，每次十分钟左右。</Small>
           {error && <Notice tone="error">{error}</Notice>}
         </>,
       ), undefined, 0.8);

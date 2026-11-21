@@ -4,7 +4,7 @@ import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, Vi
 import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, OFFLINE, postCheckin, say } from "@/api";
+import { CheckinItem, checkinItems, CheckinResult, DeepTalkState, getDeepTalk, getToday, getWeek, isCrisis, OFFLINE, postCheckin, say, snoozeDeepTalk } from "@/api";
 import { Glow, Glyph, Sky } from "@/components/art";
 import { ahead, Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
@@ -48,6 +48,7 @@ export default function Checkin() {
   const [sentence, setSentence] = useState("");
   const [logged, setLogged] = useState<boolean[] | null>(null); // 这 7 天哪晚记了
   const [done, setDone] = useState<CheckinResult | null>(null);
+  const [invite, setInvite] = useState<DeepTalkState | null>(null); // 今晚要不要请你接着聊（长谈）
   const [message, setMessage] = useState<string | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,6 +107,7 @@ export default function Checkin() {
         haptic.success();
         setDone(res);
         getWeek().then((w) => setLogged(w.logged), () => {});
+        getDeepTalk().then((s) => setInvite(s.invite ? s : null), () => {}); // 拿不到就不请
       }
     } catch (e) {
       setMessage(say(e)); // 一句话没整理出来时，后端会说「请点按钮补上」
@@ -192,6 +194,18 @@ export default function Checkin() {
         </Animated.View>
       </View>,
       <>
+        {invite && (
+          <Animated.View exiting={FadeOut.duration(motion.base)}>
+            <Card style={{ gap: space.xs }}>
+              <Text style={[type.eyebrow, { color: c.muted }]}>{`第 ${invite.step} 次长谈 · 约 10 分钟`}</Text>
+              <Title>{invite.steps.find((s) => s.step === invite.step)?.name}</Title>
+              <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
+                <View style={{ flex: 1 }}><Button label="现在聊" onPress={() => router.replace("/deep-talk")} /></View>
+                <View style={{ flex: 1 }}><Button label="明天再说" variant="neutral" onPress={() => { snoozeDeepTalk().then(() => setInvite(null), () => {}); }} /></View>
+              </View>
+            </Card>
+          </Animated.View>
+        )}
         <Button label="晚安" icon="moon-outline" variant="secondary" onPress={leave} />
         <Button label="再改一下" variant="neutral" onPress={() => { setDone(null); go(0); }} />
       </>,
