@@ -313,7 +313,7 @@ export default function Today() {
 
       {moved && (
         <View style={{ gap: space.sm }}>
-          {(() => { const ch = planDiff(moved, plan.blocks, "00:00"); return ch.length ? <Changes changes={ch} /> : <Notice>其余的不用动，照原来的来。</Notice>; })()}
+          {(() => { const ch = planDiff(moved, plan.blocks, "04:00") /* 4 点前算前一天，"00:00" 会被当成半夜 */; return ch.length ? <Changes changes={ch} /> : <Notice>其余的不用动，照原来的来。</Notice>; })()}
           <Button label="知道了" variant="quiet" onPress={() => setMoved(null)} />
         </View>
       )}
