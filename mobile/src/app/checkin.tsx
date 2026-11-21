@@ -63,6 +63,7 @@ function Flow() {
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [idx, setIdx] = useState(0);
   const [note, setNote] = useState("");
+  const [blocker, setBlocker] = useState("");
   const [tomorrow, setTomorrow] = useState("");
   const [touched, setTouched] = useState<Set<string>>(new Set()); // 这次动过的字段：只发这些，没动的不冲掉之前记的
   const touch = (k: string, set: (v: string) => void) => (v: string) => { set(v); setTouched((t) => new Set(t).add(k)); };
@@ -85,6 +86,7 @@ function Flow() {
       if (plan.checkin) { // 再对一遍：上次选的先填好（没动的字段不会发回去）
         setChoices(plan.checkin.items);
         setNote(plan.checkin.note ?? "");
+        setBlocker(plan.checkin.blocker ?? "");
         setTomorrow(plan.tomorrow_task ?? "");
       }
     }, () => setMessage(OFFLINE));
@@ -99,7 +101,7 @@ function Flow() {
 
   const steps = stepsOf(items ?? [], choices);
   const step = steps[Math.min(idx, steps.length - 1)] as Step | undefined;
-  const texts = () => Object.fromEntries(Object.entries({ note, tomorrow_task: tomorrow }).filter(([k]) => touched.has(k)));
+  const texts = () => Object.fromEntries(Object.entries({ note, blocker, tomorrow_task: tomorrow }).filter(([k]) => touched.has(k)));
 
   function go(i: number) {
     setPending(null);
@@ -149,7 +151,7 @@ function Flow() {
     }
   }
 
-  /** 晚安：收尾时写了明天先做什么、随手记了一句，就补存这两样再走。 */
+  /** 晚安：收尾时写了明天先做什么、随手记了一句、卡在哪，就补存动过的那几样再走。 */
   async function bye() {
     if (!touched.size) return leave();
     setBusy(true);
@@ -190,6 +192,7 @@ function Flow() {
         <Field placeholder="明天先做什么？可以不填" accessibilityLabel="明天先做的一件事" value={tomorrow}
           onChangeText={touch("tomorrow_task", setTomorrow)} />
         <Field placeholder="随手记一句" accessibilityLabel="今天想记的一句话" value={note} onChangeText={touch("note", setNote)} />
+        <Field placeholder="卡在哪（可不写）" accessibilityLabel="今天卡在哪" value={blocker} onChangeText={touch("blocker", setBlocker)} />
         {message && <Notice tone="error">{message}</Notice>}
         {invite && (
           <Animated.View exiting={FadeOut.duration(motion.base)}>
