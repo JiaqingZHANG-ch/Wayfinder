@@ -7,13 +7,13 @@ import Animated from "react-native-reanimated";
 import { DeepTalkState, getDeepTalk, getProfile, getSettings, getToday, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure } from "@/components/clay";
-import { enter } from "@/components/motion";
-import { Button, Card, ListRow, Screen, Small } from "@/components/ui";
+import { enter, Skeleton } from "@/components/motion";
+import { Button, Card, ErrorState, ListRow, Notice, Screen, Small } from "@/components/ui";
 import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
 
 /**
  * 「我」（v4 的 #pg-me）：顶上站着小人（表情跟今天报的电量，没报就是微笑），下面依次是我的方向、长谈进度和主按钮、我的记号，
- * 最后是计划设置和隐私数据的入口。
+ * 最后是计划设置和隐私数据的入口。读的时候方向、长谈、记号先放骨架（版面不跳）；全没拿到整页换 ErrorState，拿到一部分顶上说一句。
  */
 export default function MeScreen() {
   const c = useColors();
@@ -21,11 +21,14 @@ export default function MeScreen() {
   const [s, setS] = useState<Settings | null>(null);
   const [dir, setDir] = useState<{ talk: DeepTalkState; confirmed: Profile[] } | null>(null);
   const [level, setLevel] = useState<number | null>(null);
-  useFocusEffect(useCallback(() => {
-    getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就微笑
-    getSettings().then(setS, () => {}); // 拿不到就不写小结
-    Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => {}); // 拿不到就不显示方向和长谈
-  }, []));
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => {
+    setFailed(false);
+    getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就和今天页一样微笑
+    getSettings().then(setS, () => setFailed(true));
+    Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => setFailed(true));
+  }, []);
+  useFocusEffect(load);
   const latest = (level: string) => dir?.confirmed.filter((p) => p.level === level).sort((a, b) => b.id - a.id)[0];
   const mission = latest("使命") || latest("方向");
   // 和后端「为了」同一套：重新聊一次后，新一轮的第 4 次做完前还是旧目标
@@ -52,12 +55,14 @@ export default function MeScreen() {
   const marks = s ? [...s.habits.map((h) => [h.title, "must"] as const), ...(s.projects ?? []).map((p) => [p.title, "proj"] as const)] : [];
   const label = [type.label, { fontSize: 13, color: c.muted }] as const;
 
+  if (failed && !s && !dir) return <Screen safeTop bottom={TAB_SPACE}><ErrorState onRetry={load} /></Screen>;
+
   return (
     <Screen safeTop bottom={TAB_SPACE}>
       {/* 小镇的一角：顶满，紧贴状态栏下沿 */}
       <View style={{ marginTop: -space.xl, marginHorizontal: -space.lg, height: 212, alignItems: "center", overflow: "hidden",
         borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, backgroundColor: c.surface2 }}>
-        <View style={{ width: 149, height: 190, marginTop: 14 }}><Figure level={level ?? 4} night={dark} left={0} top={0} /></View>
+        <View style={{ width: 149, height: 190, marginTop: 14 }}><Figure level={level} night={dark} left={0} top={0} /></View>
       </View>
 
       <Animated.View entering={enter(0)} style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between",
@@ -65,6 +70,15 @@ export default function MeScreen() {
         <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>我</Text>
         {!!summary && <Text style={[type.num, { fontSize: 15, color: c.muted }]}>{summary}</Text>}
       </Animated.View>
+
+      {failed && <Notice>没连上，有些内容没显示。回到这一页会再试一次。</Notice>}
+      {!dir && !failed && (
+        <>
+          <Skeleton height={56} width="70%" />
+          <Skeleton height={140} r={radius.card} />
+        </>
+      )}
+      {!s && !failed && <Skeleton height={96} />}
 
       {dir && (
         <Animated.View entering={enter(1)} style={{ gap: space.xs, paddingHorizontal: space.xs }}>

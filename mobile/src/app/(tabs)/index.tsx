@@ -12,13 +12,13 @@ import { fromMin, toMin, useNow } from "@/components/plan-view";
 import { Button, ErrorState, Notice, Screen } from "@/components/ui";
 import { Change, planDiff } from "@/diff";
 import { scheduleReminders } from "@/notifications";
-import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
+import { radius, space, TAB_SPACE, type, useColors, useDark, useNightScene } from "@/theme";
 
 const EVENING = 19 * 60; // 这之后主按钮是「对个账」
 
 /**
- * 今天这一页按一天里的四个状态走：白天没报电量 → 报过了 → 晚上该对账（或今天走完了）→ 对完账收好了。
- * 页面只有三样：黏土舞台（小人、石子、导师一句话、电池）、现在还剩几分钟、接下来。
+ * 今天这一页按一天里的四个状态走：白天没报电量 → 报过了 → 晚上该对账（或正事都做完了）→ 对完账收好了。
+ * 页面只有三样：黏土舞台（小人、石子、导师一句话、电池）、现在还剩多久、接下来；主按钮固定在标签栏上方，不跟着滚。
  */
 type Phase = "day" | "reported" | "evening" | "over" | "done";
 
@@ -29,7 +29,7 @@ const FEEL: Record<number, string> = {
 /** 导师在气泡里说的一句话。 */
 function saying(phase: Phase, level: number | null, ready: boolean, tomorrow: string | null): string {
   if (phase === "done") return tomorrow ? `明天先做：${tomorrow}` : "今天收住了，晚安。";
-  if (phase === "over") return "今天走完了，对个账？";
+  if (phase === "over") return "正事都做完了，对个账？";
   if (phase === "evening") return "辛苦了，对个账？";
   if (level) return FEEL[level];
   return ready ? "还剩多少电？" : "下课后，告诉我还剩多少电。";
@@ -37,6 +37,8 @@ function saying(phase: Phase, level: number | null, ready: boolean, tomorrow: st
 
 // 自由时间不算一件事，也不进「接下来」
 const isFree = (b: Block) => b.kind === "life" && b.title.startsWith("自由时间");
+// 正事：课、习惯、项目、可选；吃饭、路上、回家这些生活块不算
+const real = (b: Block) => b.kind !== "life";
 // 吃饭、路上这类生活块只留冒号、括号前那段
 const shortTitle = (b: Block) => (b.kind === "life" ? b.title.split(/[：（]/)[0] : b.title);
 
@@ -64,6 +66,7 @@ export default function Today() {
   const now = useNow();
   const c = useColors();
   const dark = useDark();
+  const scene = useNightScene(); // 舞台的白天夜里只看钟点：系统深色时中午还是白天的小镇
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
 
@@ -144,19 +147,19 @@ export default function Today() {
   if (me && !me.consented) return <Redirect href="/consent" />; // 隐私说明换了新版本：老用户先看完再用
 
   const canReport = plan.blocks.some((b) => toMin(b.end) > now); // 今天还有没过去的安排
+  const todo = plan.blocks.filter((b) => real(b) && toMin(b.end) > now).length; // 还没做的正事：一颗石子一件
   const level = plan.energy_level;
-  // 白天提前对过账：照样显示现在和接下来，到晚上或今天走完才算「收好了」
-  const phase: Phase = plan.checked_in && (!canReport || now >= EVENING) ? "done" : !canReport ? "over"
+  // 正事都过去了（只剩吃饭、回家、自由时间）就不再问电量，改成对账；白天提前对过账，到晚上或正事做完才算「收好了」
+  const phase: Phase = plan.checked_in && (!todo || now >= EVENING) ? "done" : !todo ? "over"
     : now >= EVENING ? "evening" : level ? "reported" : "day";
   const daytime = phase === "day" || phase === "reported";
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now);
   const ready = classOver || !plan.blocks.some((b) => b.kind === "class"); // 下课了（或今天没课）才问电量
 
-  // 自由时间不当主角（「自由时间还剩 110 分钟」像倒计时）：这时主角是下一件事
-  const cur = plan.blocks.find((b) => !isFree(b) && toMin(b.start) <= now && now < toMin(b.end));
+  // 主角只是正事：正在做的那件，不然是下一件正事。吃饭、路上、自由时间都不当主角；只剩生活块时不报数字，说一句话
+  const cur = plan.blocks.find((b) => real(b) && toMin(b.start) <= now && now < toMin(b.end));
   const later = plan.blocks.filter((b) => toMin(b.start) > now && !isFree(b));
-  const next = cur ?? later.find((b) => b.kind !== "life") ?? later[0];
-  const todo = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now).length; // 还没做的事：一颗石子一件
+  const next = cur ?? later.find(real);
   const lastEnd = plan.blocks.length ? plan.blocks[plan.blocks.length - 1].end : "";
   // 最后一块排到睡觉；补一行「睡」收尾
   const rows: Block[] = canReport && lastEnd
@@ -164,16 +167,30 @@ export default function Today() {
     : later;
   const changes = before ? planDiff(before, plan.blocks, fromMin(now)) : [];
   const changeOf = (b: Block) => changes.find((x) => x.title === b.title && (x.time === b.start || x.now === `挪到 ${b.start}`));
-  const left = next && (cur ? toMin(next.end) : toMin(next.start)) - now;
+  const left = next ? (cur ? toMin(next.end) : toMin(next.start)) - now : 0;
+  const hours = Math.floor(left / 60), mins = left % 60; // 满 60 分钟写「5 小时 11 分」
+  const hi = rows.find(real); // 卡片底的那一行：主角那件（主角是正在做的事时，是下一件正事）
+  // 连着的生活块并成一行小字
+  const groups = rows.reduce<Block[][]>((acc, b) => {
+    const tail = acc[acc.length - 1];
+    if (!real(b) && tail && !real(tail[0])) tail.push(b);
+    else acc.push([b]);
+    return acc;
+  }, []);
+
+  const footer = daytime ? (open ? <Button label="就这样" onPress={() => report(live ?? 3)} />
+    : <Button label={level ? "再报一次" : "报个电量"} variant={level ? "secondary" : "primary"} onPress={() => openLadder(true)} />)
+    : phase === "evening" || phase === "over" ? <Button label="对个账" onPress={() => router.push("/checkin")} /> : undefined;
 
   return (
-    <Screen bottom={TAB_SPACE} refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
+    <Screen bottom={TAB_SPACE} footer={footer}
+      refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
       {/* 舞台顶满：抵掉 Screen 的内边距，状态栏叠在场景上 */}
       <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg }}>
-        <Stage night={dark} stones={todo}>
+        <Stage night={scene} stones={todo}>
           <Bubble text={saying(phase, live ?? level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} hide={open}
-            onPress={daytime ? () => openLadder(true) : phase === "done" ? undefined : () => router.push("/checkin")} />
-          <Figure level={live ?? level} night={dark} onPress={daytime ? () => openLadder(true) : undefined} />
+            wide={!daytime} onPress={daytime ? () => openLadder(true) : phase === "done" ? undefined : () => router.push("/checkin")} />
+          <Figure level={live ?? level} night={scene} onPress={daytime ? () => openLadder(true) : undefined} />
           {daytime && <Battery level={level} live={live} open={open} onOpen={openLadder} onLive={setLive} onPick={report} />}
         </Stage>
       </View>
@@ -182,17 +199,25 @@ export default function Today() {
       {said && <Notice>{said}</Notice>}
 
       <Animated.View entering={enter(1)} accessible
-        accessibilityLabel={next ? `${cur ? "现在" : "下一件"}，${shortTitle(next)}，${cur ? "还剩" : "还有"} ${left} 分钟` : "今天走完了"}
+        accessibilityLabel={next ? `${cur ? "现在" : "下一件"}，${shortTitle(next)}，${cur ? "还剩" : "还有"} ${hours ? `${hours} 小时 ` : ""}${mins} 分钟`
+          : canReport ? "正事都做完了" : "今天走完了"}
         style={{ paddingHorizontal: space.xs }}>
-        <Text style={[type.label, { fontSize: 15, color: c.muted }]} numberOfLines={1}>
-          {next ? <>{cur ? "现在" : `${next.start} 开始`}  <Text style={{ fontWeight: "700", color: c.text }}>{shortTitle(next)}</Text></> : "今天走完了"}
-        </Text>
-        {next && (
-          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
-            <Text style={unit(c.text)}>{cur ? "还剩" : "还有"}</Text>
-            <Text style={[type.hero, { color: c.primaryInk }]}>{left}</Text>
-            <Text style={unit(c.text)}>分钟</Text>
-          </View>
+        {next ? (
+          <>
+            <Text style={[type.label, { fontSize: 15, color: c.muted }]} numberOfLines={1}>
+              {cur ? "现在" : `${next.start} 开始`}  <Text style={{ fontWeight: "700", color: c.text }}>{shortTitle(next)}</Text>
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
+              <Text style={unit(c.text)}>{cur ? "还剩" : "还有"}</Text>
+              {hours > 0 && <><Text style={[type.hero, { color: c.primaryInk }]}>{hours}</Text><Text style={unit(c.text)}>小时</Text></>}
+              {(mins > 0 || !hours) && (
+                <><Text style={[type.hero, { color: c.primaryInk }]}>{mins}</Text><Text style={unit(c.text)}>{hours ? "分" : "分钟"}</Text></>
+              )}
+            </View>
+          </>
+        ) : (
+          // 只剩吃饭、回家、自由时间：不报「还有 311 分钟」，说一句人话
+          <Text style={[type.title, { color: c.text }]}>{canReport ? "正事都做完了，歇会儿。" : "今天走完了。"}</Text>
         )}
       </Animated.View>
 
@@ -200,23 +225,35 @@ export default function Today() {
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
           <Text accessibilityRole="header" style={[type.label, { fontSize: 15, fontWeight: "700", color: c.text,
             paddingHorizontal: space.xs }]}>接下来</Text>
-          {rows.map((b, i) => <Row key={`${b.id}${b.start}`} b={b} x={changeOf(b)} first={i === 0 && !dark} />)}
+          {groups.map((g) => real(g[0])
+            ? <Row key={`${g[0].id}${g[0].start}`} b={g[0]} x={changeOf(g[0])} first={g[0] === hi && !dark} />
+            : <LifeRow key={`${g[0].id}${g[0].start}`} blocks={g} />)}
         </Animated.View>
       )}
-
-      {daytime && (open ? <Button label="就这样" onPress={() => report(live ?? 3)} />
-        : <Button label={level ? "再报一次" : "报个电量"} variant={level ? "secondary" : "primary"} onPress={() => openLadder(true)} />)}
-      {(phase === "evening" || phase === "over") && <Button label="对个账" onPress={() => router.push("/checkin")} />}
     </Screen>
   );
 }
 
 const unit = (color: string) => [type.label, { fontSize: 17, lineHeight: 24, color }];
 
-/** 接下来的一行：时间、黏土图标、标题和副标题。下一件是一块卡片底；被重排改过的行是浅主色底。 */
+/** 生活块（吃饭、路上、回家、睡）：一行淡淡的小字，没有图标；连着的几块并在这一行里，各带各的时间。 */
+function LifeRow({ blocks }: { blocks: Block[] }) {
+  const c = useColors();
+  return (
+    <View accessible accessibilityLabel={blocks.map((b) => `${b.start}，${shortTitle(b)}`).join("；")}
+      style={{ flexDirection: "row", alignItems: "center", minHeight: 30, paddingLeft: space.xs, paddingRight: space.sm }}>
+      <Text numberOfLines={1} style={[type.small, { flex: 1, color: c.muted }]}>
+        {blocks.map((b, i) => (
+          <Text key={`${b.id}${b.start}`}>{i > 0 && "    "}<Text style={type.num}>{b.start}</Text>{"  "}{shortTitle(b)}</Text>
+        ))}
+      </Text>
+    </View>
+  );
+}
+
+/** 接下来的一件正事：时间、黏土图标、标题和副标题。下一件是一块卡片底；被重排改过的行是浅主色底。 */
 function Row({ b, x, first }: { b: Block; x?: Change; first: boolean }) {
   const c = useColors();
-  const life = b.kind === "life";
   const sub = note(b, x);
   return (
     <View accessible accessibilityLabel={[b.start, shortTitle(b), sub, x?.was && `原来 ${x.was.replace(" 分", " 分钟")}`, x && "改过"]
@@ -225,9 +262,9 @@ function Row({ b, x, first }: { b: Block; x?: Change; first: boolean }) {
         borderRadius: radius.btn }, first && { minHeight: 56, backgroundColor: c.surface, boxShadow: c.clay, marginBottom: 6 },
         x && { backgroundColor: c.tint }]}>
       <Text style={[type.num, { width: 44, fontSize: 15, color: c.text }]}>{b.start}</Text>
-      <EventIcon icon={b.id === "sleep" ? "sleep" : clayIcon(b)} dim={life} />
+      <View style={{ width: 32 }}><EventIcon icon={clayIcon(b)} /></View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={[type.label, { fontSize: 16, lineHeight: 20, color: life ? c.muted : c.text }]}
+        <Text style={[type.label, { fontSize: 16, lineHeight: 20, color: c.text }]}
           numberOfLines={1}>{shortTitle(b)}</Text>
         {!!sub && (
           <Text style={[type.small, { lineHeight: 17, color: c.muted }]} numberOfLines={1}>

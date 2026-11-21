@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 
 import { Country, Me, putMe, say } from "@/api";
+import { Mascot } from "@/components/clay";
 import { haptic, Pressy } from "@/components/motion";
 import { Body, Button, Card, Chip, Display, Icon, IconName, Label, Notice, Row, Small } from "@/components/ui";
 import { space, type, useColors } from "@/theme";
@@ -38,9 +39,12 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
 
   return (
     <>
-      <View style={{ gap: space.xs }}>
-        <Display>{filledBefore ? "隐私说明更新了" : "开始之前"}</Display>
-        <Small muted>{filledBefore ? "和上次不一样的地方，请再看一遍。" : "先看一下数据怎么用。"}</Small>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.md }}>
+        <Mascot height={120} />
+        <View style={{ flex: 1, gap: space.xs, paddingBottom: space.md }}>
+          <Display>{filledBefore ? "隐私说明更新了" : "开始之前"}</Display>
+          <Small muted>{filledBefore ? "和上次不一样的地方，请再看一遍。" : "先看一下数据怎么用。"}</Small>
+        </View>
       </View>
       <Card>
         {POINTS.map(([icon, text]) => (

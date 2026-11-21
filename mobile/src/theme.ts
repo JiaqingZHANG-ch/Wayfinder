@@ -143,6 +143,9 @@ export function useNightClock() {
   return night;
 }
 
+/** 舞台用哪张场景：只看钟点（21:00–6:00 是夜景）。系统深色时中午还是白天的小镇，只有控件换深色。 */
+export const useNightScene = () => useContext(Night);
+
 /** 现在用深色吗：系统是深色，或者到了夜里。 */
 export function useDark() {
   const night = useContext(Night);
@@ -156,3 +159,4 @@ export function useColors(): Colors {
 
 /** 底部标签栏占的高度（不含安全区）：标签页底部要留出这么多空，内容才不被挡住。 */
 export const TAB_SPACE = 96;
+export const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸

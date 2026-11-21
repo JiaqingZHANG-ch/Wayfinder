@@ -6,10 +6,11 @@ import { Linking, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, 
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Mascot } from "@/components/clay";
 import { enter, haptic, Pressy } from "@/components/motion";
-import { radius, space, type, useColors } from "@/theme";
+import { MAX_WIDTH, radius, space, type, useColors } from "@/theme";
 
-export const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
+export { MAX_WIDTH };
 const TOUCH = 44; // 可点区域至少 44pt（Apple HIG）
 
 export type IconName = keyof typeof Ionicons.glyphMap;
@@ -37,15 +38,18 @@ function useSink(edge: string | undefined) {
 
 /**
  * safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。
+ * footer：固定在底部（有标签栏时在标签栏上方）的主按钮，不跟着内容滚走。
  */
-export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh }: {
-  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode;
+export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, footer }: {
+  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode; footer?: ReactNode;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const column = { maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
   const inner = { padding: space.lg, paddingTop: safeTop ? space.xl : space.lg,
-    paddingBottom: space.xxl + bottom + (bottom ? insets.bottom : 0),
-    gap: space.lg, maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
+    paddingBottom: footer ? space.lg : space.xxl + bottom + (bottom ? insets.bottom : 0), gap: space.lg, ...column };
+  // 有标签栏时：按钮连 4px 底边停在标签栏渐隐的上沿（标签栏 64 高、上面 24 渐隐，底下是 max(安全区, 12)）
+  const below = bottom ? Math.max(insets.bottom, space.md) + bottom - 4 : insets.bottom + space.lg;
   return (
     // safeTop：滚动区从状态栏下面开始，状态栏下是实底，滚上去的内容不和时间、信号叠字（v4 的 .scroll{top:44px}）
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: safeTop ? insets.top : 0 }}>
@@ -55,6 +59,7 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh }
           <View style={inner}>{children}</View>
         </ScrollView>
       ) : <View style={inner}>{children}</View>}
+      {footer && <View style={[column, { paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: below }]}>{footer}</View>}
     </View>
   );
 }
@@ -105,14 +110,13 @@ export function Header({ title, sub, onBack }: { title: string; sub?: string; on
   );
 }
 
-/** 整页没拿到数据：图标、一句人话、「再试一次」。原始错误不给用户看。children：再给一个去处（比如「去改设置」）。 */
+/** 整页没拿到数据：坐着歇会儿的小人、一句人话、「再试一次」。原始错误不给用户看。children：再给一个去处（比如「去改设置」）。 */
 export function ErrorState({ onRetry, text = "网络好了再试一次。", title = "没连上", children }: {
   onRetry: () => void; text?: string; title?: string; children?: ReactNode;
 }) {
-  const c = useColors();
   return (
-    <View aria-live="polite" style={{ alignItems: "center", gap: space.md, paddingTop: space.xxl }}>
-      <Icon name={title === "没连上" ? "cloud-offline-outline" : "calendar-clear-outline"} size={40} color={c.muted} />
+    <View aria-live="polite" style={{ alignItems: "center", gap: space.md, paddingTop: space.xl }}>
+      <Mascot level={1} height={150} />
       <Title>{title}</Title>
       <Body muted center>{text}</Body>
       <Button label="再试一次" icon="refresh" variant="secondary" onPress={onRetry} />

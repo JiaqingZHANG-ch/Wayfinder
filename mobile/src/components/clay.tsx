@@ -16,9 +16,8 @@ import { scheduleOnRN } from "react-native-worklets";
 
 import type { ClayIcon } from "@/clay-icon";
 import { haptic } from "@/components/motion";
-import { MAX_WIDTH } from "@/components/ui";
 import { BATTERY_HINT } from "@/labels";
-import { radius, type, useColors } from "@/theme";
+import { MAX_WIDTH, radius, type, useColors, useDark } from "@/theme";
 
 const W = 390;
 const H = 300;
@@ -34,6 +33,7 @@ const IMG = {
   head: require("../../assets/images/clay/fig-head.webp"),
   blink: require("../../assets/images/clay/fig-blink.webp"),
   sit: require("../../assets/images/clay/fig-sit.webp"),
+  walk: require("../../assets/images/clay/fig-walk.webp"),
 };
 // 表情 3 是头图自带的脸，其余四张叠在头上
 const FACES: Record<number, ImageSource> = {
@@ -170,17 +170,21 @@ const SOFT = { damping: 12, stiffness: 180 };
  * 导师的一句话：从小人头顶冒出来的实底气泡（控件：平色块 + 4px 卡片底边），字不压在场景上。top 是画布坐标（让出状态栏用）；
  * hide：报电量开着阶梯时收起，不和阶梯叠在一起。onPress：气泡问了话就能点（今天页点了打开电量阶梯）。
  */
-export function Bubble({ text, top = 54, hide, onPress }: { text: string; top?: number; hide?: boolean; onPress?: () => void }) {
+export function Bubble({ text, top = 54, hide, wide, onPress }: {
+  text: string; top?: number; hide?: boolean; wide?: boolean; onPress?: () => void;
+}) {
   const c = useColors();
   const a = useAnimatedStyle(() => ({ opacity: withTiming(hide ? 0 : 1, { duration: 200 }) }), [hide]);
   return (
-    <Animated.View aria-live="polite" pointerEvents={hide ? "none" : "auto"} style={[a, { position: "absolute", left: 16, top, maxWidth: 300, zIndex: 6 }]}>
-      <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? "button" : undefined}
-        style={{ paddingTop: 8, paddingBottom: 9, paddingHorizontal: 13, borderRadius: radius.btn, backgroundColor: c.surface,
-          boxShadow: `0 4px 0 ${c.cardEdge}` }}>
+    // wide：舞台右边没有电池时可以更宽；最多两行，不压到小人头顶
+    <Animated.View aria-live="polite" pointerEvents={hide ? "none" : "auto"}
+      style={[a, { position: "absolute", left: 16, top, maxWidth: wide ? W - 32 : 300, zIndex: 6 }]}>
+      <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? "button" : undefined} accessibilityLabel={text}
+        style={{ minHeight: 44, justifyContent: "center", paddingTop: 8, paddingBottom: 9, paddingHorizontal: 13, borderRadius: radius.btn,
+          backgroundColor: c.surface, boxShadow: `0 4px 0 ${c.cardEdge}` }}>
         <View style={{ position: "absolute", left: 52, bottom: -7, width: 16, height: 16, borderRadius: 3,
           backgroundColor: c.surface, transform: [{ rotate: "45deg" }] }} />
-        <Text style={[type.body, { fontSize: 16, lineHeight: 22, fontWeight: "500", color: c.text }]}>{text}</Text>
+        <Text numberOfLines={2} style={[type.body, { fontSize: 16, lineHeight: 22, fontWeight: "500", color: c.text }]}>{text}</Text>
       </Pressable>
     </Animated.View>
   );
@@ -313,12 +317,15 @@ function Rung({ n, on, open, reduced, onPress }: { n: number; on: boolean; open:
   return (
     <Animated.View pointerEvents={open ? "auto" : "none"} style={[{ position: "absolute", right: 78, top: 224 - (n - 1) * 44, height: 44,
       justifyContent: "center", zIndex: 6 }, a]}>
+      {/* 可点区域是整级 44 高，看得见的药丸 32 高（每级之间留出缝） */}
       <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
         accessibilityLabel={`${n} 格，${BATTERY_HINT[n]}`} accessibilityElementsHidden={!open}
-        style={{ flexDirection: "row", alignItems: "center", gap: 7, height: 32, paddingHorizontal: 12, borderRadius: radius.pill,
+        style={{ height: 44, justifyContent: "center" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7, height: 32, paddingHorizontal: 12, borderRadius: radius.pill,
           backgroundColor: on ? c.primary : c.surface, boxShadow: `0 4px 0 ${on ? c.primaryEdge : c.cardEdge}` }}>
-        <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 16, color: on ? c.onPrimary : c.primaryInk }]}>{n}</Text>
-        <Text style={[type.label, { fontSize: 15, lineHeight: 20, color: on ? c.onPrimary : c.text }]}>{BATTERY_HINT[n]}</Text>
+          <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 16, color: on ? c.onPrimary : c.primaryInk }]}>{n}</Text>
+          <Text style={[type.label, { fontSize: 15, lineHeight: 20, color: on ? c.onPrimary : c.text }]}>{BATTERY_HINT[n]}</Text>
+        </View>
       </Pressable>
     </Animated.View>
   );
@@ -333,7 +340,29 @@ export function Bean({ night, w, h = w }: { night: boolean; w: number; h?: numbe
   return <Image source={night ? BEANS.ochre : BEANS.brown} contentFit="fill" style={{ width: w, height: h }} />;
 }
 
-/** 一件事的黏土图标。 */
-export function EventIcon({ icon, size = 32, dim }: { icon: ClayIcon; size?: number; dim?: boolean }) {
-  return <Image source={ICONS[icon]} style={{ width: size, height: size, opacity: dim ? 0.8 : 1 }} />;
+/** 一件事的黏土图标；没有合适的图标（icon 是 null）就不画。 */
+export function EventIcon({ icon, size = 32 }: { icon: ClayIcon | null; size?: number }) {
+  return icon && <Image source={ICONS[icon]} style={{ width: size, height: size }} />;
+}
+
+/**
+ * 不在舞台上的小人（出错页、同意页、「我」页顶条）：和舞台上同一套分层图，按 height 等比缩小，在版面里正常占位。
+ * level 同 Figure（1 是坐着歇会儿）；walk：本周页顶上那个走在路上的姿势（一张整图，不眨眼）。
+ * night：压暗一档，默认跟深色模式；站在场景图上时跟场景走。
+ */
+export function Mascot({ level, height = 190, walk, night: scene }: {
+  level?: number | null; height?: number; walk?: boolean; night?: boolean;
+}) {
+  const dark = useDark();
+  const night = scene ?? dark;
+  const k = height / 190;
+  return (
+    <View style={{ width: 149 * k, height }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <View style={{ position: "absolute", left: 0, top: 0, width: 149, height: 190, transformOrigin: "0 0", transform: [{ scale: k }] }}>
+        {walk ? (
+          <View style={[FILL, night && { filter: "brightness(0.75)" }]}><Img src={IMG.shadow} /><Img src={IMG.walk} /></View>
+        ) : <Figure level={level} night={night} left={0} top={0} />}
+      </View>
+    </View>
+  );
 }

@@ -6,13 +6,13 @@ import Animated, { FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  Block, CheckinItem, checkinItems, DeepTalkState, getDeepTalk, getToday, isCrisis, OFFLINE, postCheckin, say, snoozeDeepTalk,
+  Block, CheckinItem, checkinItems, DeepTalkState, getDeepTalk, getToday, isCrisis, postCheckin, say, snoozeDeepTalk,
 } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure, Stage } from "@/components/clay";
 import { ahead, haptic, Pressy, Skeleton } from "@/components/motion";
 import { toMin } from "@/components/plan-view";
-import { Body, Button, Card, CrisisCard, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
+import { Body, Button, Card, CrisisCard, ErrorState, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, NightProvider, radius, space, type, useColors } from "@/theme";
 
@@ -75,8 +75,9 @@ function Flow() {
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<{ from: Step; all: Record<string, Choice> } | null>(null); // 答完停一下再翻
   const [reader, setReader] = useState(false); // 开着读屏时不自动翻页，让人听完再点「下一件」
+  const [failed, setFailed] = useState(false); // 没拿到今天的计划（断网）：整页换 ErrorState
 
-  useEffect(() => {
+  function load() {
     getToday().then((plan) => {
       setItems(checkinItems(plan));
       setBlocks(plan.blocks);
@@ -88,8 +89,12 @@ function Flow() {
         setBlocker(plan.checkin.blocker ?? "");
         setTomorrow(plan.tomorrow_task ?? "");
       }
-    }, () => setMessage(OFFLINE));
-    AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
+    }, () => setFailed(true));
+  }
+  useEffect(() => {
+    load();
+    // 网页上 RN Web 的读屏检测恒为真，会让每件都多点一次「下一件」：网页照常自动翻
+    if (Platform.OS !== "web") AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
   }, []);
   const turn = useEffectEvent((p: { from: Step; all: Record<string, Choice> }) => forward(p.from, p.all));
   useEffect(() => {
@@ -187,12 +192,16 @@ function Flow() {
       <Closing items={items ?? []} choices={choices} moved={moved} onEdit={(id) => {
         setDone(false);
         go(steps.findIndex((x) => x.item.id === id && !x.vs));
-      }}>
+      }} footer={(
+        <>
+          {message && <Notice tone="error">{message}</Notice>}
+          <Button label="晚安" busyLabel={busy ? "正在记……" : undefined} onPress={bye} />
+        </>
+      )}>
         <Field placeholder="明天先做什么？可以不填" accessibilityLabel="明天先做的一件事" value={tomorrow}
           onChangeText={touch("tomorrow_task", setTomorrow)} />
         <Field placeholder="随手记一句" accessibilityLabel="今天想记的一句话" value={note} onChangeText={touch("note", setNote)} />
         <Field placeholder="卡在哪（可不写）" accessibilityLabel="今天卡在哪" value={blocker} onChangeText={touch("blocker", setBlocker)} />
-        {message && <Notice tone="error">{message}</Notice>}
         {invite && (
           <Animated.View exiting={FadeOut.duration(motion.base)}>
             <Card style={{ gap: space.xs }}>
@@ -206,9 +215,6 @@ function Flow() {
             </Card>
           </Animated.View>
         )}
-        <View style={{ marginTop: "auto", paddingTop: space.md }}>
-          <Button label="晚安" busyLabel={busy ? "正在记……" : undefined} onPress={bye} />
-        </View>
       </Closing>,
     );
   }
@@ -239,6 +245,15 @@ function Flow() {
       )}
     </Top>
   );
+
+  if (failed) {
+    return shell(
+      <View style={page}>
+        {top}
+        <ErrorState onRetry={() => { setFailed(false); load(); }} />
+      </View>,
+    );
+  }
 
   if (!items || !step) {
     return shell(
@@ -349,10 +364,10 @@ function Answer({ s, label, on, onPress }: { s?: Status; label: string; on: bool
   );
 }
 
-/** 记号：做了实心、保底半满、没做空心（和本周页一样）。 */
+/** 记号：做了绿实心、保底绿半满、没做空心（和本周页同一套颜色）。 */
 function Dot({ s, size = 10 }: { s: Status; size?: number }) {
   const c = useColors();
-  const color = s === "done" ? c.primary : s === "floor" ? c.done : c.mark;
+  const color = s === "skip" ? c.mark : c.done;
   return (
     <View style={{ width: size, height: size, borderRadius: size, overflow: "hidden", borderWidth: s === "done" ? 0 : 2, borderColor: color,
       backgroundColor: s === "done" ? color : "transparent" }}>
@@ -375,42 +390,46 @@ function Seal({ s }: { s: Status }) {
 
 /**
  * 收尾：夜里的舞台上，小人坐下打哈欠（和今天页同一套母版图），一句「今天收住了」，排不上的事说一句，
- * 今天的账一件一块（点了回去改）。children 是下面的输入和「晚安」。
+ * 今天的账一件一块（点了回去改）。children 是下面的输入；footer 是「晚安」，固定在底部，不跟着滚走。
  */
-function Closing({ items, choices, moved, onEdit, children }: {
+function Closing({ items, choices, moved, onEdit, children, footer }: {
   items: CheckinItem[]; choices: Record<string, Choice>; moved: string[]; onEdit: (id: string) => void; children: React.ReactNode;
+  footer: React.ReactNode;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const marks = items.filter((x) => choices[x.id]?.status);
   return (
-    <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + space.xl }} keyboardShouldPersistTaps="handled">
-      <Stage night stones={0}><Figure level={1} night /></Stage>
-      <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: space.lg, gap: space.md }}>
-        <View style={{ gap: 4 }}>
-          <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>今天收住了。</Text>
-          {moved.length > 0 && (
-            <Text style={[type.body, { lineHeight: 24, color: c.muted }]}>{moved.join("、")}今天没排上。</Text>
-          )}
-        </View>
-        {marks.length > 0 && (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }} accessibilityLabel="今天的账，点一下可以改">
-            {marks.map((x) => {
-              const s = choices[x.id].status!;
-              return (
-                <Pressy key={x.id} onPress={() => onEdit(x.id)} scaleTo={1} accessibilityRole="button"
-                  accessibilityLabel={`${plain(x.title)}：${STATUS_LABELS[s]}，点一下改`}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, paddingHorizontal: 14, borderRadius: radius.btn,
-                    backgroundColor: c.line, boxShadow: `0 4px 0 ${c.cardEdge}` }}>
-                  <Dot s={s} />
-                  <Text style={[type.label, { color: c.text }]}>{plain(x.title)}</Text>
-                </Pressy>
-              );
-            })}
+    <>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingBottom: space.lg }} keyboardShouldPersistTaps="handled">
+        <Stage night stones={0}><Figure level={1} night /></Stage>
+        <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: space.lg, gap: space.md }}>
+          <View style={{ gap: 4 }}>
+            <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>今天收住了。</Text>
+            {moved.length > 0 && (
+              <Text style={[type.body, { lineHeight: 24, color: c.muted }]}>{moved.join("、")}今天没排上。</Text>
+            )}
           </View>
-        )}
-        {children}
-      </View>
-    </ScrollView>
+          {marks.length > 0 && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }} accessibilityLabel="今天的账，点一下可以改">
+              {marks.map((x) => {
+                const s = choices[x.id].status!;
+                return (
+                  <Pressy key={x.id} onPress={() => onEdit(x.id)} scaleTo={1} accessibilityRole="button"
+                    accessibilityLabel={`${plain(x.title)}：${STATUS_LABELS[s]}，点一下改`}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, paddingHorizontal: 14, borderRadius: radius.btn,
+                      backgroundColor: c.line, boxShadow: `0 4px 0 ${c.cardEdge}` }}>
+                    <Dot s={s} />
+                    <Text style={[type.label, { color: c.text }]}>{plain(x.title)}</Text>
+                  </Pressy>
+                );
+              })}
+            </View>
+          )}
+          {children}
+        </View>
+      </ScrollView>
+      <View style={{ paddingHorizontal: 20, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>{footer}</View>
+    </>
   );
 }

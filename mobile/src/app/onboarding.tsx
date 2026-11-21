@@ -5,12 +5,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings, say } from "@/api";
 import { EnergyPick } from "@/components/chips";
+import { Bubble, Figure, Stage } from "@/components/clay";
 import { Consent } from "@/components/consent";
 import { HALF, Num } from "@/components/fields";
 import { Bar, Skeleton } from "@/components/motion";
 import { PickField } from "@/components/time-field";
-import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, Icon, Notice, Row, Small } from "@/components/ui";
-import { radius, space, type, useColors } from "@/theme";
+import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, Notice, Row, Small } from "@/components/ui";
+import { radius, space, type, useColors, useNightScene } from "@/theme";
 
 type Step = "welcome" | "consent" | "chat" | "confirm" | "form";
 
@@ -18,6 +19,7 @@ type Step = "welcome" | "consent" | "chat" | "confirm" | "form";
 export default function Onboarding() {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const scene = useNightScene();
   const [step, setStep] = useState<Step>("welcome");
   const [question, setQuestion] = useState<string | null>(null);
   const [asked, setAsked] = useState(0); // 已经问到第几个问题，进度条用
@@ -132,13 +134,23 @@ export default function Onboarding() {
   }
 
   if (step === "welcome") {
-    return shell(
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.md }}>
-        <Icon name="compass-outline" size={48} color={c.primaryEdge} />
-        <Text style={{ fontFamily: type.big.fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "300", color: c.text }}>Wayfinder</Text>
-        <Body muted center>每天帮你排一张做得完的计划。累了就说，它只改今晚。</Body>
-      </View>,
-      <Button label="开始" busyLabel={me ? undefined : "……"} onPress={start} />,
+    // 欢迎页：小镇舞台顶满（状态栏叠在场景上），小人打招呼；下面一句话和「开始」
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <View style={{ flex: 1, width: "100%", maxWidth: 560, alignSelf: "center" }}>
+          <Stage night={scene} stones={3}>
+            <Bubble text="你好，我陪你过每一天。" top={Math.max(54, insets.top + 6)} wide />
+            <Figure level={5} night={scene} />
+          </Stage>
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.sm }}>
+            <Text style={[type.stat, { color: c.text }]}>Wayfinder</Text>
+            <Body muted center>每天帮你排一张做得完的计划。累了就说，它只改今晚。</Body>
+          </View>
+          <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }}>
+            <Button label="开始" busyLabel={me ? undefined : "……"} onPress={start} />
+          </View>
+        </View>
+      </View>
     );
   }
 
