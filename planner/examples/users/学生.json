@@ -1,0 +1,27 @@
+{
+  "_note": "假用户：大学生，上下午各一节课。没有公交班次表，按单程 25 分钟估路上时间。",
+  "day": "2026-11-24",
+  "wake": "07:00",
+  "sleep": "23:00",
+  "rules": {"min_gap_min": 5, "campus_travel_min": 25, "arrive_before_min": 5, "leave_after_class_min": 10},
+  "fixed": [
+    {"id": "math", "title": "高数", "start": "09:00", "end": "12:00", "where": "campus", "kind": "class"},
+    {"id": "physics", "title": "大学物理", "start": "14:00", "end": "16:00", "where": "campus", "kind": "class"}
+  ],
+  "meals": [
+    {"id": "breakfast", "title": "早饭", "minutes": 20, "window": ["07:15", "08:15"]},
+    {"id": "lunch", "title": "午饭", "minutes": 45, "window": ["12:00", "13:45"]},
+    {"id": "dinner", "title": "晚饭", "minutes": 45, "window": ["17:30", "19:30"]}
+  ],
+  "habits": [
+    {"id": "reading", "title": "看书", "minutes": 30, "floor_min": 10, "window": ["19:00", "22:30"]},
+    {"id": "english", "title": "背单词", "minutes": 20, "floor_min": 10, "window": ["07:15", "22:30"]}
+  ],
+  "flex": [
+    {"id": "gym", "title": "打球", "minutes": 60, "window": ["17:00", "19:00"]}
+  ],
+  "tasks": [
+    {"id": "exam-prep", "project": "期末", "title": "高数期末复习", "remaining_min": 480, "deadline": "2026-12-10", "heavy": true, "where": "any",
+     "steps": ["整理第 3 章错题", "做一套往年卷"], "done_criteria": "往年卷做完并对答案"}
+  ]
+}

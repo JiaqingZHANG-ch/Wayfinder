@@ -44,7 +44,7 @@ _log = logging.getLogger(__name__)
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
 USER_ID = 1
 WEB_ORIGINS = ["http://localhost:8081", "http://127.0.0.1:8081"]
-DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "daily-planner" / "examples" / "users" / "学生.json"
+DEFAULT_TEMPLATE = Path(__file__).resolve().parents[2] / "planner" / "examples" / "users" / "学生.json"
 
 
 class EnergyIn(BaseModel):

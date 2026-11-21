@@ -19,7 +19,7 @@
 | 第 2 周 ③ `days_with_note` | `src/server/db.py` | 把「note 不为空」改成「note 或 blocker 不为空」，看 `tests/test_db.py` 哪条变红 |
 | 第 4 周 ① 设置页 | `mobile/src/app/settings.tsx` | 给课表加一个「这节课在哪个教室」的输入（前后端都要改） |
 | 第 4 周 ② 能量地图 | `mobile/src/app/onboarding.tsx` 的 `EnergyPick` | 把三选一的说明文字改成你自己的说法（`mobile/src/labels.ts`） |
-| 第 4 周 ④ / 第 1 周循环 4（C26 保底版） | `daily-planner/src/planner/solve.py` 的 `_low_energy` | 把 `LOW_ENERGY = 2` 改成 3，看 `tests/test_energy.py` 怎么变 |
+| 第 4 周 ④ / 第 1 周循环 4（C26 保底版） | `planner/src/planner/solve.py` 的 `_low_energy` | 把 `LOW_ENERGY = 2` 改成 3，看 `tests/test_energy.py` 怎么变 |
 | 第 4 周 ⑥ `stalest_profile` | `src/server/db.py` | 把 14 天改成 7 天，先改测试再改 SQL |
 
 ## 启动（开发时只开后端）
@@ -31,7 +31,7 @@
 然后用浏览器打开 http://127.0.0.1:8000/docs ，每个接口都能点「Try it out」试。
 
 - 数据库：`var/app.db`（不进 git）。想从头来，停掉服务后删掉它。
-- 新数据库从建档开始。想跳过建档、直接用一份现成设置：先设 `$env:PLAN_TEMPLATE = '..\daily-planner\examples\users\学生.json'`（或别的求解器输入文件）。
+- 新数据库从建档开始。想跳过建档、直接用一份现成设置：先设 `$env:PLAN_TEMPLATE = 'planner\examples\users\学生.json'`（或别的求解器输入文件）。
 
 ## 换模型（循环 ⑥）
 

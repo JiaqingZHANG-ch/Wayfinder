@@ -1,0 +1,26 @@
+[project]
+name = "daily-planner"
+version = "0.1.0"
+description = "每日规划师：用 CP-SAT 排出一天的逐时安排"
+requires-python = ">=3.12"
+dependencies = [
+    "ortools>=9.15.6755",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/planner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+# ortools 自己导入时触发的 Python 3.12 弃用警告，与本项目代码无关
+filterwarnings = ["ignore:Bitwise inversion:DeprecationWarning"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]

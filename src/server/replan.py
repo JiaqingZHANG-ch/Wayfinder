@@ -3,7 +3,7 @@
 和 planner.replan_from 做的是同一件事，只差一点：「已经过去的」用存着的计划（用户真看到、真做了的），
 不是按新设置假想重排出来的上午。用 replan_from 的话，假想上午排在「现在」之前、实际计划里排在之后的事，
 两边都不要，就悄悄没了（代码评审 H1）。
-shortcut: 抄了 replan_from 的后半段（daily-planner 那个仓库现在不能动）；能动时给 replan_from 加一个 before 参数，删掉这个文件。
+shortcut: 抄了 replan_from 的后半段（当时求解器在另一个仓库，不能动）；现在它在 planner/ 里，有空时给 replan_from 加一个 before 参数，删掉这个文件。
 """
 import math
 from dataclasses import fields, replace

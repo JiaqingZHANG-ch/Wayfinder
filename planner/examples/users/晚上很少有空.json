@@ -1,0 +1,26 @@
+{
+  "_note": "假用户：上午上课，傍晚去打工到 21:30，晚上几乎没有空。习惯都很短，保底版更短。",
+  "day": "2026-11-24",
+  "wake": "06:30",
+  "sleep": "22:30",
+  "rules": {"min_gap_min": 5, "campus_travel_min": 30, "other_travel_min": 20},
+  "energy": {"cost": {"job": 1.0}, "min_free_min": 60},
+  "fixed": [
+    {"id": "lecture", "title": "专业课", "start": "08:30", "end": "12:30", "where": "campus", "kind": "class"},
+    {"id": "job", "title": "打工", "start": "18:30", "end": "21:30", "where": "other", "kind": "meeting"}
+  ],
+  "meals": [
+    {"id": "breakfast", "title": "早饭", "minutes": 20, "window": ["06:45", "07:30"]},
+    {"id": "lunch", "title": "午饭", "minutes": 40, "window": ["12:30", "14:30"]},
+    {"id": "dinner", "title": "晚饭", "minutes": 30, "window": ["17:00", "18:00"]}
+  ],
+  "habits": [
+    {"id": "reading", "title": "看书", "minutes": 20, "floor_min": 5, "window": ["13:00", "22:30"]},
+    {"id": "english", "title": "英语", "minutes": 15, "floor_min": 5, "window": ["06:45", "22:30"]}
+  ],
+  "flex": [],
+  "tasks": [
+    {"id": "report", "project": "课程报告", "title": "写课程报告", "remaining_min": 240, "deadline": "2026-11-30", "heavy": false, "where": "home",
+     "steps": ["列提纲", "写第一节"], "done_criteria": "第一节写完"}
+  ]
+}

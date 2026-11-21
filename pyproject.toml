@@ -18,7 +18,7 @@ testpaths = ["tests"]
 addopts = "--basetemp=.pytest_tmp"
 
 [tool.uv.sources]
-daily-planner = { path = "../daily-planner", editable = true }
+daily-planner = { path = "planner", editable = true }
 
 [dependency-groups]
 dev = [

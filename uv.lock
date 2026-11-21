@@ -550,7 +550,7 @@ wheels = [
 [[package]]
 name = "daily-planner"
 version = "0.1.0"
-source = { editable = "../daily-planner" }
+source = { editable = "planner" }
 dependencies = [
     { name = "ortools" },
 ]
@@ -782,7 +782,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "daily-planner", editable = "../daily-planner" },
+    { name = "daily-planner", editable = "planner" },
     { name = "fastapi", specifier = ">=0.162.7" },
     { name = "google-api-python-client", specifier = ">=2.202.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.5.0" },

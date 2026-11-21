@@ -1,0 +1,26 @@
+{
+  "_note": "假用户：坐办公室的上班族，9 点到 17:30 在公司，午饭在公司吃所以不排。下班后有一个副业项目。",
+  "day": "2026-11-24",
+  "wake": "06:45",
+  "sleep": "22:45",
+  "rules": {"min_gap_min": 5, "other_travel_min": 40},
+  "energy": {"cost": {"work": 0.6, "reading": 0.5}},
+  "fixed": [
+    {"id": "work", "title": "上班", "start": "09:00", "end": "17:30", "where": "other", "kind": "meeting"}
+  ],
+  "meals": [
+    {"id": "breakfast", "title": "早饭", "minutes": 25, "window": ["07:00", "08:15"]},
+    {"id": "dinner", "title": "晚饭", "minutes": 45, "window": ["18:15", "20:00"]}
+  ],
+  "habits": [
+    {"id": "reading", "title": "看书", "minutes": 30, "floor_min": 10, "window": ["19:00", "22:30"]},
+    {"id": "english", "title": "英语听力", "minutes": 20, "floor_min": 10, "window": ["07:00", "22:30"]}
+  ],
+  "flex": [
+    {"id": "gym", "title": "跑步", "minutes": 45, "window": ["18:15", "20:30"]}
+  ],
+  "tasks": [
+    {"id": "side-project", "project": "副业", "title": "做个人网站", "remaining_min": 600, "deadline": "2026-12-20", "heavy": false, "where": "home",
+     "steps": ["定首页结构", "写自我介绍"], "done_criteria": "首页能打开"}
+  ]
+}
