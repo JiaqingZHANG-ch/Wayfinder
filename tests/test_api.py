@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin")} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin", "goals")} == after
 
 
 def test_energy_preview_changes_nothing_until_reported(setup):

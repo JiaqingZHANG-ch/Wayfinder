@@ -3,21 +3,26 @@
 启动：.\\serve.ps1 ，然后打开 http://127.0.0.1:8000/docs
 """
 import json
+import logging
 import os
 import threading
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
+from mentor.council import CARDS_DIR, Card, load_cards, run_versions_council
+from mentor.deep_talk import STEPS, invest_suggestions, next_screen, propose, should_invite
+from mentor.deep_talk import reply as talk_reply
 from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, RecordingModel, make_model
 from mentor.onboarding import QUESTIONS, run_round
@@ -32,7 +37,9 @@ from server.replan import replan_after
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
 from .privacy import COUNTRIES, PRIVACY_TEXT, PRIVACY_VERSION
-from .settings import SettingsIn, for_day, from_plan_input, to_plan_input
+from .settings import ENERGY_COST, SettingsIn, for_day, from_plan_input, to_plan_input
+
+_log = logging.getLogger(__name__)
 
 # shortcut: 第 7 周加登录之前只有一个本机用户；之后从登录信息里取 user_id
 USER_ID = 1
@@ -77,6 +84,61 @@ class CheckinIn(BaseModel):
     """二选一：按钮的结果（result），或者用户说的一句话（sentence）。"""
     result: dict | None = None
     sentence: str | None = None
+
+
+class DeepTalkAnswerIn(BaseModel):
+    step: int
+    screen: str = Field(description="屏 id，要等于 GET /deep-talk 给的 screen")
+    value: Any = Field(None, description="格式按这一屏的 kind")
+
+
+class DeepTalkConfirmIn(BaseModel):
+    kind: Literal["profile", "habit", "tomorrow"]
+    id: int | None = Field(None, description="profile：档案 id")
+    key: str | None = Field(None, description="habit：提议的 key（prototype / read / move …）")
+    content: str | None = Field(None, max_length=MAX_INPUT, description="改过的字；不填 = 原样")
+    accept: bool
+
+
+def _answer_ok(s: dict, v, energy_ids: set[str]) -> bool:
+    """按屏的 kind 校验回答的格式（危机检查已经在 screen() 里做过）。"""
+    def num(x, lo, hi):
+        return type(x) is int and lo <= x <= hi
+
+    def text(x):
+        return isinstance(x, str) and bool(x.strip()) and len(x) <= MAX_INPUT
+
+    kind = s["kind"]
+    if kind in ("open", "version"):
+        return text(v)
+    if kind == "choose":  # null =「先不选」
+        return v is None or num(v, 0, 2)
+    if kind == "council":
+        return v is True
+    if not isinstance(v, dict):
+        return False
+    if kind == "scores":  # options 里的项可以跳过（不带）
+        return (set(s["items"]) - set(s.get("options", [])) <= set(v) <= set(s["items"])
+                and all(num(x, 0, 10) for x in v.values()))
+    if kind == "follow":
+        return len(v) <= 2 and set(v) <= set(s["options"]) and all(map(text, v.values()))
+    if kind == "energy":
+        return set(v) <= energy_ids and all(x in (None, *ENERGY_COST) for x in v.values())
+    return set(v) == {"0", "1", "2"} and all(  # rate：三个版本各打四项
+        isinstance(r, dict) and set(r) == set(s["items"]) and all(num(x, 1, 5) for x in r.values()) for r in v.values())
+
+
+def _energy_items(raw: dict | None) -> list[dict]:
+    """能量屏要标的：每个习惯、每门课（按名字去重）、每个项目，带现在标的那一档。"""
+    if not raw:
+        return []
+    form = from_plan_input(raw)
+    classes: dict[str, str | None] = {}
+    for c in form["timetable"]:
+        classes.setdefault(c["title"], c["energy"])
+    return ([{"id": h["id"], "title": h["title"], "kind": "habit", "energy": h["energy"]} for h in form["habits"]]
+            + [{"id": f"class:{t}", "title": t, "kind": "class", "energy": e} for t, e in classes.items()]
+            + [{"id": p["id"], "title": p["title"], "kind": "project", "energy": p["energy"]} for p in form["projects"]])
 
 
 def _plan_json(plan: DayPlan) -> dict:
@@ -148,7 +210,7 @@ async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResp
 
 
 def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calendar: CalendarPort | None = None,
-               now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
+               now: Callable[[ZoneInfo], datetime] = datetime.now, cards: list[Card] | None = None) -> FastAPI:
     db.ensure_user(USER_ID)
     model = RecordingModel(model, lambda call: db.add_model_call(USER_ID, call))
     settings_lock = threading.Lock()
@@ -267,7 +329,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
                                     for r in todays_reminders({"blocks": for_day(db.plan_input(USER_ID) or {}, d)["fixed"]}, settings)],
                 # 再改一下对账时，先把上次选的填好
-                "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None}
+                "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None,
+                "goals": goals_map(db.plan_input(USER_ID) or {})}
 
     @app.post("/energy", summary="报电量 → 只重排今晚 → 返回新计划（未确认）")
     def post_energy(body: EnergyIn):
@@ -520,6 +583,236 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def put_settings(body: SettingsIn):
         return save_settings(body)
 
+    # 深度长谈（设计 2026-11-21-deep-talk）：一轮 4 步，一步一行；问题由程序定，模型只回应和提议
+    def change_settings(edit: Callable[[dict], None]) -> dict | None:
+        """在现在的设置表单上改一处，再走 save_settings（排不下抛 422）；返回危机话术或 None。"""
+        raw = db.plan_input(USER_ID)
+        if raw is None:
+            raise HTTPException(409, "还没有设置，先完成建档")
+        form = from_plan_input(raw)
+        edit(form)
+        try:
+            body = SettingsIn(**form)
+        except ValidationError as e:
+            raise HTTPException(422, _say_error(e.errors()[0])) from None
+        out = save_settings(body)
+        return out if out.get("crisis") else None
+
+    def talk_rows() -> tuple[int, dict[int, dict], dict[int, dict]]:
+        """(这一轮, {步: 行}, {步: 回答})：步是整数（数据库里的 step 列）。"""
+        rnd = db.deep_talk_round(USER_ID)
+        rows = {r["step"]: r for r in db.deep_talk_rows(USER_ID, rnd)}
+        return rnd, rows, {s: r["answers"] for s, r in rows.items()}
+
+    def current_step(rows: dict[int, dict]) -> int | None:
+        return next((s for s in STEPS if not rows.get(s, {}).get("finished_at")), None)
+
+    def goals_map(raw: dict) -> dict[str, str]:
+        """习惯 id → 它服务的目标原文；只认最新一轮里提出、已经确认的「目标」。"""
+        _, _, answers = talk_rows()
+        ids = {i for a in answers.values() for i in a.get("profile_ids", [])}
+        goals = {p["id"]: p["content"] for p in db.profiles(USER_ID, confirmed=True) if p["level"] == "目标" and p["id"] in ids}
+        return {h: goals[m["goal_id"]] for h, m in raw.get("habit_meta", {}).items() if m.get("goal_id") in goals}
+
+    def talk_state(said: str | None = None) -> dict:
+        day = logical_date(clock())
+        rnd, rows, answers = talk_rows()
+        step, raw = current_step(rows), db.plan_input(USER_ID)
+        log, latest = db.logs_between(USER_ID, day, day), db.latest_plan(USER_ID, day)
+        a4, row4 = answers.get(4, {}), rows.get(4, {})
+        shown = ({i for a in answers.values() for i in a.get("profile_ids", [])}
+                 - {i for a in answers.values() for i in a.get("dismissed", [])})
+        full = len((raw or {}).get("habits", [])) >= MAX_HABITS
+
+        def status(s):
+            r = rows.get(s, {})
+            return "done" if r.get("finished_at") else "doing" if r.get("started_at") else "todo"
+        return {"crisis": False, "round": rnd, "step": step, "screen": step and next_screen(answers, step),
+                "steps": [{"step": s, "name": d["name"], "status": status(s)} for s, d in STEPS.items()],
+                "screens": STEPS, "answers": {str(s): a for s, a in answers.items() if a},
+                "invite": should_invite(list(rows.values()), checked_in=bool(log),
+                                        energy_level=latest and latest["energy_level"], today=day),
+                "snoozes": rows.get(step, {}).get("snoozes", 0),
+                "council": {"status": row4["council_status"], "result": row4["council"]} if row4.get("council_status") else None,
+                "proposals": {"profiles": [p for p in db.profiles(USER_ID, confirmed=False) if p["id"] in shown],
+                              # 习惯满了：「投资自己」不再提（原型照样显示，接受时报「习惯满了」）
+                              "habits": [h for h in a4.get("proposals", [])
+                                         if not (full and h["source"] == "invest" and h["status"] == "pending")],
+                              "tomorrow": None if a4.get("tomorrow_done") else a4.get("tomorrow")},
+                "tonight_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
+                "habits_full": full, "energy_items": _energy_items(raw), "reply": said}
+
+    def finish_step(step: int, answers: dict[int, dict]) -> tuple[dict, bool] | None:
+        """一步的最后一屏答完：提议存成待确认的档案；返回 (要并进这一步回答的字段, 方向对不上)，模型输出危机时 None。"""
+        mine = answers[step]
+        out: dict = {}
+        if not (step == 4 and mine.get("choose") is None):  #「先不选」不落地，只给「投资自己」
+            outcome, out = propose(model, step, answers)
+            if outcome == "crisis":
+                return None
+        proto = out.get("prototype")
+        levels = {1: [("近期观察", out.get("observation"))], 2: [("方向", out.get("direction"))],
+                  3: [("近期观察", out.get("formula"))],
+                  4: [("使命", out.get("mission")), *(("目标", g) for g in out.get("goals", [])),
+                      ("策略", proto and proto["title"])]}[step]
+        ids = [db.propose_profile(USER_ID, level, text, "深度长谈") for level, text in levels if text and text.strip()]
+        extra: dict = {"profile_ids": [*mine.get("profile_ids", []), *ids]}
+        if step == 4:
+            fresh = ([{"key": "prototype", **proto, "when": None, "why": None, "source": "deep_talk"}] if proto else []) + \
+                [{**i, "source": "invest"} for i in invest_suggestions(answers, (db.plan_input(USER_ID) or {}).get("habits", []))]
+            old = mine.get("proposals", [])  # 回来选版本时：已经回答过的提议保留，只补新的
+            extra["proposals"] = old + [{**p, "status": "pending"} for p in fresh if p["key"] not in {o["key"] for o in old}]
+            if out.get("tomorrow"):
+                extra.update(tomorrow=out["tomorrow"], tomorrow_done=False)
+        return extra, bool(out.get("mismatch"))
+
+    @app.get("/deep-talk", summary="深度长谈：第几次、哪一屏、今晚要不要邀请、已答内容和待确认的提议")
+    def get_deep_talk():
+        return talk_state()
+
+    @app.post("/deep-talk/answer", summary="答一屏：开放问题回导师的一句；一步的最后一屏答完给这一步的提议")
+    def post_deep_talk_answer(body: DeepTalkAnswerIn):
+        t = clock()
+        day = logical_date(t)
+        if crisis := screen(body, day):  # 危机：这一屏什么都不存，停在这里
+            return crisis
+        rnd, rows, answers = talk_rows()
+        step = current_step(rows)
+        # 第 4 次选了「先不选」以后，可以回来选一个版本（改的是同一轮的那一行）
+        rechoose = body.step == 4 and body.screen == "choose" and answers.get(4, {}).get("choose", 0) is None
+        if not rechoose and (body.step != step or body.screen != next_screen(answers, step)):
+            raise HTTPException(409, "不是这一屏，刷新后再接着聊")
+        s = next(x for x in STEPS[body.step]["screens"] if x["id"] == body.screen)
+        items = _energy_items(db.plan_input(USER_ID))
+        if not _answer_ok(s, body.value, {i["id"] for i in items}):
+            raise HTTPException(422, f"回答不能是空的，也不能超过 {MAX_INPUT} 字"
+                                if s["kind"] in ("open", "version", "follow") else "这一屏的回答格式不对")
+        mine = {**answers.get(body.step, {})}
+        if s["kind"] == "council":
+            mine["council_seen"] = True
+        else:
+            mine[body.screen] = body.value
+        said = None
+        if s["kind"] == "open":
+            outcome, said = talk_reply(model, s["question"], body.value)
+            if outcome == "crisis":
+                db.log_crisis(USER_ID, day, body.value)
+                return crisis_reply()
+        if s["kind"] == "energy":  # 标的结果马上写进设置、重排今天
+            mine["loved"] = [i["title"] for i in items if body.value.get(i["id"]) == "love"]
+
+            def mark(form):
+                for x in form["habits"] + form["projects"]:
+                    x["energy"] = body.value.get(x["id"], x["energy"])
+                for c in form["timetable"]:
+                    c["energy"] = body.value.get(f"class:{c['title']}", c["energy"])
+            if crisis := change_settings(mark):
+                return crisis
+        answers = {**answers, body.step: mine}
+        fields: dict = {}
+        if next_screen(answers, body.step) is None:
+            done = finish_step(body.step, answers)
+            if done is None:
+                db.log_crisis(USER_ID, day, "（深度长谈提议的模型输出）")
+                return crisis_reply()
+            extra, mismatch = done
+            mine.update(extra)
+            if mismatch:
+                said = f"{said or ''}\n这两句指的方向不太一样，先记下。".strip()
+            fields["finished_at"] = t.isoformat(timespec="seconds")
+        if not rows.get(body.step, {}).get("started_at"):  # 开始一步：「明天再说」清零
+            fields.update(started_at=t.isoformat(timespec="seconds"), snoozes=0)
+        db.upsert_deep_talk(USER_ID, rnd, body.step, answers=mine, **fields)
+        return talk_state(said)
+
+    @app.post("/deep-talk/snooze", summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
+    def post_deep_talk_snooze():
+        rnd, rows, _ = talk_rows()
+        step = current_step(rows)
+        if step is None:
+            raise HTTPException(409, "这一轮已经聊完了")
+        db.upsert_deep_talk(USER_ID, rnd, step, snoozes=rows.get(step, {}).get("snoozes", 0) + 1)
+        return talk_state()
+
+    @app.post("/deep-talk/council", summary="三个版本写完后请智囊团看：后台跑，马上返回；App 每 3 秒查 GET /deep-talk")
+    def post_deep_talk_council():
+        day = logical_date(clock())
+        rnd, rows, answers = talk_rows()
+        a4 = answers.get(4, {})
+        if not all(k in a4 for k in ("v1", "v2", "v3")):
+            raise HTTPException(409, "三个版本都写完，才能请顾问们看")
+        if rows[4]["council_status"] in ("running", "done"):  # 刷新、连点都不重开
+            return talk_state()
+        db.upsert_deep_talk(USER_ID, rnd, 4, council=None, council_status="running")
+        state = talk_state()  # 先取状态再开线程：返回的一定是 running
+        versions = [a4[k] for k in ("v1", "v2", "v3")]
+        context = "【档案】\n" + ("\n".join(f"{p['level']}：{p['content']}" for p in db.profiles(USER_ID, confirmed=True))
+                                 or "（还没有确认过的档案）")
+
+        def run():
+            try:
+                outcome, result = run_versions_council(model, cards or [], versions, context)
+            except Exception:  # 不能让状态一直停在 running，App 会一直等
+                _log.exception("智囊团看三个版本出了意外")
+                outcome, result = "failed", None
+            if outcome == "crisis":
+                db.log_crisis(USER_ID, day, "（智囊团看三个版本的模型输出）")
+            db.upsert_deep_talk(USER_ID, rnd, 4, council=result, council_status="done" if outcome == "ok" else "failed")
+
+        # 测试靠这个引用等线程跑完；Db 每次调用各开连接，后台线程里用是安全的
+        app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
+        app.state.deep_talk_thread.start()
+        return state
+
+    @app.post("/deep-talk/confirm", summary="确认或不要一条提议：档案、习惯（走设置保存）、明天的一件事（并进今晚的对账）")
+    def post_deep_talk_confirm(body: DeepTalkConfirmIn):
+        day = logical_date(clock())
+        if crisis := screen(body, day):
+            return crisis
+        rnd, _, answers = talk_rows()
+        a4 = answers.get(4, {})
+        if body.kind == "profile":
+            step = next((s for s, a in answers.items() if body.id in a.get("profile_ids", [])), None)
+            if step is None:
+                raise HTTPException(404, "这一轮没有这条提议")
+            if body.accept:
+                try:
+                    db.confirm_profile(USER_ID, body.id, body.content)
+                except ValueError as e:
+                    raise HTTPException(422, str(e)) from None
+            else:  # 不确认：留在待确认里，长谈里不再显示
+                mine = answers[step]
+                db.upsert_deep_talk(USER_ID, rnd, step, answers={**mine, "dismissed": [*mine.get("dismissed", []), body.id]})
+        elif body.kind == "habit":
+            props = a4.get("proposals", [])
+            p = next((h for h in props if h["key"] == body.key and h["status"] == "pending"), None)
+            if p is None:
+                raise HTTPException(409, "没有这条提议，或者已经回答过了")
+            if body.accept:
+                if len((db.plan_input(USER_ID) or {}).get("habits", [])) >= MAX_HABITS:
+                    raise HTTPException(409, "习惯满了，先在设置里换掉一个")
+                ids = set(a4.get("profile_ids", []))
+                goal = next((x["id"] for x in db.profiles(USER_ID, confirmed=True)
+                             if x["level"] == "目标" and x["id"] in ids), None) if p["source"] == "deep_talk" else None
+                new = {"title": body.content or p["title"], "minutes": p["minutes"], "floor_min": p["floor_min"],
+                       "source": p["source"], "goal_id": goal}
+                if crisis := change_settings(lambda form: form["habits"].append(new)):  # 排不下抛 422，提议保持 pending
+                    return crisis
+            p["status"] = "accepted" if body.accept else "declined"
+            db.upsert_deep_talk(USER_ID, rnd, 4, answers={**a4, "proposals": props})
+        else:
+            if not a4.get("tomorrow") or a4.get("tomorrow_done"):
+                raise HTTPException(409, "没有待确认的明天的一件事")
+            if body.accept:  # 只带 tomorrow_task 一项：今晚对账的其他内容原样保留
+                merge_log(day, validate_checkin({"tomorrow_task": body.content or a4["tomorrow"]}, day, {}), {"tomorrow_task"})
+            db.upsert_deep_talk(USER_ID, rnd, 4, answers={**a4, "tomorrow_done": True})
+        return talk_state()
+
+    @app.post("/deep-talk/restart", summary="重新聊一次：开新的一轮，从第 1 次开始，旧的一轮保留")
+    def post_deep_talk_restart():
+        db.upsert_deep_talk(USER_ID, db.deep_talk_round(USER_ID) + 1, 1)
+        return talk_state()
+
     @app.get("/me", summary="国家、是否成年、隐私说明和有没有同意过这一版")
     def get_me():
         return {**db.user_info(USER_ID), "consented": db.consents(USER_ID).get("隐私") == PRIVACY_VERSION,
@@ -556,4 +849,4 @@ def app_from_env(env=os.environ) -> FastAPI:
     path = env.get("PLAN_TEMPLATE")
     template = json.loads(Path(path).read_text(encoding="utf-8")) if path else None
     return create_app(Db(env.get("APP_DB") or "var/app.db"), make_model(env), template=template,
-                      calendar=make_calendar(env))
+                      calendar=make_calendar(env), cards=load_cards(CARDS_DIR))
