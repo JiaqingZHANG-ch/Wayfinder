@@ -34,15 +34,17 @@ export default function QuarterScreen() {
 
   const all = areas ? [...areas, ...(extra.trim() ? [extra.trim()] : [])] : [];
   const lowest = all.reduce<string | null>((m, a) => (m === null || (scores[a] ?? 11) < (scores[m] ?? 11) ? a : m), null);
+  const pick = focus && all.includes(focus) ? focus : null; // 重点是自加的那项又被删掉时，当作没选
+  const extraBad = extra.trim() !== "" && (extra.trim().length < 2 || !!areas?.includes(extra.trim()));
   const kept = goals.filter((g) => g.text.trim() || g.check.trim());
 
   async function save() {
-    if (!focus) return;
+    if (!pick) return;
     setBusy(true);
     setMessage(null);
     try {
       const res = await postQuarter({
-        scores: Object.fromEntries(all.map((a) => [a, scores[a]])), extra_area: extra.trim() || undefined, focus,
+        scores: Object.fromEntries(all.map((a) => [a, scores[a]])), extra_area: extra.trim() || undefined, focus: pick,
         start: text.start.trim(), stop: text.stop.trim(), keep: text.keep.trim(),
         goals: kept.map((g) => ({ text: g.text.trim(), check: g.check.trim() })),
       });
@@ -113,7 +115,7 @@ export default function QuarterScreen() {
         <Field placeholder="再加一项，可以不加" value={extra} maxLength={8} accessibilityLabel="再加一项"
           onChangeText={setExtra} />
       </>,
-      bar(<Button label="下一步" disabled={!all.every((a) => scores[a] !== undefined)} onPress={next} />),
+      bar(<Button label="下一步" disabled={extraBad || !all.every((a) => scores[a] !== undefined)} onPress={next} />),
     );
   }
 
@@ -122,11 +124,11 @@ export default function QuarterScreen() {
       <>
         <Display>接下来 90 天，先照顾哪一项？</Display>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-          {all.map((a) => <Chip key={a} label={a} on={focus === a} onPress={() => setFocus(a)} />)}
+          {all.map((a) => <Chip key={a} label={a} on={pick === a} onPress={() => setFocus(a)} />)}
         </View>
-        {focus && lowest && focus !== lowest && <Body muted>{`分最低的是『${lowest}』，你选了『${focus}』。先这样记下。`}</Body>}
+        {pick && lowest && scores[pick] > scores[lowest] && <Body muted>{`分最低的是『${lowest}』，你选了『${pick}』。先这样记下。`}</Body>}
       </>,
-      bar(<Button label="下一步" disabled={!focus} onPress={next} />),
+      bar(<Button label="下一步" disabled={!pick} onPress={next} />),
     );
   }
 

@@ -250,7 +250,7 @@ export type Quarter = {
 export type QuarterIn = Omit<Quarter, "id" | "day"> & { extra_area?: string };
 export const getQuarter = () => send<{ areas: string[]; available: boolean; days_used: number; last: Quarter | null }>("GET", "/quarter");
 export const postQuarter = (q: QuarterIn) => send<Quarter | Crisis>("POST", "/quarter", q);
-export const restartDeepTalk =() => send<DeepTalkState>("POST", "/deep-talk/restart", {});
+export const restartDeepTalk = () => send<DeepTalkState>("POST", "/deep-talk/restart", {});
 
 /** 今晚要对账的事项：习惯和可选项按块 id，项目按任务 id 只算一次。和后端 api.py 的 _items 一致。 */
 export function checkinItems(plan: Plan): CheckinItem[] {

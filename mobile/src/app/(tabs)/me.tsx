@@ -91,6 +91,7 @@ export default function MeScreen() {
             : <Text style={[type.body, { color: c.muted }]}>聊完几次，这里会写下你想去的方向</Text>}
           {goals.map((g) => <Small key={g.id}>{g.content}</Small>)}
           {quarter?.last && <Small>{`这一季的重点：${quarter.last.focus}`}</Small>}
+          {quarter?.last?.goals.map((g, i) => <Small key={i}>{g.text}</Small>)}
         </Animated.View>
       )}
 

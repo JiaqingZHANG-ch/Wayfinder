@@ -631,7 +631,10 @@ function LetterCard({ onState, onCrisis }: { onState: (s: DeepTalkState) => void
             <Chip label="30 天" on={days === 30} onPress={() => setDays(30)} />
             <Chip label="90 天" on={days === 90} onPress={() => setDays(90)} />
           </Row>
-          <Button label="封好" disabled={busy || !text.trim()} onPress={seal} />
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <View style={{ flex: 1 }}><Button label="封好" disabled={busy || !text.trim()} onPress={seal} /></View>
+            <View style={{ flex: 1 }}><Button label="不用了" variant="neutral" disabled={busy} onPress={decline} /></View>
+          </View>
         </>
       ) : (
         <View style={{ flexDirection: "row", gap: space.sm }}>

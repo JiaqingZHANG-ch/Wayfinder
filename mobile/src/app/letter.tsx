@@ -16,7 +16,7 @@ export default function LetterScreen() {
   return (
     <Screen safeTop>
       <Header title="给自己的信" />
-      {!letters ? <Skeleton height={120} r={radius.lg} /> : letters.map((l, i) => (
+      {!letters ? <Skeleton height={120} r={radius.lg} /> : letters.length === 0 ? <Body muted>还没有信</Body> : letters.map((l, i) => (
         <Card key={l.id} i={i + 1}>
           {l.status === "sealed" ? <Body>{`${dayText(l.due)} 可以打开`}</Body> : (
             <>
