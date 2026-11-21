@@ -13,6 +13,7 @@ import { EventIcon, Figure, Stage } from "@/components/clay";
 import { ahead, haptic, Pressy, Skeleton } from "@/components/motion";
 import { toMin } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, ErrorState, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
+import { MENTOR } from "@/features";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, NightProvider, radius, space, type, useColors } from "@/theme";
 
@@ -146,7 +147,7 @@ function Flow() {
       else {
         haptic.success();
         setDone(true);
-        getDeepTalk().then((s) => setInvite(s.invite ? s : null), () => {}); // 拿不到就不请
+        if (MENTOR) getDeepTalk().then((s) => setInvite(s.invite ? s : null), () => {}); // 拿不到就不请；导师藏起来时不请
       }
     } catch (e) {
       setMessage(say(e)); // 一句话没整理出来时，后端会说「请点按钮补上」

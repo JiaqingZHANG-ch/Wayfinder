@@ -9,6 +9,7 @@ import { type ClayIcon, clayIcon } from "@/clay-icon";
 import { Bean, EventIcon, Mascot } from "@/components/clay";
 import { enter, Pressy, Skeleton } from "@/components/motion";
 import { Button, Card, ErrorState, Icon, Screen } from "@/components/ui";
+import { MENTOR } from "@/features";
 import { Status, STATUS_LABELS } from "@/labels";
 import { radius, space, TAB_SPACE, type, useColors, useDark, useNightScene } from "@/theme";
 
@@ -70,7 +71,8 @@ export default function WeekScreen() {
         </Text>
       </Animated.View>
 
-      {week.review ? (
+      {/* 复盘入口：导师藏起来时不放 */}
+      {!MENTOR ? null : week.review ? (
         <Animated.View entering={enter(1)} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingLeft: space.xs }}>
           <View style={{ flex: 1 }}>
             <Text style={[type.label, { fontSize: 16, color: c.text }]}>{week.review === "due" ? "可以复盘这一周了" : "今天复盘过了"}</Text>

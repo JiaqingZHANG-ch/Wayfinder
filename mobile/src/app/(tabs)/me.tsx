@@ -9,6 +9,7 @@ import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure } from "@/components/clay";
 import { enter, Skeleton } from "@/components/motion";
 import { Button, Card, ErrorState, ListRow, Notice, Screen, Small } from "@/components/ui";
+import { MENTOR } from "@/features";
 import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
 
 /**
@@ -27,9 +28,10 @@ export default function MeScreen() {
   const load = useCallback(() => {
     setFailed(false);
     getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就和今天页一样微笑
+    getSettings().then(setS, () => setFailed(true));
+    if (!MENTOR) return; // 导师藏起来时，方向、长谈、信、季度回顾都不拿，也就都不显示
     getLetters().then((r) => setHasLetters(r.letters.length > 0), () => {}); // 拿不到就不显示这一行
     getQuarter().then(setQuarter, () => {}); // 拿不到就不显示入口
-    getSettings().then(setS, () => setFailed(true));
     Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => setFailed(true));
   }, []);
   useFocusEffect(load);
@@ -76,7 +78,7 @@ export default function MeScreen() {
       </Animated.View>
 
       {failed && <Notice>没连上，有些内容没显示。回到这一页会再试一次。</Notice>}
-      {!dir && !failed && (
+      {MENTOR && !dir && !failed && (
         <>
           <Skeleton height={56} width="70%" />
           <Skeleton height={140} r={radius.card} />
