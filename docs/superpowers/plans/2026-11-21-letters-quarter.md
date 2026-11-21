@@ -97,8 +97,67 @@
   - `available` 为真时，长谈卡下面出现入口「可以做一次季度回顾了」；
   - 有 `last` 时，「我的方向」卡里加一行「这一季的重点：{focus}」。
 
+## 第二批（同一分支，接着做）
+
+### 任务 5 · 后端：止损底线、复盘里的季度目标
+- **止损底线**（设计 §六之四：障碍 = 止损底线 + 各视角说的「最大的未知」）：
+  - `STEPS[4]` 里，在 `rate` 和 `choose` 之间加一屏：
+    `{"id": "floor", "kind": "line", "question": "不管选哪条，到什么情况你会停下来换一条？", "hint": "可以跳过"}`。
+  - `line` 是新的屏类型：回答是字符串，可以是空串（表示跳过），不超过 MAX_INPUT。导师不回应，也不调模型。
+  - 第 4 步做完时，floor 不为空，就提一条待确认的「障碍」档案，内容是 `止损：{原话}`。不选版本（choose 是 null）也照样提。
+  - 已经答完 rate、还没答 choose 的老数据，下一屏会是 floor，这样是对的。
+- **复盘里的季度目标**：
+  - `/review` 返回的复盘视图里加 `quarter_goals`，取已确认、来源是「季度回顾」的「目标」档案，按 id 排序，只给 content。
+  - 只是列出来让他自己对照，不记录做没做到，不进模型的输入。
+- 测试：
+  - floor 空串和有字两种情况；
+  - floor 超长返回 422；
+  - floor 写了危机文字，返回危机话术；
+  - 先不选时障碍照样提；
+  - 复盘带 quarter_goals，并且只带季度回顾来源的目标。
+
+### 任务 6 · App：止损底线屏、复盘里的季度目标
+- `deep-talk.tsx` 给 `line` 屏做界面：
+  - 问题标题、hint 小字、单个输入框；
+  - 两个按钮：「下一步」（有字才亮）和「跳过」（发空串）；
+  - 第 4 步的进度和小结照常工作。
+- `review.tsx` 的数字那一屏底部：有 `quarter_goals` 时，加一个小标题「这一季的目标」，下面一行一条，不加别的说明。
+
+### 任务 7 · 季度回顾的「××视角」（设计 §六之三：季度回顾是「××视角」的第二个入口）
+- 后端：
+  - `quarterly_reviews` 加两列：`council TEXT`、`council_status TEXT`。这张表是这条分支新加的，直接改建表语句和 `20261123000000_quarterly_reviews.sql`，不另写迁移。
+  - `council` 加进 JSON_COLUMNS（已经有就不用加）。
+  - `mentor/council.py` 新增 `run_quarter_council(model, cards, record: str, context: str)`，照 `run_versions_council` 的写法：
+    - 每个视角回 `{"sees", "unknown", "test"}`，看的是这一季的打分、重点、开始/停下/继续、目标这一整份；
+    - 合成只写分歧；
+    - 规则和 `_VERSIONS_LENS` 一样：不排名、不替他决定、不诊断、不建议退学辞职、引号只放原话（`_unquote_fakes`）、危机就回 crisis；
+    - 情绪领域照样只在他自己提到时才请。
+  - `POST /quarter/council`：给最近一次季度回顾开会，后台线程跑，马上返回；重复点不重开。照 `/deep-talk/council` 的锁和线程写法。
+  - `GET /quarter` 的 `last` 带上 `council` 和 `council_status`；status 是 crisis 时带 `message`，内容是 `crisis_reply()` 的话术。
+  - 测试照 `test_deep_talk_api.py` 里智囊团那几条写，用 FakeModel。
+- App：
+  - `quarter.tsx` 的结果页加一个次要按钮「请几个视角看看」；
+  - 开会时每 3 秒查一次 `GET /quarter`，结果按视角列出三句，再加上分歧；
+  - 失败了可以再点；危机就显示 CrisisCard。
+
+### 任务 8 · 评测骨架（设计 第 6 周 ⑦，放到第 9 周：20 个用例，每个跑 3 次；用模型当评委之前，先用用户自己打的分校准评委）
+- 新目录 `evals/`：
+  - `cases.jsonl`：20 个用例，三类：
+    - 对账句子解析 8 个，带期望的 items 和状态；
+    - 长谈一句回应 6 个，规则是不提问、不命中禁用说法、不写「用户」；
+    - 复盘正文 6 个，用 `week_stats` 造数字，规则是正文里每个数字都在统计里。
+  - `run.py`：
+    - 用 `make_model(os.environ)` 的模型，每个用例跑 3 次；
+    - 先跑代码能判的规则，记通过与否；
+    - 再请同一个模型当评委，按 `evals/rubric.md` 给「像不像人说话」打 1–5 分；
+    - 结果写到 `evals/results/<时间>.jsonl`（gitignore），终端打印每类的通过率。
+  - `human_scores.csv`：表头 `case_id,run,score,note`，留空给用户填。
+  - `calibrate.py`：读最近一次结果和 human_scores.csv，算评委和人差不超过 1 分的比例。
+  - `docs/evals.md`：怎么跑，怎么填分，怎么看校准，一屏读完。
+- 测试：
+  - `MODEL=fake` 时 `run.py` 能跑完；
+  - `calibrate.py` 在给定的小样本上算对。
+- 不进 CI，也不改现有的提示词。
+
 ## 后续（这次不做）
 - 重复点保存会多一条回顾（存新回顾时上一季来源是「季度回顾」的「目标」档案会被删掉，只留最新一组）。
-- 季度回顾里开「××视角」会议。
-- 每周复盘里逐条查季度目标。
-- 「止损底线」：长谈里还没有问它的那一屏。
