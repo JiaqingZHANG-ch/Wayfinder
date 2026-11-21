@@ -318,6 +318,15 @@ function Rung({ n, on, open, reduced, onPress }: { n: number; on: boolean; open:
   );
 }
 
+const BEANS = {
+  brown: require("../../assets/images/clay/bean-brown.webp"),
+  ochre: require("../../assets/images/clay/bean-ochre.webp"),
+};
+/** 一颗黏土豆（本周的夜豆、石子堆）：白天用深棕，夜里用赭石（v4 的 --stone-dark，两边对底都 ≥ 3:1）。 */
+export function Bean({ night, w, h = w }: { night: boolean; w: number; h?: number }) {
+  return <Image source={night ? BEANS.ochre : BEANS.brown} contentFit="fill" style={{ width: w, height: h }} />;
+}
+
 /** 一件事的黏土图标。 */
 export function EventIcon({ icon, size = 32, dim }: { icon: ClayIcon; size?: number; dim?: boolean }) {
   return <Image source={ICONS[icon]} style={{ width: size, height: size, opacity: dim ? 0.8 : 1 }} />;

@@ -45,11 +45,12 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const inner = { padding: space.lg, paddingTop: safeTop ? insets.top + space.xl : space.lg,
+  const inner = { padding: space.lg, paddingTop: safeTop ? space.xl : space.lg,
     paddingBottom: space.xxl + bottom + (bottom ? insets.bottom : 0),
     gap: space.lg, maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
+    // safeTop：滚动区从状态栏下面开始，状态栏下是实底，滚上去的内容不和时间、信号叠字（v4 的 .scroll{top:44px}）
+    <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: safeTop ? insets.top : 0 }}>
       {scroll ? (
         // 天色画在滚动内容里：跟着内容滚走，卡片后面是干净的底
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}
