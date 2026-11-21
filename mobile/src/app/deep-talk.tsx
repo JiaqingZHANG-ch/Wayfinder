@@ -112,11 +112,19 @@ export default function DeepTalk() {
       haptic.select();
       setRechoose(false);
       if (res.reply) setSaid({ step, screen, reply: res.reply });
-      if (res.step !== step) setSummary(step);
+      if (res.step !== step) { setSummary(step); markLand(res, step); }
     });
   }
 
-  const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(() => confirmDeepTalk(what, accept, content));
+  // 这一场他点了「对」/「加进计划」的内容，第 4 次小结里原样列出
+  const [kept, setKept] = useState<{ step: number; text: string }[]>([]);
+  const [landN, setLandN] = useState<Record<number, number>>({}); // 每一步开始落地时待确认的卡片数
+  const markLand = (s: DeepTalkState, step: number) => setLandN((m) => (step in m ? m : { ...m, [step]: pendingCount(s, step) }));
+  const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(() => confirmDeepTalk(what, accept, content), () => {
+    const text = content ?? (what.kind === "habit" ? st?.proposals.habits.find((h) => h.key === what.key)?.title : undefined);
+    if (st) markLand(st, summary ?? 4);
+    if (accept && text) setKept((k) => [...k, { step: summary ?? 4, text }]);
+  });
 
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -167,8 +175,8 @@ export default function DeepTalk() {
     );
   }
 
-  const eyebrow = (step: number) => (
-    <Text style={[type.eyebrow, { color: c.muted, marginBottom: -space.sm }]}>{`第 ${step} 次 · ${st.screens[step].name}`}</Text>
+  const eyebrow = (step: number, extra?: string) => (
+    <Text style={[type.eyebrow, { color: c.muted, marginBottom: -space.sm }]}>{`第 ${step} 次 · ${st.screens[step].name}${extra ?? ""}`}</Text>
   );
 
   // —— 小结：这一步待确认的提议，一张一张来；第 4 次是「落地」和「投资自己」 ——
@@ -182,6 +190,10 @@ export default function DeepTalk() {
     const tomorrow = later && !proto && st.can_set_tomorrow ? st.proposals.tomorrow : null;
     const invest = later && !proto && !tomorrow ? st.proposals.habits.filter((h) => h.source === "invest" && h.status === "pending") : [];
     const open = !!(p || proto || tomorrow || invest.length);
+    // 落地进度：开始时待确认几张，现在还剩几张
+    const left = pendingCount(st, step);
+    const n = Math.max(landN[step] ?? left, left);
+    const progress = open ? ` · ${n - left + 1} / ${n}` : "";
     let title: string;
     let body: React.ReactNode;
     if (p) {
@@ -221,17 +233,39 @@ export default function DeepTalk() {
       body = invest.map((h) => <HabitCard key={h.key} h={h} yes="好" edits={edits} setEdits={setEdits} busy={busy} decide={decide} />);
     } else {
       title = `第 ${step} 次聊完了`;
+      // 他今晚说的原话：开放、追问、版本这几屏的字，按屏的顺序，最多两句
+      const quotes = st.screens[step].screens.flatMap((x) => {
+        const v = a[x.id];
+        if (!["open", "follow", "version"].includes(x.kind)) return [];
+        return (typeof v === "string" ? [v] : v && typeof v === "object" ? Object.values(v) : []).filter((t): t is string => typeof t === "string" && !!t.trim());
+      }).slice(0, 2);
+      const sc = step === 1 ? st.screens[1].screens.find((x) => x.kind === "scores") : undefined;
+      const sv = sc && a[sc.id] && typeof a[sc.id] === "object" ? Object.entries(a[sc.id] as Record<string, number>) : [];
+      const mine = step === 4 ? kept.filter((k) => k.step === 4) : [];
       body = (
         <>
+          {(quotes.length > 0 || sv.length > 0) && (
+            <View style={{ gap: space.sm }}>
+              <Text style={[type.eyebrow, { color: c.muted }]}>你今晚说的</Text>
+              {quotes.map((t, i) => <Body key={i}>{`「${t}」`}</Body>)}
+              {sv.length > 0 && <Body muted>{sv.map(([k, v]) => `${k} ${v}`).join(" · ")}</Body>}
+            </View>
+          )}
+          {mine.length > 0 && (
+            <View style={{ gap: space.sm }}>
+              <Text style={[type.eyebrow, { color: c.muted }]}>你定下的</Text>
+              {mine.map((k, i) => <Body key={i}>{`「${k.text}」`}</Body>)}
+            </View>
+          )}
           {step < 4 && <Body muted>下次对完账，我们接着聊第 {step + 1} 次。</Body>}
-          {step === 4 && st.habits_full && <Body muted>等你哪天想换掉一个习惯时，可以从这里挑</Body>}
+          {step === 4 && st.habits_full && <Body muted>习惯已经满 3 个了。哪天想换掉一个，看书、运动、早点睡这类事，花得少、回报长。</Body>}
           {step === 4 && a.choose === null && <Body muted>想好了，可以从「我」页回来选一个版本。</Body>}
         </>
       );
     }
     return page(`sum-${step}-${title}-${p?.id}`, 1, (
       <>
-        {eyebrow(step)}
+        {eyebrow(step, progress)}
         <Display>{title}</Display>
         {step === 3 && <Notice>明天的安排按你刚才说的累不累重排了</Notice>}
         {body}
@@ -399,7 +433,10 @@ export default function DeepTalk() {
       <>
         {eyebrow(step)}
         <Display>给三个版本打个分</Display>
-        <Body muted>每项 1 到 5 个点。</Body>
+        <View style={{ gap: space.xs }}>
+          <Body muted>每项 1 到 5 个点。</Body>
+          <Small muted>资源：手上的时间、钱、人够不够 · 喜欢：想到就有劲吗 · 信心：觉得自己做得成吗 · 和自己一致：像不像你想成为的人</Small>
+        </View>
         {VERSION.map((name, j) => (
           <Card key={j} style={{ gap: space.sm }}>
             <Text style={[type.eyebrow, { color: c.muted }]}>{`${name} · ${titles[j]}`}</Text>
@@ -449,6 +486,13 @@ export default function DeepTalk() {
   }
 
   return page(`${step}-${id}`, progress, body, bottom);
+}
+
+/** 这一步还有几张待确认的卡片：档案提议，第 4 次再加习惯和明天的一件事。 */
+function pendingCount(s: DeepTalkState, step: number) {
+  const ids = s.answers[step]?.profile_ids ?? [];
+  return s.proposals.profiles.filter((x) => ids.includes(x.id)).length
+    + (step === 4 ? s.proposals.habits.filter((h) => h.status === "pending").length + (s.can_set_tomorrow && s.proposals.tomorrow ? 1 : 0) : 0);
 }
 
 /** 一排可点的圆点：from…to 分，点到的那个和它左边的都亮。读屏念「健康 6 分」。 */

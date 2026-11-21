@@ -10,7 +10,10 @@ export const VERSION = ["版本一", "版本二", "版本三"] as const;
 export function CouncilView({ result, titles }: { result: CouncilResult; titles: string[] }) {
   const c = useColors();
   const line = (k: string, v: string) => (
-    <Text style={[type.body, { color: c.text }]}><Text style={{ color: c.muted }}>{k}　</Text>{v}</Text>
+    <View>
+      <Text style={[type.label, { color: c.muted }]}>{k}</Text>
+      <Text style={[type.body, { color: c.text }]}>{v}</Text>
+    </View>
   );
   return (
     <>
@@ -18,7 +21,7 @@ export function CouncilView({ result, titles }: { result: CouncilResult; titles:
         <Card key={l.title} i={i}>
           <Title>{l.title}</Title>
           {l.versions.map((v, j) => (
-            <View key={j} style={{ gap: space.xs }}>
+            <View key={j} style={[{ gap: space.sm }, j > 0 && { borderTopWidth: 1, borderTopColor: c.line, paddingTop: space.md }]}>
               <Text style={[type.eyebrow, { color: c.muted }]}>{`${VERSION[j]} · ${titles[j]}`}</Text>
               {line("看到", v.sees)}
               {line("最大的未知", v.unknown)}
