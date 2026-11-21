@@ -223,6 +223,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for e in tiring:  # 课表自己定的间隔照实际留，最多留 rest
         nxt = min((x for x in focus_starts if x >= e.end), default=e.end + rest)
         focus_ivs.append(m.NewFixedSizeIntervalVar(e.start, e.end + min(rest, nxt - e.end) - e.start, e.id + "-f"))
+    if inp.focus_free_at and inp.focus_free_at > inp.wake:
+        focus_ivs.append(m.NewFixedSizeIntervalVar(inp.wake, inp.focus_free_at - inp.wake, "rest-before-f"))
     extra = []
     if on_bus:
         extra.append(Block(on_bus.id, on_bus.title, c.out.leave_home, c.out.leave_home + on_bus.minutes, "must"))
@@ -479,22 +481,33 @@ def _block_cost(inp: PlanInput, b: Block) -> float:
     return (b.end - b.start) * cost.get(b.id, 0) if b.kind == "flex" else 0
 
 
-def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
+def _cutoff(inp: PlanInput, keep: list[Block], now: int) -> tuple[int, int | None]:
+    """重排从哪一分钟开始（现在，或正在做的那块结束），以及新的专注最早几点开始（刚做完的专注块放松完）。"""
+    rest = inp.energy.rest_after_focus_min
+    cutoff = max([now] + [b.end for b in keep])
+    free_at = max([cutoff] + [b.end + rest for b in keep if _block_cost(inp, b) > 0])
+    return cutoff, free_at if free_at > cutoff else None
+
+
+def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list[Block] | None = None) -> DayPlan:
     """只重排今晚（C27）：now 之前开始的块原样保留，done_ids 里的事不再排，剩下的从 now 起重排。
 
-    「之前的块」取自同一份输入的原计划；求解器固定随机种子、单线程，同样输入排出同样的计划。
+    before 是今天已经存着的计划（用户真看到、真做了的）；不给就按同一份输入重排出原计划
+    （求解器固定随机种子、单线程，同样输入排出同样的计划）。改了设置时一定要给：按新设置假想出来的上午
+    和真实的上午不一样，两边都不要的事就悄悄没了（代码评审 H1）。
     """
     t = to_min(now)
     unknown = set(done_ids) - {x.id for x in [*inp.habits, *inp.meals, *inp.flex, *inp.tasks]}
     if unknown:
         raise InputError(f"输入有误：done_ids 里有不认识的 id：{sorted(unknown)}")
-    orig, before = inp, solve_day(replace(inp, energy_level=None))  # 上午照原计划排的，不受刚报的电量影响
+    orig = inp
+    if before is None:
+        before = solve_day(replace(inp, energy_level=None)).blocks  # 上午照原计划排的，不受刚报的电量影响
     inp = _low_energy(inp)
-    keep = [b for b in before.blocks
-            if b.start < t and b.kind != "class" and not b.id.startswith(("free-",) + MOVE_PREFIXES)]
-    rest_min = inp.energy.rest_after_focus_min
-    # 正在做的那块做完再说；专注块做完还要放松 rest 分钟（保守：这段里吃饭也往后推）
-    cutoff = max([t] + [b.end + (rest_min if _block_cost(inp, b) > 0 else 0) for b in keep])
+    past = [b for b in before if b.start < t and not b.id.startswith("free-")]
+    keep = [b for b in past if b.kind != "class" and not b.id.startswith(MOVE_PREFIXES)]
+    # 正在做的那块做完再说；专注块做完还要放松，这段只挡新的专注，吃饭、健身照样可以排（和排整天时一样）
+    cutoff, focus_free_at = _cutoff(inp, keep, t)
     drop = {b.id for b in keep} | set(done_ids)
 
     progress: dict[str, int] = {}
@@ -524,25 +537,33 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = ()) -> DayPlan:
     past_cost += sum(f.minutes * cost.get(f.id, 0) for f in inp.flex if f.id in done_ids and f.id not in kept_ids)
     gym_done = inp.energy.gym_id in kept_ids or inp.energy.gym_id in done_ids
     en = inp.energy
-    past_free = sum(min(b.end, t) - b.start for b in before.blocks if b.id.startswith("free-") and b.start < t)
+    past_free = sum(min(b.end, t) - b.start for b in before if b.id.startswith("free-") and b.start < t)
     free_left = min(max(0, en.min_free_min - past_free), max(0, inp.sleep - cutoff))
     energy = replace(en, base_min=en.base_min + en.gym_bonus_min * gym_done - past_cost / en.load,
                      min_free_min=free_left if free_left >= FREE_MIN_GAP else 0)
     ids = {h.id for h in habits}
     rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=0), habits=habits, meals=meals,
                    flex=[f for f in inp.flex if f.id not in drop], tasks=tasks, energy=energy,
-                   habit_block=[i for i in inp.habit_block if i in ids])
+                   habit_block=[i for i in inp.habit_block if i in ids], focus_free_at=focus_free_at)
     after = solve_day(rest)
 
-    new = [b for b in after.blocks if not b.id.startswith("free-")]
+    # 过去的课和通勤照原计划留着；新排的只要现在（或正在做的那块结束）之后的
+    cut = max([t] + [b.end for b in past])
+    new = [b for b in after.blocks if not b.id.startswith("free-") and b.start >= cut]
     for b in new:
         if b.id in kept_ids:  # 同一个项目上午排过 x-0，晚上新排的也叫 x-0：改名免得日历同步认错
             b.id += "-r"
-    blocks = keep + new
+    blocks = past + new
     projects = sorted((b for b in blocks if b.kind == "proj"), key=lambda b: b.start)
     for i, b in enumerate(projects):
         b.slot = f"p{i + 1}"  # shortcut: 上午已有项目块时可能出现 p4，网页只显示 p1–p3；做 API 时再定怎么显示
-    blocks = sorted(blocks + free_blocks(inp, blocks), key=lambda b: b.start)
+    # 自由时间：过去的照旧，之后的按拼好的计划重新算，编号从头排，不会重复
+    old_free = [b for b in before if b.id.startswith("free-") and b.end <= t]
+    edge = max([b.end for b in past + old_free], default=0)
+    free = old_free + [b for b in free_blocks(inp, blocks) if b.start >= edge]
+    for i, b in enumerate(sorted(free, key=lambda b: b.start)):
+        b.id = f"free-{i}"
+    blocks = sorted(blocks + free, key=lambda b: b.start)
     gym = any(b.id == inp.energy.gym_id for b in blocks)
     warnings = after.warnings + [f"来不及排了：{x}" for x in late]
     return DayPlan(inp.day, blocks, warnings, energy_used=after.energy_used + past_cost, energy_cap=energy_cap(inp, gym))

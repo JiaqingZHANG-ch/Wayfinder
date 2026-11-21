@@ -138,6 +138,7 @@ class PlanInput:
     energy: Energy = field(default_factory=Energy)
     habit_block: list[str] = field(default_factory=list)
     energy_level: int | None = None  # 当天自报电量 1–5，不填 = 不按电量调整
+    focus_free_at: int | None = None  # 只重排今晚用：刚做完的专注块要放松到几点，之前不排新的专注（吃饭、健身可以）
 
 
 def _window(d: dict) -> tuple[int, int]:
