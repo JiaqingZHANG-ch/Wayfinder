@@ -1,4 +1,5 @@
 import { Geist_300Light, Geist_400Regular, Geist_500Medium, useFonts } from "@expo-google-fonts/geist";
+import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -31,7 +32,7 @@ export const unstable_settings = { initialRouteName: "(tabs)" };
 export default function RootLayout() {
   useNotificationRouting();
   const night = useNightClock();
-  const [fonts, fontError] = useFonts({ Geist_300Light, Geist_400Regular, Geist_500Medium });
+  const [fonts, fontError] = useFonts({ Geist_300Light, Geist_400Regular, Geist_500Medium, InstrumentSerif_400Regular });
   const ready = fonts || !!fontError;
   useEffect(() => { if (ready) SplashScreen.hideAsync().catch(() => {}); }, [ready]);
   if (!ready) return null; // 字体没加载完先不画，免得数字闪一下换字体；加载失败就用系统字体
@@ -64,6 +65,7 @@ function Root() {
         <Stack.Screen name="review" options={{ headerShown: false, presentation: "fullScreenModal",
           animation: "slide_from_bottom", title: "每周复盘" }} />
         <Stack.Screen name="data" options={{ headerShown: false, title: "我的数据" }} />
+        <Stack.Screen name="privacy" options={{ headerShown: false, title: "隐私说明" }} />
         <Stack.Screen name="settings" options={{ headerShown: false, title: "设置" }} />
       </Stack>
     </GestureHandlerRootView>

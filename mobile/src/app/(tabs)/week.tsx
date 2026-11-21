@@ -4,7 +4,9 @@ import { Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { getWeek, Week } from "@/api";
+import { Glyph } from "@/components/art";
 import { enter, Skeleton } from "@/components/motion";
+import { useNow } from "@/components/plan-view";
 import { Card, Display, ErrorState, Icon, Screen, Small, Stat, Title } from "@/components/ui";
 import { Status, STATUS_LABELS } from "@/labels";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
@@ -19,6 +21,7 @@ const wd = (start: string, i: number) => "日一二三四五六"[(new Date(`${st
 /** 本周：每块一个数一句话——哪几晚记了、每个习惯哪几天做了、项目比预想多还是少，以及复盘入口。只摆事实，不打分。 */
 export default function WeekScreen() {
   const c = useColors();
+  const now = useNow();
   const [week, setWeek] = useState<Week | null>(null);
   const [error, setError] = useState(false);
 
@@ -27,10 +30,10 @@ export default function WeekScreen() {
   }, []);
   useFocusEffect(load);
 
-  if (error && !week) return <Screen safeTop bottom={TAB_SPACE}><ErrorState onRetry={load} /></Screen>;
+  if (error && !week) return <Screen safeTop bottom={TAB_SPACE} sky={now}><ErrorState onRetry={load} /></Screen>;
   if (!week) {
     return (
-      <Screen safeTop bottom={TAB_SPACE}>
+      <Screen safeTop bottom={TAB_SPACE} sky={now}>
         <Skeleton height={16} width={100} />
         <Skeleton height={36} width={140} />
         <Skeleton height={168} r={radius.lg} />
@@ -44,9 +47,9 @@ export default function WeekScreen() {
 
   const n = week.logged_days;
   return (
-    <Screen safeTop bottom={TAB_SPACE}>
-      <Animated.View entering={enter(0)} style={{ gap: 2 }}>
-        <Text style={[type.small, type.num, { color: c.muted }]}>{md(week.start)} – {md(week.end)}</Text>
+    <Screen safeTop bottom={TAB_SPACE} sky={now}>
+      <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
+        <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{md(week.start)} – {md(week.end)}</Text>
         <Display>这一周</Display>
       </Animated.View>
 
@@ -67,19 +70,28 @@ export default function WeekScreen() {
 
       {week.habits.length === 0 && (
         <Card i={2} onPress={() => router.push("/settings?part=routine")} label="去加一个习惯" style={{ gap: 2 }}>
-          <Text style={[type.label, { color: c.muted }]}>习惯</Text>
+          <Text style={[type.eyebrow, { color: c.muted }]}>习惯</Text>
           <Text style={[type.label, { color: c.text }]}>还没有要坚持的习惯</Text>
           <Small muted>加一个，这里会按天画出哪天做了。</Small>
         </Card>
       )}
       {week.habits.length > 0 && (
         <Card i={2} style={{ gap: space.md }}>
-          <Text style={[type.label, { color: c.muted }]}>习惯</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+            <Text style={[type.eyebrow, { flex: 1, color: c.muted }]}>习惯</Text>
+            {/* 星期几，和下面每行的七个记号对齐 */}
+            <View style={{ flexDirection: "row", gap: DAY_GAP }} importantForAccessibility="no-hide-descendants">
+              {week.logged.map((_, i) => (
+                <Text key={i} style={[type.small, { width: DAY, textAlign: "center", color: c.muted, fontSize: 11 }]}>{wd(week.start, i)}</Text>
+              ))}
+            </View>
+            <View style={{ width: 36 }} />
+          </View>
           {week.habits.map((h) => <HabitRow key={h.id} h={h} start={week.start} />)}
-          <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap" }}>
+          <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap", paddingTop: space.xs }}>
             {([...(["done", "floor", "skip"] as Status[]), null]).map((s) => (
               <View key={s ?? "none"} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Dot s={s} size={10} />
+                <Mark name="" s={s} size={11} />
                 <Small muted>{s ? LEGEND[s] : "没记"}</Small>
               </View>
             ))}
@@ -131,14 +143,13 @@ function Days({ week }: { week: Week }) {
   );
 }
 
-/** 一个圆：做了实心、保底半满、没做空心；那天没对账只画一个小点。 */
-function Dot({ s, size = 14 }: { s: Status | null; size?: number }) {
+const DAY = 14, DAY_GAP = 6;
+
+/** 一天一个这件事自己的记号：做了实心、保底半满、没做空心；那天没对账只画一个小点。图例用圆（name 为空）。 */
+function Mark({ name, s, size = DAY }: { name: string; s: Status | null; size?: number }) {
   const c = useColors();
-  if (!s) return <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: c.line }} />
-  </View>;
-  return <Icon name={s === "done" ? "ellipse" : s === "floor" ? "contrast" : "ellipse-outline"} size={size}
-    color={s === "skip" ? c.muted : c.kind.must} />;
+  return <Glyph name={name} size={size} color={!s ? c.muted : s === "skip" ? c.muted : c.kind.must}
+    fill={!s ? "none" : s === "done" ? "full" : s === "floor" ? "half" : "empty"} />;
 }
 
 function HabitRow({ h, start }: { h: Week["habits"][number]; start: string }) {
@@ -146,9 +157,12 @@ function HabitRow({ h, start }: { h: Week["habits"][number]; start: string }) {
   return (
     <View accessible style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
       accessibilityLabel={`${h.title}，7 天里做了 ${h.done_days} 天：${h.days.map((d, i) => `星期${wd(start, i)}${d ? STATUS_LABELS[d] : "没记"}`).join("，")}`}>
-      <Text style={[type.label, { flex: 1, color: c.text }]} numberOfLines={1}>{h.title}</Text>
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        {h.days.map((d, i) => <Dot key={i} s={d} />)}
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <Glyph name={h.title} size={14} color={c.kind.must} />
+        <Text style={[type.label, { flex: 1, color: c.text }]} numberOfLines={1}>{h.title}</Text>
+      </View>
+      <View style={{ flexDirection: "row", gap: DAY_GAP }}>
+        {h.days.map((d, i) => <Mark key={i} name={h.title} s={d} />)}
       </View>
       <Text style={[type.small, type.num, { width: 36, textAlign: "right", color: c.muted }]}>{h.done_days} 天</Text>
     </View>
@@ -159,7 +173,7 @@ function HabitRow({ h, start }: { h: Week["habits"][number]; start: string }) {
 function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
   const c = useColors();
   const total = p.less + p.same + p.more;
-  const cols: [string, number, number][] = [["比预想少", p.less, 0.35], ["差不多", p.same, 0.6], ["比预想多", p.more, 1]];
+  const cols: [string, number, number][] = [["比预想少", p.less, 0.45], ["差不多", p.same, 0.7], ["比预想多", p.more, 1]];
   const top = Math.max(p.less, p.same, p.more);
   const leaders = cols.filter(([, v]) => v === top);
   const said = !total ? "这周还没记" : leaders.length > 1 ? "有时多、有时少" :
@@ -168,7 +182,10 @@ function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
     <Card i={i} style={{ gap: space.sm }}>
       <View accessible accessibilityLabel={total ? `${p.title}：${said}。比预想少 ${p.less} 次，差不多 ${p.same} 次，比预想多 ${p.more} 次` : `${p.title}：这周还没记`}
         style={{ gap: space.sm }}>
-        <Small muted>{p.title}</Small>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <Glyph name={p.title} size={12} color={c.kind.proj} />
+          <Text style={[type.eyebrow, { color: c.muted }]}>{p.title}</Text>
+        </View>
         <Title>{said}</Title>
         {total > 0 && (
           <>
@@ -177,8 +194,13 @@ function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
                 <View key={k} style={{ flex: v, backgroundColor: c.kind.proj, opacity: o }} />
               ))}
             </View>
-            <View style={{ flexDirection: "row", gap: space.md }}>
-              {cols.map(([k, v]) => <Small key={k} muted>{k} <Text style={type.num}>{v}</Text></Small>)}
+            <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap" }}>
+              {cols.map(([k, v, o]) => (
+                <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: c.kind.proj, opacity: o }} />
+                  <Small muted>{k} <Text style={type.num}>{v}</Text></Small>
+                </View>
+              ))}
             </View>
           </>
         )}

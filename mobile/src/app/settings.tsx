@@ -10,7 +10,7 @@ import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
 import { HALF, Num } from "@/components/fields";
 import { PickField } from "@/components/time-field";
 import {
-  Body, Button, Card, Chip, CrisisCard, ErrorState, Field, Glass, Header, IconButton, Label, Notice, Row, Screen, Small, Title,
+  Body, Button, Card, Chip, CrisisCard, ErrorState, Field, Glass, Header, IconButton, Notice, Row, Screen, Small, Title,
 } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
@@ -203,7 +203,7 @@ export default function SettingsScreen() {
                   <Row>
                     <Field label="叫什么" value={h.title} onChangeText={(title) => setHabit(i, { title })} style={{ flex: 1, minWidth: 130 }} />
                     {s.habits.length > 1 && (
-                      <IconButton name="trash-outline" label={`删掉${h.title || "这个习惯"}`} onPress={() => remove("habits", i, h.title)} />
+                      <IconButton name="trash-outline" color={c.muted} label={`删掉${h.title || "这个习惯"}`} onPress={() => remove("habits", i, h.title)} />
                     )}
                   </Row>
                   <Row>
@@ -229,13 +229,14 @@ export default function SettingsScreen() {
                 <Card key={i} i={i + 1}>
                   <Row>
                     <Field label="课名" value={k.title} onChangeText={(title) => setClass(i, { title })} style={{ flex: 1, minWidth: 130 }} />
-                    <IconButton name="trash-outline" label={`删掉${k.title || "这节课"}`} onPress={() => remove("timetable", i, k.title)} />
+                    <IconButton name="trash-outline" color={c.muted} label={`删掉${k.title || "这节课"}`} onPress={() => remove("timetable", i, k.title)} />
                   </Row>
                   <Weekdays value={k.weekday} onChange={(weekday) => setClass(i, { weekday })} />
                   <Row>
                     <PickField label="上课" mode="time" value={k.start} style={HALF} onChange={(start) => setClass(i, { start })} />
                     <PickField label="下课" mode="time" value={k.end} style={HALF} onChange={(end) => setClass(i, { end })} />
                   </Row>
+                  <Small muted>在哪上（在学校会算上路上的时间）</Small>
                   <Row>
                     <Chip label="在学校" on={k.where === "campus"} onPress={() => setClass(i, { where: "campus" })} />
                     <Chip label="别处" on={k.where === "other"} onPress={() => setClass(i, { where: "other" })} />
@@ -254,7 +255,7 @@ export default function SettingsScreen() {
                 <Card key={p.id ?? `new-${i}`} i={i + 1}>
                   <Row>
                     <Field label="项目名" value={p.title} onChangeText={(title) => setProject(i, { title })} style={{ flex: 1, minWidth: 130 }} />
-                    <IconButton name="trash-outline" label={`删掉${p.title || "这个项目"}`} onPress={() => remove("projects", i, p.title)} />
+                    <IconButton name="trash-outline" color={c.muted} label={`删掉${p.title || "这个项目"}`} onPress={() => remove("projects", i, p.title)} />
                   </Row>
                   <Row>
                     <Num label="还要几小时" value={p.hours_left} decimal onChange={(hours_left) => setProject(i, { hours_left })} />
@@ -345,7 +346,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
     <View style={{ gap: space.md, marginTop: space.sm }}>
       <View style={{ gap: 2 }}>
         <Title>{title}</Title>
-        {hint && <Label muted>{hint}</Label>}
+        {hint && <Small muted>{hint}</Small>}
       </View>
       {children}
     </View>
@@ -361,7 +362,7 @@ function Weekdays({ value, onChange }: { value: number; onChange: (v: number) =>
         const on = value === wd;
         return (
           <Pressy key={d} onPress={() => { haptic.select(); onChange(wd); }} accessibilityRole="radio" accessibilityLabel={`星期${d}`}
-            accessibilityState={{ checked: on }} scaleTo={0.92}
+            accessibilityState={{ checked: on }} scaleTo={0.92} hitSlop={4}
             style={{ flex: 1, maxWidth: 40, aspectRatio: 1, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
               backgroundColor: on ? c.soft : c.sunken, borderWidth: 1.5, borderColor: on ? c.primary : "transparent" }}>
             <Text style={[type.label, { color: on ? c.onSoft : c.text }]}>{d}</Text>

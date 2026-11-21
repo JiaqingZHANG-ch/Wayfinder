@@ -6,12 +6,14 @@ import Animated from "react-native-reanimated";
 
 import { getSettings, Settings } from "@/api";
 import { enter } from "@/components/motion";
+import { useNow } from "@/components/plan-view";
 import { Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
 import { space, TAB_SPACE, type, useColors } from "@/theme";
 
 /** 「我」：一行真的小结（几点起、几门课、几个习惯），下面是计划设置和隐私数据的入口，像系统设置那样分组。 */
 export default function MeScreen() {
   const c = useColors();
+  const now = useNow();
   const [s, setS] = useState<Settings | null>(null);
   useFocusEffect(useCallback(() => { getSettings().then(setS, () => {}); }, [])); // 拿不到就不写小结
 
@@ -21,10 +23,10 @@ export default function MeScreen() {
   const evening = s?.reminders?.evening;
 
   return (
-    <Screen safeTop bottom={TAB_SPACE}>
-      <Animated.View entering={enter(0)} style={{ gap: 2 }}>
+    <Screen safeTop bottom={TAB_SPACE} sky={now}>
+      <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
+        <Text style={[type.eyebrow, type.num, { color: c.muted, minHeight: 16 }]}>{summary || " "}</Text>
         <Display>我</Display>
-        <Text style={[type.small, type.num, { color: c.muted, minHeight: 19 }]}>{summary || " "}</Text>
       </Animated.View>
 
       <Eyebrow>计划</Eyebrow>
@@ -38,7 +40,8 @@ export default function MeScreen() {
 
       <Eyebrow>隐私和数据</Eyebrow>
       <Card i={2} style={{ paddingVertical: space.xs }}>
-        <ListRow icon="shield-checkmark-outline" title="我的数据" sub="所在国家、导出、删除" onPress={() => router.push("/data")} last />
+        <ListRow icon="shield-checkmark-outline" title="我的数据" sub="所在国家、导出、删除" onPress={() => router.push("/data")} />
+        <ListRow icon="document-text-outline" title="隐私说明" sub="数据存在哪、发给谁" onPress={() => router.push("/privacy")} last />
       </Card>
 
       <Animated.View entering={enter(3)} style={{ alignItems: "center", paddingTop: space.lg }}>

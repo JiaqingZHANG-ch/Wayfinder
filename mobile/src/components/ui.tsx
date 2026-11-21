@@ -7,6 +7,7 @@ import { Linking, Platform, ScrollView, StyleProp, Text, TextInput, TextInputPro
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Sky } from "@/components/art";
 import { enter, haptic, Pressy } from "@/components/motion";
 import { radius, space, type, useColors, useDark } from "@/theme";
 
@@ -34,30 +35,36 @@ export function Glass({ children, style }: { children: ReactNode; style?: StyleP
   );
 }
 
-/** safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。 */
-export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh }: {
-  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode;
+/**
+ * safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。
+ * sky：给了「这一天的第几分钟」就在页面背后画那个时段的天色（三个标签页用）。
+ */
+export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, sky }: {
+  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode; sky?: number;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const inner = { padding: space.lg, paddingTop: safeTop ? insets.top + space.xl : space.lg,
     paddingBottom: space.xxl + bottom + (bottom ? insets.bottom : 0),
     gap: space.lg, maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
-  return scroll ? (
-    <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={inner}
-      keyboardShouldPersistTaps="handled" refreshControl={refresh as never}>{children}</ScrollView>
-  ) : (
-    <View style={{ flex: 1, backgroundColor: c.bg }}><View style={inner}>{children}</View></View>
+  return (
+    <View style={{ flex: 1, backgroundColor: c.bg }}>
+      {sky !== undefined && <Sky min={sky} />}
+      {scroll ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={inner}
+          keyboardShouldPersistTaps="handled" refreshControl={refresh as never}>{children}</ScrollView>
+      ) : <View style={inner}>{children}</View>}
+    </View>
   );
 }
 
-/** 卡片：浅色靠柔和投影，深色靠细边。给 onPress 就整张可点（按下缩一点）。i 是入场顺序。 */
+/** 卡片：不描边，微透的底加顶边一道高光（浅色再加柔和投影）。给 onPress 就整张可点（按下缩一点）。i 是入场顺序。 */
 export function Card({ children, style, onPress, label, i }: {
   children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string; i?: number;
 }) {
   const c = useColors();
-  const look: ViewStyle = { backgroundColor: c.card, borderRadius: radius.lg, padding: space.lg, gap: space.md,
-    borderWidth: 1, borderColor: c.edge, boxShadow: c.shadow };
+  const look: ViewStyle = { backgroundColor: c.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md,
+    boxShadow: c.shadow };
   const body = onPress ? (
     <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={[look, style]}>{children}</Pressy>
   ) : (
@@ -111,14 +118,14 @@ export function ErrorState({ onRetry, text = "网络好了再试一次。" }: { 
 }
 
 /** 一块数字瓷砖：小标题、一个数字加单位、一句话。size="big" 用于一页里最重要的那个数。 */
-export function Stat({ label, value, unit, sub, size = "stat", style, children }: {
+export function Stat({ label, value, unit, sub, size = "stat", style, children, onPress, a11y }: {
   label: string; value: string | number; unit?: string; sub?: string; size?: "stat" | "big";
-  style?: StyleProp<ViewStyle>; children?: ReactNode;
+  style?: StyleProp<ViewStyle>; children?: ReactNode; onPress?: () => void; a11y?: string;
 }) {
   const c = useColors();
   return (
-    <Card style={[{ flex: 1, gap: 2 }, style]}>
-      <Text style={[type.small, { color: c.muted }]}>{label}</Text>
+    <Card style={[{ flex: 1, gap: 2 }, style]} onPress={onPress} label={a11y}>
+      <Text style={[type.eyebrow, { color: c.muted }]}>{label}</Text>
       <Text accessibilityLabel={`${label} ${value}${unit ?? ""}`}>
         <Text style={[type[size], { color: c.text }]}>{value}</Text>
         {unit && <Text style={[type.label, { color: c.muted }]}> {unit}</Text>}
@@ -132,7 +139,7 @@ export function Stat({ label, value, unit, sub, size = "stat", style, children }
 /** 小节标题：在卡片上面的一行小字。 */
 export function Eyebrow({ children }: { children: ReactNode }) {
   const c = useColors();
-  return <Text accessibilityRole="header" style={[type.small, { color: c.muted, fontWeight: "600", marginLeft: space.xs }]}>{children}</Text>;
+  return <Text accessibilityRole="header" style={[type.eyebrow, { color: c.muted }]}>{children}</Text>;
 }
 
 type ButtonProps = {
@@ -161,19 +168,19 @@ export function Button({ label, onPress, variant = "primary", disabled, busyLabe
       style={{ minHeight: TOUCH + 8, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
         paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1 }}>
       {icon && !busyLabel && <Icon name={icon} size={18} color={fg} />}
-      <Text style={[type.label, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
+      <Text style={[flat ? type.label : type.body, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
     </Pressy>
   );
 }
 
 /** 圆形图标按钮（关闭、返回）。 */
-export function IconButton({ name, label, onPress }: { name: IconName; label: string; onPress: () => void }) {
+export function IconButton({ name, label, onPress, color }: { name: IconName; label: string; onPress: () => void; color?: string }) {
   const c = useColors();
   return (
     <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} scaleTo={0.9}
       style={{ width: TOUCH, height: TOUCH, borderRadius: radius.pill, backgroundColor: c.sunken,
         alignItems: "center", justifyContent: "center" }}>
-      <Icon name={name} size={20} color={c.text} />
+      <Icon name={name} size={20} color={color ?? c.text} />
     </Pressy>
   );
 }

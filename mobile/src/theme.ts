@@ -1,5 +1,6 @@
 /**
- * Wayfinder 的设计令牌：「安静的仪表」——白天暖纸、夜里暖炭，细边实色卡片，玻璃只用在标签栏和底部面板。
+ * Wayfinder 的设计令牌：「天色」——页面顶上是一片跟着时段变的天色，卡片无描边、靠一道顶边高光分层，
+ * 数字用衬线体；玻璃只用在标签栏和底部面板。对标调研见 docs/design.md 开头。
  * 规范见 docs/design.md。页面里不直接写颜色和数字，都从这里拿。
  * 每对「字 / 底」的对比度都 ≥ 4.5:1（WCAG AA），改色后要重新核对。
  */
@@ -8,7 +9,8 @@ import { AppState, Platform, TextStyle, useColorScheme } from "react-native";
 
 const light = {
   bg: "#FAF6F0", // 暖纸色页面底
-  card: "#FFFDF9",
+  card: "#FFFDF9", // 实色：底部面板、保存栏这类盖在别的东西上面的
+  surface: "rgba(255, 253, 249, 0.82)", // 内容卡片：微透，底下的天色透一点上来
   sunken: "#F3ECE2", // 输入框、未选中的块
   line: "#E8DFD3",
   edge: "rgba(46, 42, 38, 0.08)", // 卡片的发丝边
@@ -24,7 +26,7 @@ const light = {
   onWarm: "#2E2A26", // 琥珀色（kind.flex）上的字 6.3:1
   primaryTrack: "rgba(255, 255, 255, 0.28)", // 陶土色底上的进度槽、图标圆
   overlay: "rgba(46, 42, 38, 0.5)", // 底部面板后面的遮罩
-  shadow: "0 1px 2px rgba(90, 58, 40, 0.05)",
+  shadow: "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(90, 58, 40, 0.05), 0 8px 24px rgba(90, 58, 40, 0.05)",
   glow: "0 6px 24px rgba(90, 58, 40, 0.07)", // 「此刻」主卡片；深色里换成一圈陶土微光
   glass: "rgba(255, 252, 247, 0.94)", // 标签栏、底部面板在不支持液态玻璃时的半透明底
   glassEdge: "rgba(255, 255, 255, 0.75)",
@@ -34,9 +36,10 @@ const light = {
 };
 
 const dark: typeof light = {
-  bg: "#1C1916",
-  card: "#26221E",
-  sunken: "#302A25",
+  bg: "#141211",
+  card: "#221E1B",
+  surface: "rgba(255, 240, 225, 0.055)",
+  sunken: "rgba(255, 240, 225, 0.08)",
   line: "#3D3631",
   edge: "rgba(255, 240, 225, 0.08)",
   hair: "rgba(255, 240, 225, 0.08)",
@@ -49,11 +52,11 @@ const dark: typeof light = {
   danger: "#F0918A", // 6.9:1
   ok: "#8DBE93", // 上面用 onPrimary（深色字）8.3:1
   onWarm: "#1C1916",
-  primaryTrack: "rgba(28, 25, 22, 0.18)",
+  primaryTrack: "rgba(20, 18, 17, 0.18)",
   overlay: "rgba(0, 0, 0, 0.55)",
-  shadow: "0 1px 2px rgba(0, 0, 0, 0.3)",
+  shadow: "inset 0 1px 0 rgba(255, 240, 225, 0.07)",
   glow: "0 0 0 1px rgba(227, 144, 111, 0.18), 0 0 40px rgba(227, 144, 111, 0.12)",
-  glass: "rgba(40, 34, 29, 0.9)",
+  glass: "rgba(34, 30, 27, 0.86)",
   glassEdge: "rgba(255, 240, 225, 0.12)",
   glassShadow: "inset 0 1px 0 rgba(255, 240, 225, 0.14), 0 10px 30px rgba(0, 0, 0, 0.4)",
   kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
@@ -79,21 +82,48 @@ const fontFamily = Platform.select({ web: stack });
 // 数字和英文用 Geist（根布局里 useFonts 加载）；每个字重是一个字体名，原生上不能靠 fontWeight 选
 const geist = (w: "300Light" | "400Regular" | "500Medium") =>
   Platform.select({ web: `Geist_${w}, ${stack}`, default: `Geist_${w}` });
+// 大数字用 Instrument Serif（OFL，只有一个字重）：Oura、How We Feel 那种有性格的数字
+const serif = Platform.select({ web: `InstrumentSerif_400Regular, Georgia, ${stack}`, default: "InstrumentSerif_400Regular" });
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 
-// 字号阶梯 13 / 14 / 16 / 20 / 28 / 44 / 64，字重只用 400 / 500 / 600。中文正文行高约 1.6 倍，不用斜体、不加字距。
-// hero / big 是大号细字重的数字，一屏最多一个 hero。num 是给时间、计数用的数字字体（叠在别的字号上）。
+// 字号阶梯 13 / 14 / 16 / 20 / 28 / 48 / 80，字重只用 400 / 500 / 600。中文正文行高约 1.6 倍，不用斜体。
+// hero / big / stat 是衬线大数字，一屏最多一个 hero。num 是给时间、计数用的无衬线数字（叠在别的字号上）。
+// eyebrow 是卡片和区块顶上的小标签：小字、加字距、灰色。
 export const type = {
-  hero: { fontFamily: geist("300Light"), fontSize: 64, lineHeight: 68, letterSpacing: -1.5, fontVariant: tabular },
-  big: { fontFamily: geist("300Light"), fontSize: 44, lineHeight: 48, letterSpacing: -0.8, fontVariant: tabular },
-  stat: { fontFamily: geist("400Regular"), fontSize: 28, lineHeight: 34, fontVariant: tabular }, // 瓷砖里的数字
+  hero: { fontFamily: serif, fontSize: 80, lineHeight: 84, letterSpacing: -1 },
+  big: { fontFamily: serif, fontSize: 48, lineHeight: 52, letterSpacing: -0.5 },
+  stat: { fontFamily: serif, fontSize: 34, lineHeight: 38 }, // 瓷砖里的数字
   display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "600" },
   title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "600" },
   body: { fontFamily, fontSize: 16, lineHeight: 26, fontWeight: "400" },
   label: { fontFamily, fontSize: 14, lineHeight: 22, fontWeight: "500" },
   small: { fontFamily, fontSize: 13, lineHeight: 19, fontWeight: "400" }, // 中文 12 号在手机上偏小，说明文字最小 13
   num: { fontFamily: geist("400Regular"), fontVariant: tabular },
+  eyebrow: { fontFamily, fontSize: 12, lineHeight: 16, fontWeight: "500", letterSpacing: 1.5 },
 } as const;
+
+/**
+ * 天色：页面顶上那片渐变跟着时段走。清晨淡青、白天沙金、傍晚陶土粉、夜里靛紫。
+ * top 是渐变最上面的颜色，glow 是右上角那团柔光。min 是这一天的第几分钟（凌晨可以超过 24:00）。
+ */
+export type SkyTone = { top: string; glow: string };
+export function skyTone(min: number, darkMode: boolean): SkyTone {
+  const h = (Math.floor(min / 60) % 24);
+  const slot = h >= 5 && h < 11 ? 0 : h >= 11 && h < 17 ? 1 : h >= 17 && h < 20 ? 2 : 3;
+  const darkSky = [
+    { top: "#1A2A30", glow: "#7FB8C8" }, // 清晨
+    { top: "#2D2416", glow: "#E8B860" }, // 白天
+    { top: "#3A201C", glow: "#E3906F" }, // 傍晚
+    { top: "#1D1B33", glow: "#8C84D6" }, // 夜里
+  ];
+  const lightSky = [
+    { top: "#DCEBEE", glow: "#9CCAD6" },
+    { top: "#F5E6C6", glow: "#F0C36A" },
+    { top: "#F5D8CA", glow: "#E8987A" },
+    { top: "#DEDBF0", glow: "#9F98DE" },
+  ];
+  return (darkMode ? darkSky : lightSky)[slot];
+}
 
 /** 21:00–6:00 算夜里：就算系统是浅色，也换成暖炭色，晚上对账不刺眼。 */
 const isNight = (d = new Date()) => d.getHours() >= 21 || d.getHours() < 6;

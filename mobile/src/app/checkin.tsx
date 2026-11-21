@@ -5,7 +5,9 @@ import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, OFFLINE, postCheckin, say } from "@/api";
+import { Glyph, Sky } from "@/components/art";
 import { ahead, Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
+import { useNow } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, radius, space, type, useColors } from "@/theme";
@@ -18,7 +20,11 @@ const STATUS_LOOK: Record<Status, { icon: IconName; sub: string }> = {
   floor: { icon: "contrast", sub: "做了最小的那一版，也算" },
   skip: { icon: "ellipse-outline", sub: "没关系，记下来就好" },
 };
-const VS_LOOK: Record<VsPlan, IconName> = { less: "remove-circle-outline", same: "ellipse-outline", more: "add-circle-outline" };
+// 保底的事：今晚计划就是保底版，「按今晚的计划做了」= 保底；做满标准版才算「做了」
+const FLOOR_SUB: Record<Status, string> = { done: "做满了标准版", floor: "按今晚的计划做了", skip: STATUS_LOOK.skip.sub };
+const isFloor = (t: string) => t.endsWith("（保底）");
+// 「差不多」用两条横线（读作等于），不和「没做」的空心圆撞
+const VS_LOOK: Record<VsPlan, IconName> = { less: "remove-circle-outline", same: "reorder-two-outline", more: "add-circle-outline" };
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -29,6 +35,7 @@ const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 export default function Checkin() {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const now = useNow();
   const [items, setItems] = useState<CheckinItem[] | null>(null);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [idx, setIdx] = useState(0);
@@ -108,6 +115,7 @@ export default function Checkin() {
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top + space.sm }}>
+      <Sky min={now} />
       <View style={{ flex: 1, width: "100%", maxWidth: 560, alignSelf: "center" }}>
         {children}
         {bottomBar && <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>{bottomBar}</View>}
@@ -131,7 +139,7 @@ export default function Checkin() {
             <Icon name="moon" size={40} color={c.primary} />
           </Animated.View>
         </Animated.View>
-        <Animated.View entering={FadeIn.delay(250).duration(motion.slow)} style={{ alignItems: "center", gap: space.md }}>
+        <Animated.View entering={FadeIn.delay(250).duration(motion.slow)} style={{ alignSelf: "stretch", alignItems: "center", gap: space.md }}>
           <Display center>{done.closing}</Display>
           {logged !== null && (
             <View style={{ alignItems: "center", gap: space.sm }}>
@@ -147,7 +155,6 @@ export default function Checkin() {
             <Card style={{ alignSelf: "stretch", gap: 2, marginTop: space.md }}>
               <Small muted>明天先做</Small>
               <Title>{done.saved.tomorrow_task.trim()}</Title>
-              <Small muted>明天的计划会先给它留 30 分钟。</Small>
             </Card>
           )}
         </Animated.View>
@@ -169,7 +176,9 @@ export default function Checkin() {
       <View style={{ flex: 1 }}>
         {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} duration={300} />}
       </View>
-      {!sentenceMode && (
+      {/* 和复盘一样：第一屏右边是「一句话说完」，往后右边是关闭 */}
+      {idx > 0 && !sentenceMode && <IconButton name="close" label="关闭" onPress={leave} />}
+      {idx === 0 && !sentenceMode && (
         <Pressy onPress={() => { go(idx); setSentenceMode(true); }} accessibilityRole="button" accessibilityLabel="改成一句话说完"
           style={{ minHeight: 44, justifyContent: "center" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 32, paddingHorizontal: space.md,
@@ -217,15 +226,17 @@ export default function Checkin() {
   let bottom: React.ReactNode = null;
   if (step.t === "status") {
     const cur = choices[step.item.id]?.status;
+    const floor = isFloor(step.item.title);
+    // 「昨晚定的一件事」没有保底版，只问做了没有
+    const keys = (Object.keys(STATUS_LABELS) as Status[]).filter((k) => !(step.item.one && k === "floor"));
     body = (
       <>
-        <View style={{ gap: 2 }}>
-          {step.item.tag && <Small muted>{step.item.tag}</Small>}
-          <Display>{step.item.title}</Display>
-        </View>
+        <ItemHead item={step.item} />
+        <Display>{step.item.title}</Display>
         <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
-          {(Object.keys(STATUS_LABELS) as Status[]).map((k) => (
-            <Option key={k} icon={STATUS_LOOK[k].icon} title={STATUS_LABELS[k]} sub={STATUS_LOOK[k].sub}
+          {keys.map((k) => (
+            <Option key={k} icon={STATUS_LOOK[k].icon} title={STATUS_LABELS[k]} sub={floor ? FLOOR_SUB[k] : STATUS_LOOK[k].sub}
+              mark={{ name: step.item.title, star: step.item.one, fill: k === "done" ? "full" : k === "floor" ? "half" : "empty" }}
               on={cur === k} onPress={() => pick(step.item.id, { status: k })} />
           ))}
         </View>
@@ -233,13 +244,13 @@ export default function Checkin() {
     );
     bottom = reader && cur
       ? <Button label="下一步" onPress={() => go(idx + 1)} />
-      : <Button label="先不记这件" variant="quiet" onPress={() => go(idx + 1)} />;
+      : <Button label="先不记这件" variant="neutral" onPress={() => go(idx + 1)} />;
   } else if (step.t === "vs") {
     const cur = choices[step.item.id]?.vs_plan;
     body = (
       <>
+        <ItemHead item={step.item} title />
         <Display>和预想比，花的时间？</Display>
-        <Body muted>{step.item.title}</Body>
         <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {(Object.keys(VS_PLAN_LABELS) as VsPlan[]).map((k) => (
             <Option key={k} icon={VS_LOOK[k]} title={VS_PLAN_LABELS[k]} on={cur === k}
@@ -248,23 +259,23 @@ export default function Checkin() {
         </View>
       </>
     );
-    bottom = <Button label={reader && cur ? "下一步" : "跳过"} variant={reader && cur ? "primary" : "quiet"} onPress={() => go(idx + 1)} />;
+    bottom = <Button label={reader && cur ? "下一步" : "跳过"} variant={reader && cur ? "primary" : "neutral"} onPress={() => go(idx + 1)} />;
   } else if (step.t === "note") {
     body = (
       <>
         <Display>想说点什么吗？</Display>
-        <Body muted>都可以不填。写下的那句话，会原样出现在今晚的结尾。</Body>
-        <Field label="今天的一句话" placeholder="可不填" value={note} onChangeText={setNote} multiline />
-        <Field label="今天卡在哪" placeholder="可不填" value={blocker} onChangeText={setBlocker} />
+        <Body muted>都可以不填。「今天的一句话」会原样出现在今晚的结尾。</Body>
+        <Field label="今天的一句话" placeholder="比如：今天比想的顺" value={note} onChangeText={setNote} multiline />
+        <Field label="今天卡在哪" placeholder="比如：下午一直犯困" value={blocker} onChangeText={setBlocker} />
       </>
     );
-    bottom = <Button label={note || blocker ? "下一步" : "跳过"} variant={note || blocker ? "primary" : "secondary"} onPress={() => go(idx + 1)} />;
+    bottom = <Button label={note || blocker ? "下一步" : "不写，下一步"} variant={note || blocker ? "primary" : "neutral"} onPress={() => go(idx + 1)} />;
   } else {
     body = (
       <>
         <Display>明天最想先做的一件事？</Display>
-        <Body muted>填了，明天的计划会先给它留 30 分钟。</Body>
-        <Field label="明天的一件事" placeholder="可不填" value={tomorrow} onChangeText={setTomorrow} />
+        <Body muted>可不填。填了，明天的计划会先给它留 30 分钟。</Body>
+        <Field accessibilityLabel="明天的一件事" placeholder="比如：把报告第三节写完" value={tomorrow} onChangeText={setTomorrow} />
         {items.length === 0 && <Notice>今天的计划里没有要对账的事，记一句话或者明天的事就好。</Notice>}
         {message && <Notice tone="error">{message}</Notice>}
       </>
@@ -287,18 +298,36 @@ export default function Checkin() {
   );
 }
 
-/** 一屏一问里的大选项：左边图标，中间字，选中时陶土色边框和一个勾。 */
-function Option({ icon, title, sub, on, onPress }: { icon: IconName; title: string; sub?: string; on: boolean; onPress: () => void }) {
+/** 每屏标题上面那行：这件事的记号和它是什么（习惯 / 项目 / 昨晚定的一件事）。title：项目那屏再带上事情名。 */
+function ItemHead({ item, title }: { item: CheckinItem; title?: boolean }) {
+  const c = useColors();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: -space.sm }}>
+      <Glyph name={item.title} star={item.one} color={c.kind[item.kind]} size={16} />
+      <Text style={[type.eyebrow, { color: c.muted }]}>{title ? `${item.tag} · ${item.title}` : item.tag}</Text>
+    </View>
+  );
+}
+
+/**
+ * 一屏一问里的大选项：左边图标，中间字，选中时陶土色边框和一个勾。
+ * mark：用这件事自己的记号代替图标（实心 = 做了，半满 = 保底，空心 = 没做，和本周页一样）。
+ */
+function Option({ icon, title, sub, on, onPress, mark }: {
+  icon: IconName; title: string; sub?: string; on: boolean; onPress: () => void;
+  mark?: { name: string; star?: boolean; fill: "full" | "half" | "empty" };
+}) {
   const c = useColors();
   return (
     <Pressy onPress={onPress} accessibilityRole="radio" accessibilityState={{ checked: on }}
       accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={0.97}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 72, padding: space.lg,
-        borderRadius: radius.lg, backgroundColor: on ? c.soft : c.card, borderWidth: 2,
-        borderColor: on ? c.primary : c.line }}>
+        borderRadius: radius.lg, backgroundColor: on ? c.soft : c.surface, borderWidth: 1.5,
+        borderColor: on ? c.primary : "transparent", boxShadow: on ? undefined : c.shadow }}>
       <View style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
         backgroundColor: on ? c.card : c.sunken }}>
-        <Icon name={icon} size={24} color={on ? c.primary : c.muted} />
+        {mark ? <Glyph name={mark.name} star={mark.star} fill={mark.fill} size={22} color={on ? c.primary : c.muted} />
+          : <Icon name={icon} size={24} color={on ? c.primary : c.muted} />}
       </View>
       <View style={{ flex: 1 }}>
         <Title color={on ? c.onSoft : c.text}>{title}</Title>

@@ -62,7 +62,8 @@ export type Review = {
   still_right: (Profile & { question: string }) | null; // 「还对吗」：回答用 confirmProfile
 };
 
-export type CheckinItem = { id: string; title: string; project: boolean; tag?: string }; // tag：标题上面那行小字
+// tag：标题上面那行小字；kind：记号的颜色；one：「昨晚定的一件事」（没有保底版）
+export type CheckinItem = { id: string; title: string; project: boolean; tag: string; kind: Block["kind"]; one?: boolean };
 
 export type Profile = { id: number; level: string; content: string; confirmed_at: string | null };
 
@@ -165,9 +166,13 @@ export const postCheckin = (body: CheckinBody) => send<CheckinResult | Crisis>("
 export function checkinItems(plan: Plan): CheckinItem[] {
   const items = new Map<string, CheckinItem>();
   for (const b of plan.blocks) {
-    if (b.kind === "must" || b.kind === "flex") items.set(b.id, { id: b.id, title: b.title, project: false });
-    else if (b.task_id === "one-thing") items.set(b.task_id, { id: b.task_id, title: b.title, project: false, tag: "昨晚定的一件事" });
-    else if (b.kind === "proj" && b.task_id) items.set(b.task_id, { id: b.task_id, title: b.title, project: true });
+    if (b.kind === "must" || b.kind === "flex") {
+      items.set(b.id, { id: b.id, title: b.title, project: false, tag: b.kind === "must" ? "习惯" : "可选", kind: b.kind });
+    } else if (b.task_id === "one-thing") {
+      items.set(b.task_id, { id: b.task_id, title: b.title, project: false, tag: "昨晚定的一件事", kind: b.kind, one: true });
+    } else if (b.kind === "proj" && b.task_id) {
+      items.set(b.task_id, { id: b.task_id, title: b.title, project: true, tag: "项目", kind: b.kind });
+    }
   }
   return [...items.values()];
 }

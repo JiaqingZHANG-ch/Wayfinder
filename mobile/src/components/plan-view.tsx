@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
 import { Block, Plan } from "@/api";
+import { Glyph } from "@/components/art";
 import { EASE, Pressy } from "@/components/motion";
 import { Card, Icon, IconName, Notice, Small } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
@@ -55,7 +56,9 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
   const [open, setOpen] = useState(false);
   const all = from ? plan.blocks.filter((b) => toMin(b.end) > toMin(from)) : plan.blocks;
   const hidden = fold && now !== undefined && !open ? all.filter((b) => toMin(b.end) <= now).length : 0;
-  const pastCount = fold && now !== undefined ? all.filter((b) => toMin(b.end) <= now).length : 0;
+  const past = fold && now !== undefined ? all.filter((b) => toMin(b.end) <= now) : [];
+  const pastCount = past.length;
+  const pastTasks = past.filter((b) => b.kind !== "life").length; // 吃饭、路上不算「件事」
   const blocks = hidden ? all.filter((b) => now === undefined || toMin(b.end) > now) : all;
   const used = plan.energy_cap ? Math.min(1, plan.energy_used / plan.energy_cap) : 0;
   const current = now === undefined ? -1 : blocks.findIndex((b) => toMin(b.start) <= now && now < toMin(b.end));
@@ -72,7 +75,7 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
   });
   return (
     <Card style={{ gap: space.lg, paddingBottom: space.md }}>
-      {title && <Text style={[type.label, { color: c.muted }]}>{title}</Text>}
+      {title && <Text style={[type.eyebrow, { color: c.muted }]}>{title}</Text>}
       {showEnergy && (
         <View style={{ gap: space.sm }}>
           <Small muted>
@@ -89,9 +92,9 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
       {from && blocks.length === 0 && <Small muted>今天已经没有剩下的安排了，早点休息。</Small>}
       {pastCount > 0 && (
         <Pressy onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
-          accessibilityLabel={open ? "收起早些时候的安排" : `早些时候的 ${pastCount} 件，点开看`} scaleTo={0.98}
+          accessibilityLabel={open ? "收起早些时候的安排" : "早些时候的安排，点开看"} scaleTo={0.98}
           style={{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44 }}>
-          <Small muted>{open ? "收起早些时候" : `早些时候 · ${pastCount} 件`}</Small>
+          <Small muted>{open ? "收起早些时候" : pastTasks ? `早些时候 · ${pastTasks} 件事` : "早些时候"}</Small>
           <Icon name={open ? "chevron-up" : "chevron-down"} size={14} color={c.muted} />
         </Pressy>
       )}
@@ -126,11 +129,16 @@ function BlockRow({ b, title, last, state }: { b: Block; title: string; last: bo
         paddingTop: live ? space.sm + 2 : 2 }]}>
         {b.start}
       </Text>
-      <View style={{ alignItems: "center", width: 14 }}>
-        <View style={{ width: quiet ? 8 : 14, height: quiet ? 8 : 14, borderRadius: radius.pill,
-          marginTop: live ? space.sm + 6 : quiet ? 8 : 5, backgroundColor: c.kind[b.kind], opacity: past ? 0.45 : 1,
-          borderWidth: live ? 3 : 0, borderColor: c.soft }} />
-        {!last && <View style={{ flex: 1, width: 2, backgroundColor: c.line, marginVertical: 3 }} />}
+      <View style={{ alignItems: "center", width: 16 }}>
+        {quiet ? (
+          <View style={{ width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
+        ) : (
+          <View style={{ marginTop: live ? space.sm + 4 : 3 }}>
+            <Glyph name={b.title} star={b.task_id === "one-thing"} color={c.kind[b.kind]} dim={past}
+              fill={past || live ? "full" : "empty"} />
+          </View>
+        )}
+        {!last && <View style={{ flex: 1, width: 1.5, backgroundColor: c.line, marginVertical: 4, borderRadius: 1 }} />}
       </View>
       <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2 },
         live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
@@ -159,10 +167,10 @@ function NowLine({ now }: { now: number }) {
       <Text style={[type.small, type.num, { width: 44, color: c.primary }]}>
         {fromMin(now)}
       </Text>
-      <View style={{ width: 14, alignItems: "center" }}>
-        <View style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: c.primary }} />
+      <View style={{ width: 16, alignItems: "center" }}>
+        <View style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: c.primary, boxShadow: `0 0 10px ${c.primary}` }} />
       </View>
-      <View style={{ flex: 1, height: 2, borderRadius: radius.pill, backgroundColor: c.primary }} />
+      <View style={{ flex: 1, height: 1.5, borderRadius: radius.pill, backgroundColor: c.primary, opacity: 0.7 }} />
     </View>
   );
 }
