@@ -5,7 +5,7 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, Energy, getDeepTalk, HabitProposal, isCrisis, OFFLINE,
+  answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, Energy, getDeepTalk, getProfile, HabitProposal, isCrisis, OFFLINE,
   Profile, say, startCouncil, TalkConfirm,
 } from "@/api";
 import { Glyph, Sky } from "@/components/art";
@@ -20,6 +20,10 @@ const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
 // 追问三个小问题各自的灰字
 const FOLLOW_HINT: Record<string, string> = { 在哪: "比如：图书馆三楼", 和谁: "比如：一个人", 用什么: "比如：笔记本和一支笔" };
+// 落地卡眉标：档案层级名换成人话
+const LEVEL_NAME: Record<string, string> = { 近期观察: "我看到的一点", 使命: "你想去的方向，一句话" };
+// 版本打分每一项下面的一句
+const RATE_HINT: Record<string, string> = { 资源: "时间、钱、人够吗", 喜欢: "想到就有劲吗", 信心: "做得成吗", 和自己一致: "像你想成为的人吗" };
 
 /**
  * 深度长谈：全屏，一屏一个问题，版式照晚间对账。每屏答完马上存，关掉下次从没答的那一屏接着聊。
@@ -81,6 +85,15 @@ export default function DeepTalk() {
     }, 3000);
     return () => { cancelled = true; clearInterval(t); };
   }, [running, councilErr]);
+  // 原型习惯「为了」哪条目标：和后端一样取第 4 次确认过的第一条目标；确认过的不在 proposals 里，从档案拿
+  const protoPending = !!st?.proposals.habits.some((h) => h.source === "deep_talk" && h.status === "pending");
+  const goalIds = (st?.answers[4]?.profile_ids ?? []).join(",");
+  const [goal, setGoal] = useState<string | null>(null);
+  useEffect(() => {
+    if (!protoPending) return;
+    const ids = goalIds.split(",").map(Number);
+    getProfile().then((p) => setGoal(p.confirmed.find((x) => x.level === "目标" && ids.includes(x.id))?.content ?? null), () => {});
+  }, [protoPending, goalIds]);
   const busyRef = useRef(false); // 同一帧里连点两下，busy 状态还没生效，靠它挡住第二下
 
   /** 发一个请求：危机就停在危机卡片；409（不是这一屏）重新取状态；其余错误原样说给他。 */
@@ -145,11 +158,11 @@ export default function DeepTalk() {
     </View>
   );
 
-  const page = (key: string, progress: number, body: React.ReactNode, bottom?: React.ReactNode) => shell(
+  const page = (key: string, progress: number, body: React.ReactNode, bottom?: React.ReactNode, center?: boolean) => shell(
     <>
       {top(progress)}
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: space.lg }} keyboardShouldPersistTaps="handled">
-        <Animated.View key={key} entering={ahead("right")} style={{ flexGrow: 1, gap: space.lg }}>
+        <Animated.View key={key} entering={ahead("right")} style={{ flexGrow: 1, gap: space.lg, justifyContent: center ? "center" : undefined }}>
           {body}
           {message && <Notice tone="error">{message}</Notice>}
         </Animated.View>
@@ -196,12 +209,19 @@ export default function DeepTalk() {
     const progress = open ? ` · ${n - left + 1} / ${n}` : "";
     let title: string;
     let body: React.ReactNode;
+    let head: React.ReactNode = null;
     if (p) {
       title = "我听到的，你看看对不对";
-      body = <ProfileCard p={p} label={step === 3 ? "能量公式" : p.level} edits={edits} setEdits={setEdits} busy={busy} decide={decide} />;
+      // 他自己的原话：第 4 次是选中的那个版本，第 1–3 次是这一步第一个开放题的回答
+      const firstOpen = st.screens[step].screens.find((x) => x.kind === "open");
+      const from = step === 4
+        ? (typeof a.choose === "number" ? a[st.screens[4].screens[a.choose]?.id ?? ""] : undefined)
+        : firstOpen && a[firstOpen.id];
+      body = <ProfileCard p={p} label={step === 3 ? "能量公式" : LEVEL_NAME[p.level] ?? p.level} from={typeof from === "string" ? from : undefined}
+        edits={edits} setEdits={setEdits} busy={busy} decide={decide} />;
     } else if (proto) {
       title = "先试一个月的小习惯";
-      body = <HabitCard h={proto} label="一个月原型" yes="加进计划" edits={edits} setEdits={setEdits} busy={busy} decide={decide} />;
+      body = <HabitCard h={proto} label="先试一个月" goal={goal} yes="加进计划" edits={edits} setEdits={setEdits} busy={busy} decide={decide} />;
     } else if (tomorrow) {
       title = "明天的一件事";
       const v = edits.t ?? tomorrow;
@@ -242,6 +262,18 @@ export default function DeepTalk() {
       const sc = step === 1 ? st.screens[1].screens.find((x) => x.kind === "scores") : undefined;
       const sv = sc && a[sc.id] && typeof a[sc.id] === "object" ? Object.entries(a[sc.id] as Record<string, number>) : [];
       const mine = step === 4 ? kept.filter((k) => k.step === 4) : [];
+      // 四步的进度：聊过的实心、没聊的描边，和对账完成页那排点同一种语言；是进度，不是奖励
+      head = (
+        <View style={{ flexDirection: "row", gap: space.lg }}>
+          {st.steps.map((x) => (
+            <View key={x.step} accessible accessibilityLabel={`${x.name}，${x.status === "done" ? "聊过了" : "还没聊"}`}
+              style={{ alignItems: "center", gap: space.xs }}>
+              <Glyph name={x.name} color={c.kind.proj} size={28} fill={x.status === "done" ? "full" : "empty"} />
+              <Text style={[type.small, { color: c.muted }]}>{x.name}</Text>
+            </View>
+          ))}
+        </View>
+      );
       body = (
         <>
           {(quotes.length > 0 || sv.length > 0) && (
@@ -265,12 +297,13 @@ export default function DeepTalk() {
     }
     return page(`sum-${step}-${title}-${p?.id}`, 1, (
       <>
+        {head}
         {eyebrow(step, progress)}
         <Display>{title}</Display>
-        {step === 3 && <Notice>明天的安排按你刚才说的累不累重排了</Notice>}
+        {step === 3 && <Body>明天的安排按你刚才说的累不累重排了</Body>}
         {body}
       </>
-    ), !open && <Button label="好" variant="secondary" onPress={leave} />);
+    ), !open && <Button label="好" variant="secondary" onPress={leave} />, true);
   }
 
   // —— 一屏一个问题 ——
@@ -294,7 +327,7 @@ export default function DeepTalk() {
         {eyebrow(step)}
         <Display>最近这几样，各打几分？</Display>
         <Body muted>0 是很不满意，10 是很满意。</Body>
-        {items.map((item) => {
+        {items.map((item, i) => {
           const v = scores[item];
           return (
             <View key={item} style={{ gap: space.xs }}>
@@ -307,8 +340,11 @@ export default function DeepTalk() {
                       ? Object.fromEntries(Object.entries(scores).filter(([k]) => k !== item)) : { ...scores, [item]: "skip" })} />
                 )}
               </View>
-              <Dots label={item} from={0} to={10} value={typeof v === "number" ? v : undefined} dim={v === "skip"}
-                onChange={(n) => setScores({ ...scores, [item]: n })} />
+              {v === "skip" ? (
+                <View style={{ minHeight: 44, justifyContent: "center" }}><Small muted>这一项先不打</Small></View>
+              ) : (
+                <Dots label={item} from={0} to={10} value={v} ends={i === 0} onChange={(n) => setScores({ ...scores, [item]: n })} />
+              )}
             </View>
           );
         })}
@@ -322,12 +358,22 @@ export default function DeepTalk() {
       <>
         {eyebrow(step)}
         <Title>{s.question}</Title>
-        <Field placeholder="几句话就行" value={text[s.id] ?? ""} multiline editable={!said} accessibilityLabel={s.question}
-          onChangeText={(v) => setText({ ...text, [s.id]: v })} />
-        {said && (
-          <Animated.View entering={FadeIn.duration(motion.slow)}>
-            <Body muted>{said.reply}</Body>
-          </Animated.View>
+        {said ? (
+          // 答完了：他的原话照抄，下面左边一道陶土色竖线是导师的一句
+          <View style={{ gap: space.xl }}>
+            <View style={{ gap: space.xs }}>
+              <Text style={[type.eyebrow, { color: c.muted }]}>你说的</Text>
+              <Body>{`「${text[s.id]?.trim() ?? ""}」`}</Body>
+            </View>
+            <Animated.View entering={FadeIn.duration(motion.slow)}
+              style={{ borderLeftWidth: 2, borderLeftColor: c.primary, paddingLeft: space.md, gap: space.xs }}>
+              <Text style={[type.eyebrow, { color: c.muted }]}>导师</Text>
+              <Body>{said.reply}</Body>
+            </Animated.View>
+          </View>
+        ) : (
+          <Field placeholder="几句话就行" value={text[s.id] ?? ""} multiline accessibilityLabel={s.question}
+            onChangeText={(v) => setText({ ...text, [s.id]: v })} />
         )}
       </>
     );
@@ -414,7 +460,7 @@ export default function DeepTalk() {
         ) : (
           <>
             <Display>顾问们看完了</Display>
-            <CouncilView result={st.council.result} titles={titles} />
+            <CouncilView result={st.council.result} titles={titles} versions={versions} />
           </>
         )}
       </>
@@ -424,7 +470,8 @@ export default function DeepTalk() {
       <>
         {status === "error" && <Button label="再试一次" icon="refresh" onPress={() => { setCouncilErr(null); setKick(kick + 1); }} />}
         {(status === "done" || status === "failed") && <Button label="接着打分" busyLabel={busy ? "正在存……" : undefined} onPress={() => answer(step, s.id, true)} />}
-        <Button label="今晚先到这" variant="secondary" onPress={leave} />
+        {/* 看完了：左上角有关闭、内容也都存了，这个不用抢眼 */}
+        <Button label="今晚先到这" variant={status === "done" ? "quiet" : "secondary"} onPress={leave} />
       </>
     );
   } else if (s.kind === "rate") {
@@ -433,17 +480,17 @@ export default function DeepTalk() {
       <>
         {eyebrow(step)}
         <Display>给三个版本打个分</Display>
-        <View style={{ gap: space.xs }}>
-          <Body muted>每项 1 到 5 个点。</Body>
-          <Small muted>资源：手上的时间、钱、人够不够 · 喜欢：想到就有劲吗 · 信心：觉得自己做得成吗 · 和自己一致：像不像你想成为的人</Small>
-        </View>
+        <Body muted>每项 1 到 5 个点。</Body>
         {VERSION.map((name, j) => (
           <Card key={j} style={{ gap: space.sm }}>
             <Text style={[type.eyebrow, { color: c.muted }]}>{`${name} · ${titles[j]}`}</Text>
             <Text numberOfLines={2} style={[type.label, { color: c.muted }]}>{versions[j]}</Text>
             {items.map((item) => (
               <View key={item} style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                <Text style={[type.label, { color: c.text, width: 84 }]}>{item}</Text>
+                <View style={{ width: 132 }}>
+                  <Text style={[type.label, { color: c.text }]}>{item}</Text>
+                  <Text style={[type.small, { color: c.muted }]}>{RATE_HINT[item]}</Text>
+                </View>
                 <View style={{ flex: 1 }}>
                   <Dots label={`${name} ${item}`} from={1} to={5} value={rates[j]?.[item]}
                     onChange={(n) => setRates({ ...rates, [j]: { ...rates[j], [item]: n } })} />
@@ -454,9 +501,14 @@ export default function DeepTalk() {
         ))}
       </>
     );
-    const ready = VERSION.every((_, j) => items.every((i) => rates[j]?.[i] !== undefined));
-    bottom = <Button label="打好了" disabled={!ready} busyLabel={busy ? "正在存……" : undefined}
-      onPress={() => answer(step, s.id, { 0: rates[0], 1: rates[1], 2: rates[2] })} />;
+    const missing = VERSION.reduce((n, _, j) => n + items.filter((i) => rates[j]?.[i] === undefined).length, 0);
+    bottom = (
+      <>
+        {missing > 0 && <Small muted center>{`还差 ${missing} 项`}</Small>}
+        <Button label="打好了" disabled={missing > 0} busyLabel={busy ? "正在存……" : undefined}
+          onPress={() => answer(step, s.id, { 0: rates[0], 1: rates[1], 2: rates[2] })} />
+      </>
+    );
   } else if (s.kind === "choose") {
     body = (
       <>
@@ -495,28 +547,47 @@ function pendingCount(s: DeepTalkState, step: number) {
     + (step === 4 ? s.proposals.habits.filter((h) => h.status === "pending").length + (s.can_set_tomorrow && s.proposals.tomorrow ? 1 : 0) : 0);
 }
 
-/** 一排可点的圆点：from…to 分，点到的那个和它左边的都亮。读屏念「健康 6 分」。 */
-function Dots({ label, from, to, value, onChange, dim }: {
-  label: string; from: number; to: number; value?: number; onChange: (n: number) => void; dim?: boolean;
+/**
+ * 一排可点的圆点：from…to 分，亮几个点就是几分（0 是最左边那个空心圈，永远不亮）。读屏念「健康 6 分」。
+ * ends：点下面左右两头写上 from 和 to。
+ */
+function Dots({ label, from, to, value, onChange, ends }: {
+  label: string; from: number; to: number; value?: number; onChange: (n: number) => void; ends?: boolean;
 }) {
   const c = useColors();
+  const ns = Array.from({ length: to - from + 1 }, (_, i) => from + i);
   return (
-    <View style={{ flexDirection: "row", opacity: dim ? 0.4 : 1 }} accessibilityRole="radiogroup" accessibilityLabel={label}>
-      {Array.from({ length: to - from + 1 }, (_, i) => from + i).map((n) => (
-        <Pressy key={n} onPress={() => { haptic.select(); onChange(n); }} accessibilityRole="radio"
-          accessibilityState={{ checked: value === n }} accessibilityLabel={`${label} ${n} 分`} scaleTo={0.85}
-          style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
-          <View style={{ width: value === n ? 20 : 14, height: value === n ? 20 : 14, borderRadius: radius.pill,
-            backgroundColor: value !== undefined && n <= value ? c.primary : c.sunken }} />
-        </Pressy>
-      ))}
+    <View>
+      <View style={{ flexDirection: "row" }} accessibilityRole="radiogroup" accessibilityLabel={label}>
+        {ns.map((n) => {
+          const lit = value !== undefined && n > 0 && n <= value;
+          return (
+            <Pressy key={n} onPress={() => { haptic.select(); onChange(n); }} accessibilityRole="radio"
+              accessibilityState={{ checked: value === n }} accessibilityLabel={`${label} ${n} 分`} scaleTo={0.85}
+              style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: value === n ? 20 : 14, height: value === n ? 20 : 14, borderRadius: radius.pill,
+                backgroundColor: lit ? c.primary : "transparent", borderWidth: lit ? 0 : 1.5,
+                borderColor: n === 0 && value === 0 ? c.primary : c.kind.life }} />
+            </Pressy>
+          );
+        })}
+      </View>
+      {ends && (
+        <View style={{ flexDirection: "row" }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {ns.map((n) => (
+            <Text key={n} style={[type.small, type.num, { flex: 1, textAlign: "center", color: c.muted }]}>
+              {n === from || n === to ? n : ""}
+            </Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
 /** 一条待确认的档案提议：可以改字，「对」才记进档案，「不要」就不再显示。 */
-function ProfileCard({ p, label, edits, setEdits, busy, decide }: {
-  p: Profile; label: string; edits: Record<string, string>; setEdits: (e: Record<string, string>) => void; busy: boolean;
+function ProfileCard({ p, label, from, edits, setEdits, busy, decide }: {
+  p: Profile; label: string; from?: string; edits: Record<string, string>; setEdits: (e: Record<string, string>) => void; busy: boolean;
   decide: (what: TalkConfirm, accept: boolean, content?: string) => void;
 }) {
   const c = useColors();
@@ -525,7 +596,9 @@ function ProfileCard({ p, label, edits, setEdits, busy, decide }: {
   return (
     <Card>
       <Text style={[type.eyebrow, { color: c.muted }]}>{label}</Text>
-      <Small muted>不对就直接改</Small>
+      {/* 他自己的原话照抄，好对得上下面导师的说法 */}
+      {!!from?.trim() && <Small muted>{`你写的：「${from.trim()}」`}</Small>}
+      <Small muted>这是我的说法，不对就直接改</Small>
       <Field value={v} multiline accessibilityLabel={label} onChangeText={(t) => setEdits({ ...edits, [k]: t })} />
       <Pair yes="对" no="不要" yesOff={!v.trim()} busy={busy}
         onYes={() => decide({ kind: "profile", id: p.id }, true, v.trim())} onNo={() => decide({ kind: "profile", id: p.id }, false)} />
@@ -534,8 +607,8 @@ function ProfileCard({ p, label, edits, setEdits, busy, decide }: {
 }
 
 /** 一条习惯提议：原型（名字可以改）或「投资自己」（写为什么、适合在什么时候）。 */
-function HabitCard({ h, label, yes, edits, setEdits, busy, decide }: {
-  h: HabitProposal; label?: string; yes: string; edits: Record<string, string>; setEdits: (e: Record<string, string>) => void;
+function HabitCard({ h, label, goal, yes, edits, setEdits, busy, decide }: {
+  h: HabitProposal; label?: string; goal?: string | null; yes: string; edits: Record<string, string>; setEdits: (e: Record<string, string>) => void;
   busy: boolean; decide: (what: TalkConfirm, accept: boolean, content?: string) => void;
 }) {
   const c = useColors();
@@ -549,6 +622,7 @@ function HabitCard({ h, label, yes, edits, setEdits, busy, decide }: {
         ? <Field value={v} accessibilityLabel="习惯的名字" onChangeText={(t) => setEdits({ ...edits, [k]: t })} />
         : <Title>{h.title}</Title>}
       <Small muted>{`标准版 ${h.minutes} 分钟 · 保底版 ${h.floor_min} 分钟`}</Small>
+      {goal && <Small muted>{`为了：${goal}`}</Small>}
       {h.why && <Body>{h.why}</Body>}
       {h.when && <Small muted>{`适合在${h.when}`}</Small>}
       <Pair yes={yes} no="先不要" yesOff={!v.trim()} busy={busy}
