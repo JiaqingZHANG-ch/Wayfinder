@@ -449,6 +449,22 @@ export default function DeepTalk() {
     );
     bottom = <Button label="写好了" disabled={!text[s.id]?.trim()} busyLabel={busy ? "正在存……" : undefined}
       onPress={() => answer(step, s.id, text[s.id].trim())} />;
+  } else if (s.kind === "line") {
+    body = (
+      <>
+        {eyebrow(step)}
+        <Title>{s.question}</Title>
+        <Field placeholder={s.hint} value={text[s.id] ?? ""} multiline accessibilityLabel={s.question}
+          onChangeText={(v) => setText({ ...text, [s.id]: v })} />
+      </>
+    );
+    bottom = (
+      <>
+        <Button label="下一步" disabled={!text[s.id]?.trim()} busyLabel={busy ? "正在存……" : undefined}
+          onPress={() => answer(step, s.id, text[s.id].trim())} />
+        <Button label="跳过" variant="quiet" disabled={busy} onPress={() => answer(step, s.id, "")} />
+      </>
+    );
   } else if (s.kind === "council") {
     const status = councilErr ? "error" : st.council?.status ?? "running"; // 还没 POST 完时是 null，先当在看
     body = (

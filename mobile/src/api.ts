@@ -63,6 +63,7 @@ export type Review = {
   question: string; // 带进下周的问题，导师不回答
   last_question: string | null;
   still_right: (Profile & { question: string }) | null; // 「还对吗」：回答用 confirmProfile
+  quarter_goals: string[]; // 这一季写下的目标，原样
 };
 
 // tag：标题上面那行小字；kind：记号的颜色；one：「昨晚定的一件事」（没有保底版）
@@ -172,7 +173,7 @@ export const postCheckin = (body: CheckinBody) => send<CheckinResult | Crisis>("
 /** 深度长谈的一屏：kind 决定怎么画；question / hint / items / options 按 kind 有。和后端 deep_talk.STEPS 一致。 */
 export type TalkScreen = {
   id: string;
-  kind: "scores" | "open" | "follow" | "energy" | "version" | "council" | "rate" | "choose";
+  kind: "scores" | "open" | "follow" | "energy" | "version" | "council" | "rate" | "line" | "choose";
   question?: string;
   hint?: string;
   items?: string[];

@@ -144,6 +144,12 @@ export default function ReviewScreen() {
           </View>
         )}
         {!week && <Body muted>{review.summary}</Body>}
+        {review.quarter_goals?.length > 0 && (
+          <View style={{ gap: space.xs }}>
+            <Small muted>这一季的目标</Small>
+            {review.quarter_goals.map((g, i) => <Body key={i}>{g}</Body>)}
+          </View>
+        )}
       </>
     );
     bottom = <Button label="下一步" onPress={() => go(idx + 1)} />;
