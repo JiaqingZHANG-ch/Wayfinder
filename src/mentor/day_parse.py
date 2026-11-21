@@ -35,8 +35,9 @@ def schema() -> dict:
 PROMPT = (
     "你把用户说的「今天要做的事」拆成事项，只回 JSON：{\"items\": [...]}。\n"
     "每项都要有这些字段：title（1–30 字的短名字）、kind、start、end、minutes、effort。\n"
-    "kind：fixed = 用户说了具体几点到几点的事（上课、开会），start 和 end 写 HH:MM（24 小时制）；"
-    "task = 没说具体时间、要找时间做的事，start 和 end 写 null。\n"
+    "kind：fixed = 用户说了具体几点的事（「9 点到 11 点上课」「下午三点开组会」「10 点面试」），"
+    "start 写 HH:MM（24 小时制），说了结束时间就写 end，没说 end 写 null；"
+    "task = 没说具体几点、要找时间做的事（「下午」「晚上」不算具体几点），start 和 end 写 null。\n"
     "minutes：用户明说了要做多久（「一小时」= 60）就写分钟数，没说就写 null，不要自己猜。\n"
     "effort：light = 轻松的事，normal = 一般，heavy = 费脑力、要专心的事。\n"
     "用户没提到的事不要加。如果用户的话里有想伤害自己的意思，只回 {\"crisis\": true}。"
@@ -53,13 +54,17 @@ def _clean(obj: object, remembered: Callable[[str], int | None]) -> dict:
         raise ValueError("名字不合格")
     if kind not in ("fixed", "task") or effort not in EFFORTS:
         raise ValueError("kind 或 effort 不对")
-    if kind == "fixed":
-        start, end = obj.get("start"), obj.get("end")
-        if not all(isinstance(t, str) and re.match(HHMM, t) for t in (start, end)) or to_min(start) >= to_min(end):
-            raise ValueError("固定事项要有合法的起止时间，且开始早于结束")
+    start, end = obj.get("start"), obj.get("end")
+    ok = [isinstance(t, str) and bool(re.match(HHMM, t)) for t in (start, end)]
+    if kind == "fixed" and all(ok):
+        if to_min(start) >= to_min(end):
+            raise ValueError("固定事项的开始要早于结束")
         minutes, source = to_min(end) - to_min(start), "说的"
+    elif kind == "fixed" and not ok[0]:
+        raise ValueError("固定事项要有合法的开始时间")
     else:
-        start = end = None
+        # task 不要时间；fixed 只说了几点开始（「三点开组会」）：结束按时长补，时长和 task 一样来
+        start, end = (start if kind == "fixed" else None), None
         if minutes is not None:
             if type(minutes) is not int:
                 raise ValueError("minutes 要是整数")
@@ -70,6 +75,11 @@ def _clean(obj: object, remembered: Callable[[str], int | None]) -> dict:
             minutes, source = DEFAULT_MIN[effort], "估的"
     if not 5 <= minutes <= 480:
         raise ValueError("时长要在 5–480 分钟")
+    if kind == "fixed" and end is None:
+        e = to_min(start) + minutes
+        if e > 24 * 60 - 1:
+            raise ValueError("结束时间过了半夜")
+        end = f"{e // 60:02d}:{e % 60:02d}"
     return {"id": new_id("item"), "title": title, "kind": kind, "start": start, "end": end, "minutes": minutes,
             "effort": effort, "estimated": source == "估的", "source": source}
 

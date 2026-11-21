@@ -62,8 +62,21 @@ def test_duration_uses_last_time_then_default(setup):
     assert (gym["minutes"], gym["estimated"], gym["source"]) == (50, False, "说的")
 
 
+def test_fixed_with_only_start_gets_estimated_end(setup):
+    # 「下午三点开组会」只说了几点开始：结束按时长补（说了的、上次的、按精力档估的）
+    client, db, model = setup
+    db.remember_duration(1, memory_key("面试"), 45)
+    model.replies.append(reply(item("开组会", "fixed", "17:00"), item("面试", "fixed", "10:00"),
+                               item("看电影", "fixed", "19:30", minutes=90)))
+    meet, interview, movie = say(client).json()["items"]
+    assert (meet["end"], meet["minutes"], meet["estimated"]) == ("18:00", 60, True)
+    assert (interview["end"], interview["source"]) == ("10:45", "上次")
+    assert (movie["end"], movie["source"]) == ("21:00", "说的")
+
+
 @pytest.mark.parametrize("bad", [
     item("开会", "fixed", "17:30", "16:30"), item("开会", "fixed", "25:00", "26:00"), item("开会", "fixed"),
+    item("开会", "fixed", "23:30", minutes=60),
     item("写报告", minutes=3), item("写报告", minutes=600), item("", minutes=30), item("长" * 31, minutes=30)])
 def test_invalid_item_is_rejected_after_one_retry(setup, bad):
     client, db, model = setup
