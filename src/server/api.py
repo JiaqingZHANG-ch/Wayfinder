@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, StrictInt, ValidationError
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.council import CARDS_DIR, Card, load_cards, run_versions_council
@@ -103,6 +103,24 @@ class DeepTalkConfirmIn(BaseModel):
 class LetterIn(BaseModel):
     days: Literal[30, 90]
     text: str = Field(description="写给将来的自己，原样存")
+
+
+AREAS = ("健康", "学习或工作", "钱", "玩", "朋友和亲密关系", "成长")
+
+
+class GoalIn(BaseModel):
+    text: str
+    check: str = Field(description="每周看什么")
+
+
+class QuarterIn(BaseModel):
+    scores: dict[str, StrictInt]
+    extra_area: str | None = None
+    focus: str
+    start: str
+    stop: str
+    keep: str
+    goals: list[GoalIn]
 
 
 def _answer_ok(s: dict, v, energy_ids: set[str]) -> bool:
@@ -814,7 +832,42 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             out.append(item)
         return {"letters": out}
 
-    @app.post("/deep-talk/snooze", summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
+    @app.get("/quarter", summary="季度回顾：满 90 天、且距上一次 84 天以上才 available（只管入口显不显示）")
+    def get_quarter():
+        today = logical_date(clock())
+        first, last = db.first_log_day(USER_ID), db.last_quarter(USER_ID)
+        used = 0 if first is None else (today - first).days
+        fresh = last is None or (today - date.fromisoformat(last["day"])).days >= 84
+        return {"areas": list(AREAS), "available": used >= 90 and fresh, "days_used": used, "last": last}
+
+    @app.post("/quarter", summary="存一次季度回顾：目标直接成为已确认的档案")
+    def post_quarter(body: QuarterIn):
+        day = logical_date(clock())
+        extra = None if body.extra_area is None else body.extra_area.strip()
+        if extra is not None and (not 2 <= len(extra) <= 8 or extra in AREAS):
+            raise HTTPException(422, "加的一项要 2 到 8 个字，也不能和默认的重复")
+        areas = [*AREAS, *([extra] if extra else [])]
+        if set(body.scores) != set(areas) or not all(0 <= v <= 10 for v in body.scores.values()):
+            raise HTTPException(422, "每一项都要打 0 到 10 分")
+        focus, start, stop, keep = (s.strip() for s in (body.focus, body.start, body.stop, body.keep))
+        if focus not in areas:
+            raise HTTPException(422, "重点要从这几项里选")
+        if not (start or stop or keep) or any(len(s) > MAX_INPUT for s in (start, stop, keep)):
+            raise HTTPException(422, f"开始做、停下、继续至少写一个，每个不超过 {MAX_INPUT} 字")
+        goals = [{"text": g.text.strip(), "check": g.check.strip()} for g in body.goals]
+        if not 1 <= len(goals) <= 3 or any(not g["text"] or not g["check"] or max(len(g["text"]), len(g["check"])) > 60
+                                           for g in goals):
+            raise HTTPException(422, "目标 1 到 3 条，「目标」和「每周看什么」都要写，各 60 字以内")
+        if crisis := screen(body, day):
+            return crisis
+        qid = db.add_quarter(USER_ID, day, body.scores, focus, start, stop, keep, goals)
+        for g in goals:  # 用户自己写的目标，不用再确认一遍
+            db.confirm_profile(USER_ID, db.propose_profile(
+                USER_ID, "目标", f"{g['text']}（每周看：{g['check']}）", "季度回顾"))
+        return {"id": qid, "day": day.isoformat(), "scores": body.scores, "focus": focus, "start": start, "stop": stop,
+                "keep": keep, "goals": goals}
+
+    @app.post("/deep-talk/snooze",summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
     def post_deep_talk_snooze():
         rnd, rows, _ = talk_rows()
         step = current_step(rows)

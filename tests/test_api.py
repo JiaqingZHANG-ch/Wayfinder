@@ -476,6 +476,7 @@ def test_export_has_everything_and_delete_removes_it(setup):
     db.propose_profile(1, "方向", "想做产品", "建档")
     db.upsert_deep_talk(1, 1, 1, answers={"scores": {"健康": 4}})
     db.add_letter(1, datetime(2026, 11, 20).date(), 30, "给自己", None, None)
+    db.add_quarter(1, datetime(2026, 11, 20).date(), {"健康": 5}, "健康", "跑步", "", "", [])
     client.post("/checkin", json={"sentence": "我想死"})
     db.consent(1, "隐私", PRIVACY_VERSION)
     tables = client.get("/export").json()["tables"]

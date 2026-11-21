@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS letters (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     written_on TEXT NOT NULL, due TEXT NOT NULL, days INTEGER NOT NULL, text TEXT NOT NULL,
     prototype TEXT, habit_id TEXT, created_at TEXT NOT NULL);
+-- 季度回顾：scores 是 {项: 0-10}，goals 是 [{text, check}]
+CREATE TABLE IF NOT EXISTS quarterly_reviews (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day TEXT NOT NULL, scores TEXT NOT NULL, focus TEXT NOT NULL, start TEXT NOT NULL, stop TEXT NOT NULL,
+    keep TEXT NOT NULL, goals TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -70,11 +75,12 @@ CREATE TABLE IF NOT EXISTS crisis_events (
 
 # 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
 USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles", "deep_talks",
-               "weekly_reviews", "model_calls", "crisis_events", "letters")
-JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council")
+               "weekly_reviews", "model_calls", "crisis_events", "letters",
+               "quarterly_reviews")
+JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council", "scores", "goals")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
-PROFILE_SOURCES = ("建档", "复盘", "深度长谈")
+PROFILE_SOURCES = ("建档", "复盘", "深度长谈", "季度回顾")
 
 
 def _now() -> str:
@@ -144,6 +150,25 @@ class Db:
             cur = c.execute("SELECT * FROM letters WHERE user_id = ? ORDER BY due, id", (user_id,))
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur]
+        return self._run(go)
+
+    def add_quarter(self, user_id: int, day: date, scores: dict, focus: str, start: str, stop: str, keep: str,
+                    goals: list[dict]) -> int:
+        return self._run(lambda c: c.execute(
+            "INSERT INTO quarterly_reviews (user_id, day, scores, focus, start, stop, keep, goals, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, day.isoformat(), json.dumps(scores, ensure_ascii=False), focus, start, stop, keep,
+             json.dumps(goals, ensure_ascii=False), _now())).lastrowid)
+
+    def last_quarter(self, user_id: int) -> dict | None:
+        def go(c):
+            cur = c.execute("SELECT * FROM quarterly_reviews WHERE user_id = ? ORDER BY day DESC, id DESC LIMIT 1",
+                            (user_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            d = dict(zip([x[0] for x in cur.description], row))
+            return {**d, "scores": json.loads(d["scores"]), "goals": json.loads(d["goals"])}
         return self._run(go)
 
     def delete_user(self, user_id: int) -> None:
