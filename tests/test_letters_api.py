@@ -105,14 +105,16 @@ def test_open_letter_without_habit_has_null_done_days(setup):
     assert letter["prototype"] is None and letter["done_days"] is None and letter["logged_days"] == 0
 
 
-def test_reminder_on_due_day_until_opened(setup):
+def test_reminder_until_due_day(setup):
     client, _, model, today = setup
     finish_step4(client, model)
     client.post("/letters", json={"days": 30, "text": "信"})
     later = client.get("/today").json()["later_reminders"]
     [r] = [x for x in later if x["kind"] == "letter"]
     assert (r["day"], r["at"], r["url"]) == ("2026-12-20", "09:00", "/letter")
-    today[0] = date(2026, 12, 20)
+    today[0] = date(2026, 12, 20)  # 到期当天早上打开 App 重排提醒：9 点那条还要在
+    assert [x["day"] for x in client.get("/today").json()["later_reminders"] if x["kind"] == "letter"] == ["2026-12-20"]
+    today[0] = date(2026, 12, 21)
     assert [x for x in client.get("/today").json()["later_reminders"] if x["kind"] == "letter"] == []
 
 

@@ -336,10 +336,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 # 往后 6 天的提醒也一起给：手机一次定好，那几天不打开 App 也会响
                 "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
                                     for r in todays_reminders({"blocks": for_day(db.plan_input(USER_ID) or {}, d)["fixed"]}, settings)]
-                # 还没到期的信各一条，那天早上 9 点响；只在手机上定时，不进日历
+                # 还没到期和今天到期的信各一条，那天早上 9 点响（过了点手机端自己跳过）；只在手机上定时，不进日历
                 + [{"kind": "letter", "day": x["due"], "at": "09:00", "title": REMINDERS["letter"][0],
                     "body": REMINDERS["letter"][1], "url": REMINDERS["letter"][2]}
-                   for x in db.letters(USER_ID) if x["due"] > day.isoformat()],
+                   for x in db.letters(USER_ID) if x["due"] >= day.isoformat()],
                 # 再改一下对账时，先把上次选的填好
                 "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None,
                 "goals": goals_map(db.plan_input(USER_ID) or {})}
