@@ -180,9 +180,9 @@ def invest_suggestions(answers: dict[int, dict], habits: list[dict]) -> list[dic
     loved = next((t for t in answers.get(3, {}).get("loved", []) if any(w in t for w in _LOVE_WORDS)), None)
     why: dict[str, str] = {}
     if any(w in lift for w in _HEALTH_WORDS):
-        why["move"] = why["sleep"] = f"你说想让『{lift[:12]}』往上走一点"
+        why["move"] = why["sleep"] = f"你说想让「{lift[:12]}」往上走一点"
     if loved:
-        why["skill"] = f"你说做『{loved}』的时候最有劲"
+        why["skill"] = f"你说做「{loved}」的时候最有劲"
     items = [i for i in INVEST if not any(w in have for w in _SAME_KIND[i["key"]])]
     items.sort(key=lambda i: i["key"] not in why)  # 稳定排序：有理由的提到最前，其余保持默认顺序
     return [{**i, "why": why.get(i["key"]) or f"{i['title']}每天{i['floor_min']}分钟起步，花得少、回报长"}
