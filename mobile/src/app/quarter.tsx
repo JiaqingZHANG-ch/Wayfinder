@@ -30,15 +30,26 @@ export default function QuarterScreen() {
   const [crisis, setCrisis] = useState<string | null>(null);
 
   const [view, setView] = useState<Pick<Quarter, "council" | "council_status" | "message"> | null>(null); // 视角的状态
-  const load = () => { getQuarter().then((r) => setAreas(r.areas), () => setMessage(OFFLINE)); };
+  const load = () => {
+    getQuarter().then((r) => {
+      setAreas(r.areas);
+      if (!r.available && r.last?.council_status) { // 做过「请几个视角看看」：直接回到那份结果页，不用重填表单
+        setSaved(r.last);
+        setView(r.last);
+        // 后端重启过会停在 running：再 POST 一次（幂等，线程没了就重跑），不然一直转圈
+        if (r.last.council_status === "running") startQuarterCouncil().catch((e) => setMessage(say(e)));
+      }
+    }, () => setMessage(OFFLINE));
+  };
   useEffect(load, []);
 
   async function askCouncil() {
     setMessage(null);
+    setBusy(true);
     try {
       await startQuarterCouncil();
       setView({ council_status: "running" }); // 开过的也先当在看：下一次轮询就拿到结果
-    } catch (e) { setMessage(say(e)); }
+    } catch (e) { setMessage(say(e)); } finally { setBusy(false); }
   }
   const running = view?.council_status === "running";
   useEffect(() => { // 开会时每 3 秒查一次
@@ -125,7 +136,7 @@ export default function QuarterScreen() {
       </>,
       <>
         {view?.council_status !== "done" && view?.council_status !== "crisis" && (
-          <Button label="请几个视角看看" variant="secondary" disabled={running} onPress={askCouncil} />
+          <Button label="请几个视角看看" variant="secondary" disabled={running || busy} onPress={askCouncil} />
         )}
         <Button label="好" onPress={leave} />
       </>,

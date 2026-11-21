@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { DeepTalkState, getDeepTalk, getLetters, getProfile, getQuarter, getSettings, getToday, pendingCount, Profile, Quarter, restartDeepTalk, Settings } from "@/api";
@@ -90,7 +90,12 @@ export default function MeScreen() {
           {mission ? <Text style={[type.title, { lineHeight: 29, color: c.text }]}>「{mission.content}」</Text>
             : <Text style={[type.body, { color: c.muted }]}>聊完几次，这里会写下你想去的方向</Text>}
           {goals.map((g) => <Small key={g.id}>{g.content}</Small>)}
-          {quarter?.last && <Small>{`这一季的重点：${quarter.last.focus}`}</Small>}
+          {quarter?.last && ( // 点进去看这一季的回顾和几个视角的意见
+            <Pressable accessibilityRole="button" accessibilityLabel="看这一季的回顾" onPress={() => router.push("/quarter")}
+              style={{ minHeight: 44, justifyContent: "center" }}>
+              <Small>{`这一季的重点：${quarter.last.focus}`}</Small>
+            </Pressable>
+          )}
           {quarter?.last?.goals.map((g, i) => <Small key={i}>{g.text}</Small>)}
         </Animated.View>
       )}
