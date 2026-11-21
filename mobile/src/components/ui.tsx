@@ -6,7 +6,6 @@ import { Linking, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, 
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Sky } from "@/components/art";
 import { enter, haptic, Pressy } from "@/components/motion";
 import { radius, space, type, useColors } from "@/theme";
 
@@ -38,10 +37,9 @@ function useSink(edge: string | undefined) {
 
 /**
  * safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。
- * sky：给了「这一天的第几分钟」就在页面背后画那个时段的天色（三个标签页用）。
  */
-export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, sky }: {
-  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode; sky?: number;
+export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh }: {
+  children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
@@ -52,13 +50,11 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
     // safeTop：滚动区从状态栏下面开始，状态栏下是实底，滚上去的内容不和时间、信号叠字（v4 的 .scroll{top:44px}）
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: safeTop ? insets.top : 0 }}>
       {scroll ? (
-        // 天色画在滚动内容里：跟着内容滚走，卡片后面是干净的底
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled" refreshControl={refresh as never}>
-          {sky !== undefined && <Sky min={sky} />}
           <View style={inner}>{children}</View>
         </ScrollView>
-      ) : <>{sky !== undefined && <Sky min={sky} />}<View style={inner}>{children}</View></>}
+      ) : <View style={inner}>{children}</View>}
     </View>
   );
 }

@@ -13,6 +13,7 @@ type Palette = {
   primary: string; primaryEdge: string; onPrimary: string; primaryInk: string;
   done: string; mark: string; line: string; cardEdge: string; danger: string; ok: string; overlay: string;
   hi: string; // 卡片内高光
+  stage: string; // 舞台场景图没盖到的那条天（v4 的 .stagebox 底色）
   kind: { class: string; must: string; proj: string; flex: string; life: string };
 };
 
@@ -36,6 +37,7 @@ const dayPalette: Palette = {
   ok: "#2F7A55", // 当字用的绿（done 当字不够 4.5）：vs surface 5.0:1，vs bg 4.5:1
   overlay: "rgba(46, 34, 22, 0.5)",
   hi: "rgba(255, 255, 255, 0.4)",
+  stage: "#F7ECD9",
   kind: { class: "#A39A8F", must: "#6F8F72", proj: "#5B7A99", flex: "#D9A441", life: "#C4B8AA" },
 };
 
@@ -59,6 +61,7 @@ const nightPalette: Palette = {
   ok: "#7FD1A6", // vs surface 7.9:1
   overlay: "rgba(0, 0, 0, 0.55)",
   hi: "rgba(255, 255, 255, 0.06)",
+  stage: "#1B2033",
   kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
 };
 
@@ -109,29 +112,21 @@ const nunito = (w: "700Bold" | "800ExtraBold" | "900Black") =>
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 
 // 字号阶梯 13 / 14 / 16 / 20 / 28 / 48 / 60。中文正文行高约 1.6 倍，不用斜体。
-// hero / big / stat 是 Nunito 大数字，一屏最多一个 hero。num 是给时间、计数用的 Nunito 数字（叠在别的字号上）。
-// eyebrow 是卡片和区块顶上的小标签：小字、加字距、灰色。
+// 字重分层：Nunito 数字 900（hero、big）/ 800（stat）/ 700（num：时间、计数，叠在别的字号上）；
+// 中文用系统字体 700（display 页标题、大卡标题）/ 600（title、按钮）/ 500（label：行标题、气泡）/ 400（body、small：正文和副行）。
+// eyebrow 是区块顶上的小标签：小字、加字距、灰色。
 export const type = {
-  hero: { fontFamily: nunito("900Black"), fontSize: 60, lineHeight: 66, letterSpacing: -1.5 }, // 今天页「还剩 N 分钟」
+  hero: { fontFamily: nunito("900Black"), fontSize: 60, lineHeight: 66, letterSpacing: -1.5 }, // 今天页「还剩 N 分钟」，一屏最多一个
   big: { fontFamily: nunito("900Black"), fontSize: 48, lineHeight: 56, letterSpacing: -0.5 },
-  stat: { fontFamily: nunito("800ExtraBold"), fontSize: 34, lineHeight: 40 }, // 瓷砖里的数字
-  display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "500" }, // 中文标题靠字号和留白分层，不靠加粗
-  title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "500" },
+  stat: { fontFamily: nunito("800ExtraBold"), fontSize: 34, lineHeight: 40 }, // 瓷砖、石子堆、电池里的数字
+  display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "700" },
+  title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "600" },
   body: { fontFamily, fontSize: 16, lineHeight: 26, fontWeight: "400" },
   label: { fontFamily, fontSize: 14, lineHeight: 22, fontWeight: "500" },
   small: { fontFamily, fontSize: 13, lineHeight: 19, fontWeight: "400" }, // 中文 12 号在手机上偏小，说明文字最小 13
-  num: { fontFamily: nunito("800ExtraBold"), fontVariant: tabular },
+  num: { fontFamily: nunito("700Bold"), fontVariant: tabular },
   eyebrow: { fontFamily, fontSize: 12, lineHeight: 16, fontWeight: "500", letterSpacing: 1.5 },
 } as const;
-
-/**
- * 页面顶上那片底色。黏土小镇没有天色渐变：顶上就是舞台天空的颜色，往下淡进奶油底（夜里是石板底）；光和天同色，等于不画。
- * min 留着是为了不改调用处。今天页已经换成黏土舞台，对账、长谈和另两个标签页还在用，任务 5 统一清理。
- */
-export type SkyTone = { top: string; mid: string; glow: string };
-export function skyTone(_min: number, darkMode: boolean): SkyTone {
-  return darkMode ? { top: "#1B2033", mid: nightPalette.bg, glow: "#1B2033" } : { top: "#F7ECD9", mid: dayPalette.bg, glow: "#F7ECD9" };
-}
 
 /** 21:00–6:00 算夜里：就算系统是浅色，也换成石板夜色，晚上对账不刺眼。 */
 const isNight = (d = new Date()) => d.getHours() >= 21 || d.getHours() < 6;

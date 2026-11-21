@@ -4,15 +4,15 @@ import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { DeepTalkState, getDeepTalk, getProfile, getSettings, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
+import { DeepTalkState, getDeepTalk, getProfile, getSettings, getToday, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure } from "@/components/clay";
 import { enter } from "@/components/motion";
 import { Button, Card, ListRow, Screen, Small } from "@/components/ui";
-import { skyTone, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
+import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
 
 /**
- * 「我」（v4 的 #pg-me）：顶上站着微笑的小人，下面依次是我的方向、长谈进度和主按钮、我的记号，
+ * 「我」（v4 的 #pg-me）：顶上站着小人（表情跟今天报的电量，没报就是微笑），下面依次是我的方向、长谈进度和主按钮、我的记号，
  * 最后是计划设置和隐私数据的入口。
  */
 export default function MeScreen() {
@@ -20,7 +20,9 @@ export default function MeScreen() {
   const dark = useDark();
   const [s, setS] = useState<Settings | null>(null);
   const [dir, setDir] = useState<{ talk: DeepTalkState; confirmed: Profile[] } | null>(null);
+  const [level, setLevel] = useState<number | null>(null);
   useFocusEffect(useCallback(() => {
+    getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就微笑
     getSettings().then(setS, () => {}); // 拿不到就不写小结
     Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => {}); // 拿不到就不显示方向和长谈
   }, []));
@@ -38,7 +40,7 @@ export default function MeScreen() {
   const next = owe > 0 ? { label: `还有 ${owe} 条等你确认`, go: () => router.push("/deep-talk") }
     : needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
     : doneN < 4 ? { label: doneN ? `接着聊第 ${doneN + 1} 次` : "开始第一次长谈", go: () => router.push("/deep-talk") }
-    : sure ? { label: "从第 1 次重新开始，旧的会留着 · 再点一次确定", quiet: true,
+    : sure ? { label: "再点一次，从第 1 次重新开始（旧的留着）", quiet: true,
       go: () => restartDeepTalk().then(() => { setSure(false); router.push("/deep-talk"); }, () => {}) }
     : { label: "重新聊一次", quiet: true, go: () => setSure(true) };
 
@@ -48,34 +50,34 @@ export default function MeScreen() {
     .filter(Boolean).join("，");
   const evening = s?.reminders?.evening;
   const marks = s ? [...s.habits.map((h) => [h.title, "must"] as const), ...(s.projects ?? []).map((p) => [p.title, "proj"] as const)] : [];
-  const label = [type.small, { fontWeight: "800" as const, color: c.muted }] as const;
+  const label = [type.label, { fontSize: 13, color: c.muted }] as const;
 
   return (
     <Screen safeTop bottom={TAB_SPACE}>
       {/* 小镇的一角：顶满，紧贴状态栏下沿 */}
       <View style={{ marginTop: -space.xl, marginHorizontal: -space.lg, height: 212, alignItems: "center", overflow: "hidden",
-        borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: dark ? skyTone(0, true).top : c.surface2 }}>
-        <View style={{ width: 149, height: 190, marginTop: 14 }}><Figure level={4} night={dark} left={0} top={0} /></View>
+        borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, backgroundColor: c.surface2 }}>
+        <View style={{ width: 149, height: 190, marginTop: 14 }}><Figure level={level ?? 4} night={dark} left={0} top={0} /></View>
       </View>
 
       <Animated.View entering={enter(0)} style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between",
         gap: space.sm, paddingHorizontal: space.xs }}>
-        <Text accessibilityRole="header" style={[type.display, { fontWeight: "900", color: c.text }]}>我</Text>
+        <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>我</Text>
         {!!summary && <Text style={[type.num, { fontSize: 15, color: c.muted }]}>{summary}</Text>}
       </Animated.View>
 
       {dir && (
         <Animated.View entering={enter(1)} style={{ gap: space.xs, paddingHorizontal: space.xs }}>
           <Text accessibilityRole="header" style={label}>我的方向</Text>
-          {mission ? <Text style={[type.title, { lineHeight: 29, fontWeight: "900", color: c.text }]}>「{mission.content}」</Text>
+          {mission ? <Text style={[type.title, { lineHeight: 29, color: c.text }]}>「{mission.content}」</Text>
             : <Text style={[type.body, { color: c.muted }]}>聊完几次，这里会写下你想去的方向</Text>}
-          {goals.map((g) => <Small key={g.id}>{`· ${g.content}`}</Small>)}
+          {goals.map((g) => <Small key={g.id}>{g.content}</Small>)}
         </Animated.View>
       )}
 
       {dir && (
         <Card i={2} style={{ gap: 10 }}>
-          <Text style={[type.body, { fontSize: 15, fontWeight: "900", color: c.text }]}>长谈 <Text style={type.num}>{doneN} / 4</Text></Text>
+          <Text style={[type.label, { fontSize: 15, fontWeight: "700", color: c.text }]}>长谈 <Text style={type.num}>{doneN} / 4</Text></Text>
           <View accessible accessibilityLabel={`4 次里聊完 ${doneN} 次`} style={{ flexDirection: "row", gap: space.sm }}>
             {[0, 1, 2, 3].map((k) => (
               <View key={k} style={{ flex: 1, height: 10, borderRadius: 5, borderWidth: 1.5,
@@ -95,7 +97,7 @@ export default function MeScreen() {
             {marks.map(([t, kind]) => (
               <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.xs, width: 80 }}>
                 <EventIcon icon={clayIcon({ title: t, kind })} size={52} />
-                <Text style={[type.label, { fontWeight: "800", color: c.text }]} numberOfLines={1}>{t}</Text>
+                <Text style={[type.label, { color: c.text }]} numberOfLines={1}>{t}</Text>
               </View>
             ))}
           </ScrollView>

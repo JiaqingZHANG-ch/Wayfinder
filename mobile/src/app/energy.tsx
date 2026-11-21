@@ -176,7 +176,7 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
         <Text style={{ textAlign: "center" }}>
           {shown ? <>
             <Text style={[type.big, { color: c.text }]}>{shown}</Text>
-            <Text style={[type.title, { color: c.text }]}> 格 · {BATTERY_HINT[shown]}</Text>
+            <Text style={[type.title, { color: c.text }]}> 格，{BATTERY_HINT[shown]}</Text>
           </> : <Text style={[type.label, { color: c.muted, fontWeight: "400" }]}>点一格，或者横着滑</Text>}
         </Text>
       </View>

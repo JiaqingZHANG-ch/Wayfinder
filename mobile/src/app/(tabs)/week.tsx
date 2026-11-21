@@ -11,8 +11,6 @@ import { Button, Card, ErrorState, Icon, Screen } from "@/components/ui";
 import { Status, STATUS_LABELS } from "@/labels";
 import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
 
-const LEGEND: Record<Status, string> = { done: "做了", floor: "保底", skip: "没做" }; // 图例说的是过去的某天，不用对账按钮的「今天没做」
-
 /** 「2026-11-14」→「11月14日」 */
 const md = (d: string) => `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`;
 /** 「11月17日 – 23日」：同一个月后半段只写日 */
@@ -23,7 +21,7 @@ const wd = (start: string, i: number) => "日一二三四五六"[(new Date(`${st
 /**
  * 本周（v4 的 #pg-week）：一张记号表——第一行是夜豆（这 7 晚哪几晚记了），下面每个习惯一行七个记号；
  * 再往下是每个项目的估时对比，用石子堆画；复盘入口在最上面。只摆事实，不打分。
- * r4：不再是一摞白卡，只有记号表一张卡，其余靠留白和对齐分组。
+ * r4：不再是一摞白卡，只有记号表一张卡，其余靠留白和对齐分组；不放图例（每行的读屏说明里有）。
  */
 export default function WeekScreen() {
   const c = useColors();
@@ -58,7 +56,7 @@ export default function WeekScreen() {
     <Screen safeTop bottom={TAB_SPACE}>
       <Animated.View entering={enter(0)} style={{ gap: 2, paddingHorizontal: space.xs }}>
         <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: space.sm }}>
-          <Text accessibilityRole="header" style={[type.display, { fontWeight: "900", color: c.text }]}>本周</Text>
+          <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>本周</Text>
           <Text style={[type.num, { fontSize: 15, color: c.muted }]}>{range(week.start, week.end)}</Text>
         </View>
         <Text style={[type.small, { color: c.muted }]}>
@@ -69,7 +67,7 @@ export default function WeekScreen() {
       {week.review ? (
         <Animated.View entering={enter(1)} style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingLeft: space.xs }}>
           <View style={{ flex: 1 }}>
-            <Text style={[type.body, { fontWeight: "900", color: c.text }]}>{week.review === "due" ? "可以复盘这一周了" : "今天复盘过了"}</Text>
+            <Text style={[type.label, { fontSize: 16, color: c.text }]}>{week.review === "due" ? "可以复盘这一周了" : "今天复盘过了"}</Text>
             <Text style={[type.small, { color: c.muted }]}>{week.review === "due" ? "一两分钟，只看事实。" : "还能回去点那几条调整。"}</Text>
           </View>
           <Button hug label="看看" variant={week.review === "due" ? "primary" : "secondary"} accessibilityHint="打开这周的复盘"
@@ -85,7 +83,7 @@ export default function WeekScreen() {
       <Card i={2} style={{ gap: 0, paddingTop: space.md }}>
         <Line h={28}>
           {week.logged.map((_, i) => (
-            <Text key={i} style={[type.small, { fontWeight: "800", color: i === last ? c.text : c.muted }]}>{wd(week.start, i)}</Text>
+            <Text key={i} style={[type.small, { fontWeight: i === last ? "700" : "400", color: i === last ? c.text : c.muted }]}>{wd(week.start, i)}</Text>
           ))}
         </Line>
         <Line name="记了" sub={`${n} 晚`} h={48}
@@ -99,21 +97,11 @@ export default function WeekScreen() {
             {h.days.map((d, i) => <Mark key={i} s={d} />)}
           </Line>
         ))}
-        {week.habits.length > 0 ? (
-          <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden
-            style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: space.sm }}>
-            {([...(["done", "floor", "skip"] as Status[]), null]).map((s) => (
-              <View key={s ?? "none"} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                <Mark s={s} size={12} />
-                <Text style={[type.small, { fontWeight: "800", color: c.muted }]}>{s ? LEGEND[s] : "没记"}</Text>
-              </View>
-            ))}
-          </View>
-        ) : (
+        {week.habits.length === 0 && (
           <Pressy onPress={() => router.push("/settings?part=routine")} accessibilityRole="button" accessibilityLabel="去加一个习惯"
             scaleTo={1} fadeTo={0.8} style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, marginTop: space.sm }}>
             <View style={{ flex: 1 }}>
-              <Text style={[type.body, { fontWeight: "800", color: c.text }]}>还没有要坚持的习惯</Text>
+              <Text style={[type.label, { fontSize: 16, color: c.text }]}>还没有要坚持的习惯</Text>
               <Text style={[type.small, { color: c.muted }]}>加一个，这里会按天画出哪天做了。</Text>
             </View>
             <Icon name="chevron-forward" size={18} color={c.muted} />
@@ -135,7 +123,7 @@ function Line({ icon, name, sub, label, h = 56, children }: {
     <View accessible={!!label} accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: h }}>
       <View style={{ width: 36 }}>{icon && <EventIcon icon={icon} size={36} />}</View>
       <View style={{ width: 68 }}>
-        {name && <Text style={[type.body, { fontSize: 15, lineHeight: 18, fontWeight: "900", color: c.text }]} numberOfLines={2}>{name}</Text>}
+        {name && <Text style={[type.label, { fontSize: 15, lineHeight: 18, color: c.text }]} numberOfLines={2}>{name}</Text>}
         {sub && <Text style={[type.small, type.num, { lineHeight: 17, color: c.muted }]}>{sub}</Text>}
       </View>
       <View style={{ flex: 1, flexDirection: "row", justifyContent: "space-between" }} importantForAccessibility="no-hide-descendants">
@@ -178,7 +166,7 @@ function Project({ p, i, night }: { p: Week["projects"][number]; i: number; nigh
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <EventIcon icon={clayIcon({ title: p.title, kind: "proj" })} size={36} />
         <View style={{ flex: 1 }}>
-          <Text style={[type.body, { fontWeight: "900", color: c.text }]} numberOfLines={1}>{p.title}</Text>
+          <Text style={[type.label, { fontSize: 16, color: c.text }]} numberOfLines={1}>{p.title}</Text>
           <Text style={[type.small, { color: c.muted }]}>{total ? `${total} 次对账，${said}` : said}</Text>
         </View>
       </View>
@@ -189,8 +177,8 @@ function Project({ p, i, night }: { p: Week["projects"][number]; i: number; nigh
               <View style={{ height: tall, justifyContent: "flex-end", gap: 2 }}>
                 {Array.from({ length: Math.min(v, PILE) }, (_, j) => <Bean key={j} night={night} w={44} h={29} />)}
               </View>
-              <Text style={[type.num, { fontFamily: type.hero.fontFamily, fontSize: 20, lineHeight: 28, color: c.text }]}>{v}</Text>
-              <Text style={[type.small, { fontWeight: "800", color: c.muted }]}>{k}</Text>
+              <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 20, lineHeight: 28, color: c.text }]}>{v}</Text>
+              <Text style={[type.small, { color: c.muted }]}>{k}</Text>
             </View>
           ))}
         </View>

@@ -8,12 +8,11 @@ import {
   answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, Energy, getDeepTalk, getProfile, HabitProposal, isCrisis, OFFLINE,
   pendingCount, Profile, say, startCouncil, TalkConfirm,
 } from "@/api";
-import { Glyph, Sky } from "@/components/art";
+import { Glyph } from "@/components/art";
 import { EnergyPick } from "@/components/chips";
 import { Changes } from "@/components/changes";
 import { CouncilView, VERSION } from "@/components/council-view";
 import { ahead, Bar, haptic, Pressy, Skeleton } from "@/components/motion";
-import { useNow } from "@/components/plan-view";
 import { Body, Button, Card, Chip, CrisisCard, Display, Field, IconButton, Notice, Small, Title } from "@/components/ui";
 import { motion, radius, space, type, useColors } from "@/theme";
 import { planDiff } from "@/diff";
@@ -35,7 +34,6 @@ const RATE_HINT: Record<string, string> = { 资源: "时间、钱、人够吗", 
 export default function DeepTalk() {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const now = useNow();
   const [st, setSt] = useState<DeepTalkState | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -150,7 +148,6 @@ export default function DeepTalk() {
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top + space.sm }}>
-      <Sky min={now} />
       <View style={{ flex: 1, width: "100%", maxWidth: 560, alignSelf: "center" }}>
         {children}
         {bottomBar && <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>{bottomBar}</View>}

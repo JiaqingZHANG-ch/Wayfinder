@@ -1,7 +1,7 @@
 import { Tabs, type BottomTabBarProps } from "expo-router/tabs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import Animated, { useAnimatedStyle, withTiming } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EASE, haptic, Pressy } from "@/components/motion";
@@ -35,7 +35,13 @@ function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
   const routes = state.routes.filter((r) => TABS[r.name]);
   const step = routes.length ? (width - PAD * 2) / routes.length : 0;
   const at = routes.findIndex((r) => r.key === state.routes[state.index].key);
-  const pill = useAnimatedStyle(() => ({ transform: [{ translateX: withTiming(Math.max(at, 0) * step, SLIDE) }] }), [at, step]);
+  const x = useSharedValue(-1);
+  useEffect(() => {
+    if (!step) return;
+    const to = Math.max(at, 0) * step;
+    x.set(x.value < 0 ? to : withTiming(to, SLIDE)); // 第一次量到宽度时直接落位：直接打开 /week 不会先停在「今天」
+  }, [at, step, x]);
+  const pill = useAnimatedStyle(() => ({ transform: [{ translateX: Math.max(x.value, 0) }] }));
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
       {/* 渐隐：上面 45% 由透明到不透明分几层叠出来（不加渐变依赖），下面 55% 全不透明 */}
@@ -44,12 +50,12 @@ function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
         <View style={{ flex: 5, backgroundColor: c.bg }} />
       </View>
       <View pointerEvents="box-none" style={{ paddingBottom: bottom, paddingHorizontal: space.lg, alignItems: "center" }}>
-        <Glass style={{ width: "100%", maxWidth: 420, borderRadius: radius.xl }}>
+        <Glass style={{ width: "100%", maxWidth: 420, borderRadius: radius.card }}>
           <View accessibilityRole="tablist" onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
             style={{ flexDirection: "row", padding: PAD }}>
             {step > 0 && (
               <Animated.View pointerEvents="none" style={[{ position: "absolute", top: PAD, bottom: PAD, left: PAD, width: step,
-                borderRadius: 16, backgroundColor: c.tint, boxShadow: c.clayBtn }, pill]} />
+                borderRadius: radius.btn, backgroundColor: c.tint, boxShadow: c.clayBtn }, pill]} />
             )}
             {routes.map((route, i) => {
               const t = TABS[route.name];
@@ -76,7 +82,7 @@ function TabItem({ title, icon, on, onPress }: { title: string; icon: IconName; 
     <Pressy onPress={onPress} accessibilityRole="tab" accessibilityLabel={title} accessibilityState={{ selected: on }}
       scaleTo={0.92} style={{ flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 2 }}>
       <Icon name={icon} size={22} color={on ? c.text : c.muted} />
-      <Text style={[type.small, { lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.text : c.muted }]}>
+      <Text style={[type.small, { lineHeight: 16, fontWeight: on ? "700" : "400", color: on ? c.text : c.muted }]}>
         {title}
       </Text>
     </Pressy>

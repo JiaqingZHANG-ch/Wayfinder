@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { router } from "expo-router";
 import { useEffect, useEffectEvent, useState } from "react";
-import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import Animated, { FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -9,7 +9,7 @@ import {
   Block, CheckinItem, checkinItems, DeepTalkState, getDeepTalk, getToday, isCrisis, OFFLINE, postCheckin, say, snoozeDeepTalk,
 } from "@/api";
 import { clayIcon } from "@/clay-icon";
-import { EventIcon } from "@/components/clay";
+import { EventIcon, Figure, Stage } from "@/components/clay";
 import { ahead, haptic, Pressy, Skeleton } from "@/components/motion";
 import { toMin } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
@@ -25,7 +25,6 @@ const BEAN: Record<Status, number> = {
   floor: require("../../assets/images/clay/bean-sage.webp"),
   skip: require("../../assets/images/clay/bean-grey.webp"),
 };
-const CLOSING = require("../../assets/images/clay/closing.webp"); // 1040×992
 const LATE = "来不及排了：";
 const plain = (t: string) => t.replace("（保底）", "");
 
@@ -197,7 +196,7 @@ function Flow() {
         {invite && (
           <Animated.View exiting={FadeOut.duration(motion.base)}>
             <Card style={{ gap: space.xs }}>
-              <Text style={[type.eyebrow, { color: c.muted }]}>{`第 ${invite.step} 次长谈 · 约 10 分钟`}</Text>
+              <Text style={[type.eyebrow, { color: c.muted }]}>{`第 ${invite.step} 次长谈，约 10 分钟`}</Text>
               <Title>{INVITE[invite.step ?? 0]?.[0] ?? invite.steps.find((s) => s.step === invite.step)?.name}</Title>
               {!!INVITE[invite.step ?? 0] && <Small muted>{INVITE[invite.step ?? 0][1]}</Small>}
               <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
@@ -235,7 +234,7 @@ function Flow() {
         <Pressy onPress={() => { go(0); setSentenceMode(true); }} accessibilityRole="button" accessibilityLabel="改成一句话说完"
           style={{ height: 44, justifyContent: "center", paddingHorizontal: space.md, borderRadius: radius.btn,
             backgroundColor: c.surface, boxShadow: `0 4px 0 ${c.cardEdge}` }}>
-          <Text style={[type.small, { color: c.text, fontWeight: "800" }]}>一句话说完</Text>
+          <Text style={[type.label, { fontSize: 13, color: c.text }]}>一句话说完</Text>
         </Pressy>
       )}
     </Top>
@@ -261,7 +260,7 @@ function Flow() {
   const answered = step.vs ? !!cur?.vs_plan : !!cur?.status;
   const b = blocks.find((x) => x.id === it.id || x.task_id === it.id);
   const sub = step.vs ? "和预想比，花的时间？" : it.one ? it.tag
-    : b ? `${b.start} · ${b.pomodoros ? `${b.pomodoros} 个番茄` : `${toMin(b.end) - toMin(b.start)} 分钟`}` : it.tag;
+    : b ? `${b.start} 开始，${b.pomodoros ? `${b.pomodoros} 个番茄` : `${toMin(b.end) - toMin(b.start)} 分钟`}` : it.tag;
   // 「昨晚定的一件事」没有保底版，只问做了没有
   const keys = (Object.keys(STATUS_LABELS) as Status[]).filter((k) => !(it.one && k === "floor"));
 
@@ -278,13 +277,13 @@ function Flow() {
             <Pressy key={x.id} onPress={() => go(steps.findIndex((y) => y.item.id === x.id && !y.vs))} scaleTo={1}
               accessibilityRole="button" accessibilityState={{ selected: on }}
               accessibilityLabel={`${plain(x.title)}，${s ? STATUS_LABELS[s] : "还没对"}，点一下回到这件`}
-              style={{ flexGrow: 1, flexBasis: 0, minWidth: 96, height: 60, paddingHorizontal: space.sm, borderRadius: 16,
+              style={{ flexGrow: 1, flexBasis: 0, minWidth: 96, height: 60, paddingHorizontal: space.sm, borderRadius: radius.btn,
                 alignItems: "center", justifyContent: "center", gap: 1, backgroundColor: on ? c.line : c.surface,
                 boxShadow: `0 4px 0 ${on ? c.primaryEdge : c.cardEdge}` }}>
-              <Text numberOfLines={1} style={[type.body, { fontSize: 14, lineHeight: 20, fontWeight: "900", color: c.text }]}>{plain(x.title)}</Text>
+              <Text numberOfLines={1} style={[type.label, { lineHeight: 20, color: c.text }]}>{plain(x.title)}</Text>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 {s && <Dot s={s} />}
-                <Text style={[type.small, { fontWeight: "800", color: c.muted }]}>{s ? SHORT[s] : "还没对"}</Text>
+                <Text style={[type.small, { color: c.muted }]}>{s ? SHORT[s] : "还没对"}</Text>
               </View>
             </Pressy>
           );
@@ -292,14 +291,13 @@ function Flow() {
       </ScrollView>
 
       {/* 中间一张大卡：这件事的黏土图标、名字、几点做多久；答了盖一个章 */}
-      <View style={{ flex: 1, minHeight: 260, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, minHeight: 220, alignItems: "center", justifyContent: "center" }}>
         <Animated.View key={`${idx}-${step.vs ? "vs" : "s"}`} entering={ahead("right")}
-          style={{ width: "100%", maxWidth: 300, minHeight: 236, padding: space.lg, borderRadius: radius.card, alignItems: "center",
+          style={{ width: "100%", maxWidth: 300, minHeight: 200, padding: space.lg, borderRadius: radius.card, alignItems: "center",
             justifyContent: "center", gap: 4, backgroundColor: c.surface, boxShadow: c.clay }}>
           <EventIcon icon={clayIcon(it)} size={92} />
-          <Text accessibilityRole="header" style={[type.body, { fontSize: 28, lineHeight: 36, fontWeight: "900", color: c.text,
-            textAlign: "center", marginTop: 6 }]}>{it.title}</Text>
-          <Text style={[type.body, { fontSize: 15, lineHeight: 22, fontWeight: "800", color: c.muted, textAlign: "center" }]}>{sub}</Text>
+          <Text accessibilityRole="header" style={[type.display, { color: c.text, textAlign: "center", marginTop: 6 }]}>{it.title}</Text>
+          <Text style={[type.body, { fontSize: 15, lineHeight: 22, color: c.muted, textAlign: "center" }]}>{sub}</Text>
           {!step.vs && cur?.status && <Seal key={cur.status} s={cur.status} />}
         </Animated.View>
       </View>
@@ -312,7 +310,7 @@ function Flow() {
           : keys.map((k) => <Answer key={k} s={k} label={STATUS_LABELS[k]} on={cur?.status === k} onPress={() => pick({ status: k })} />)}
         {reader && answered ? <Button label="下一件" variant="secondary" onPress={() => forward(step, choices)} />
           : step.vs ? <Button label="跳过" variant="neutral" onPress={() => forward(step, choices)} />
-            : <Text style={[type.small, { fontWeight: "800", color: c.muted, textAlign: "center" }]}>没做也没关系。</Text>}
+            : <Text style={[type.small, { color: c.muted, textAlign: "center" }]}>没做也没关系。</Text>}
         {busy && <Small muted>正在记……</Small>}
         {message && <Notice tone="error">{message}</Notice>}
       </View>
@@ -327,7 +325,7 @@ function Top({ title, icon, label, onPress, children }: {
   const c = useColors();
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48 }}>
-      <Text accessibilityRole="header" style={[type.body, { flex: 1, fontSize: 22, lineHeight: 30, fontWeight: "900", color: c.text }]}>{title}</Text>
+      <Text accessibilityRole="header" style={[type.display, { flex: 1, fontSize: 22, lineHeight: 30, color: c.text }]}>{title}</Text>
       {children}
       <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} scaleTo={0.94}
         style={{ width: 44, height: 44, borderRadius: radius.btn, alignItems: "center", justifyContent: "center",
@@ -338,24 +336,23 @@ function Top({ title, icon, label, onPress, children }: {
   );
 }
 
-/** 一个答案按钮：「做了」是主色，其余是夜色块；左边是它的记号。 */
+/** 一个答案按钮：三个答案同色同重（不打分），只靠左边的记号区分；选中的换主色底边。 */
 function Answer({ s, label, on, onPress }: { s?: Status; label: string; on: boolean; onPress: () => void }) {
   const c = useColors();
-  const main = s === "done";
   return (
     <Pressy onPress={onPress} scaleTo={0.98} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={label}
       style={{ minHeight: 54, borderRadius: radius.btn, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
-        backgroundColor: main ? c.primary : c.line, boxShadow: `0 4px 0 ${main ? c.primaryEdge : on ? c.primaryEdge : c.cardEdge}` }}>
-      {s && <Dot s={s} size={14} ink={main ? c.onPrimary : undefined} />}
-      <Text style={[type.body, { fontSize: 18, lineHeight: 26, fontWeight: "900", color: main ? c.onPrimary : c.text }]}>{label}</Text>
+        backgroundColor: c.line, boxShadow: `0 4px 0 ${on ? c.primaryEdge : c.cardEdge}` }}>
+      {s && <Dot s={s} size={14} />}
+      <Text style={[type.title, { fontSize: 18, lineHeight: 26, color: c.text }]}>{label}</Text>
     </Pressy>
   );
 }
 
 /** 记号：做了实心、保底半满、没做空心（和本周页一样）。 */
-function Dot({ s, size = 10, ink }: { s: Status; size?: number; ink?: string }) {
+function Dot({ s, size = 10 }: { s: Status; size?: number }) {
   const c = useColors();
-  const color = ink ?? (s === "done" ? c.primary : s === "floor" ? c.done : c.mark);
+  const color = s === "done" ? c.primary : s === "floor" ? c.done : c.mark;
   return (
     <View style={{ width: size, height: size, borderRadius: size, overflow: "hidden", borderWidth: s === "done" ? 0 : 2, borderColor: color,
       backgroundColor: s === "done" ? color : "transparent" }}>
@@ -371,30 +368,29 @@ function Seal({ s }: { s: Status }) {
       style={{ position: "absolute", right: -14, top: -18, width: 96, height: 64, alignItems: "center", justifyContent: "center",
         transform: [{ rotate: "-8deg" }] }}>
       <Image source={BEAN[s]} contentFit="fill" style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }} />
-      <Text style={[type.body, { fontSize: 16, lineHeight: 22, fontWeight: "900", color: "#2A1606" }]}>{SHORT[s]}</Text>
+      <Text style={[type.body, { fontSize: 16, lineHeight: 22, fontWeight: "700", color: "#2A1606" }]}>{SHORT[s]}</Text>
     </Animated.View>
   );
 }
 
-/** 收尾：提灯的小人坐在山坡上，一句「今天收住了」，排不上的事说一句，今天的账一件一块（点了回去改）。children 是下面的输入和「晚安」。 */
+/**
+ * 收尾：夜里的舞台上，小人坐下打哈欠（和今天页同一套母版图），一句「今天收住了」，排不上的事说一句，
+ * 今天的账一件一块（点了回去改）。children 是下面的输入和「晚安」。
+ */
 function Closing({ items, choices, moved, onEdit, children }: {
   items: CheckinItem[]; choices: Record<string, Choice>; moved: string[]; onEdit: (id: string) => void; children: React.ReactNode;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const w = Math.min(useWindowDimensions().width, 560);
   const marks = items.filter((x) => choices[x.id]?.status);
   return (
     <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + space.xl }} keyboardShouldPersistTaps="handled">
-      <View style={{ height: Math.min(372, (w * 992) / 1040), overflow: "hidden", borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }}>
-        <Image source={CLOSING} contentFit="cover" contentPosition={{ top: "60%", left: "50%" }} style={{ flex: 1 }}
-          accessibilityLabel="提灯的小人坐在山坡上，望着亮灯的小镇" />
-      </View>
+      <Stage night stones={0}><Figure level={1} night /></Stage>
       <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: space.lg, gap: space.md }}>
         <View style={{ gap: 4 }}>
-          <Text accessibilityRole="header" style={[type.body, { fontSize: 28, lineHeight: 36, fontWeight: "900", color: c.text }]}>今天收住了。</Text>
+          <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>今天收住了。</Text>
           {moved.length > 0 && (
-            <Text style={[type.body, { fontSize: 16, lineHeight: 24, fontWeight: "800", color: c.muted }]}>{moved.join("、")}今天没排上。</Text>
+            <Text style={[type.body, { lineHeight: 24, color: c.muted }]}>{moved.join("、")}今天没排上。</Text>
           )}
         </View>
         {marks.length > 0 && (
@@ -407,7 +403,7 @@ function Closing({ items, choices, moved, onEdit, children }: {
                   style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, paddingHorizontal: 14, borderRadius: radius.btn,
                     backgroundColor: c.line, boxShadow: `0 4px 0 ${c.cardEdge}` }}>
                   <Dot s={s} />
-                  <Text style={[type.small, { fontSize: 14, fontWeight: "900", color: c.text }]}>{`${plain(x.title)} · ${SHORT[s]}`}</Text>
+                  <Text style={[type.label, { color: c.text }]}>{plain(x.title)}</Text>
                 </Pressy>
               );
             })}

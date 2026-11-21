@@ -40,9 +40,9 @@ const isFree = (b: Block) => b.kind === "life" && b.title.startsWith("自由时�
 // 吃饭、路上这类生活块只留冒号、括号前那段
 const shortTitle = (b: Block) => (b.kind === "life" ? b.title.split(/[：（]/)[0] : b.title);
 
-/** 行的副标题：课写到几点，项目写番茄，其余写时长；被重排改过的写「10 分钟 · 原 30」。 */
+/** 行的副标题：课写到几点，项目写番茄，其余写时长；被重排改过的写「10 分钟」，原来的 30 由 Row 划掉写在后面。 */
 function note(b: Block, x?: Change): string {
-  if (x?.was) return `${x.now.replace(" 分", "")} 分钟 · 原 ${x.was.replace(" 分", "")}`;
+  if (x?.was) return `${x.now.replace(" 分", "")} 分钟`;
   if (x?.now.startsWith("挪到")) return `原 ${x.time}`;
   if (x) return x.now.replace(" 分", " 分钟");
   if (b.kind === "life") return "";
@@ -152,7 +152,8 @@ export default function Today() {
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now);
   const ready = classOver || !plan.blocks.some((b) => b.kind === "class"); // 下课了（或今天没课）才问电量
 
-  const cur = plan.blocks.find((b) => toMin(b.start) <= now && now < toMin(b.end));
+  // 自由时间不当主角（「自由时间还剩 110 分钟」像倒计时）：这时主角是下一件事
+  const cur = plan.blocks.find((b) => !isFree(b) && toMin(b.start) <= now && now < toMin(b.end));
   const later = plan.blocks.filter((b) => toMin(b.start) > now && !isFree(b));
   const next = cur ?? later.find((b) => b.kind !== "life") ?? later[0];
   const todo = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now).length; // 还没做的事：一颗石子一件
@@ -170,8 +171,9 @@ export default function Today() {
       {/* 舞台顶满：抵掉 Screen 的内边距，状态栏叠在场景上 */}
       <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg }}>
         <Stage night={dark} stones={todo}>
-          <Bubble text={saying(phase, live ?? level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} hide={open} />
-          <Figure level={live ?? level} night={dark} />
+          <Bubble text={saying(phase, live ?? level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} hide={open}
+            onPress={daytime ? () => openLadder(true) : phase === "done" ? undefined : () => router.push("/checkin")} />
+          <Figure level={live ?? level} night={dark} onPress={daytime ? () => openLadder(true) : undefined} />
           {daytime && <Battery level={level} live={live} open={open} onOpen={openLadder} onLive={setLive} onPick={report} />}
         </Stage>
       </View>
@@ -182,8 +184,8 @@ export default function Today() {
       <Animated.View entering={enter(1)} accessible
         accessibilityLabel={next ? `${cur ? "现在" : "下一件"}，${shortTitle(next)}，${cur ? "还剩" : "还有"} ${left} 分钟` : "今天走完了"}
         style={{ paddingHorizontal: space.xs }}>
-        <Text style={[type.body, { fontSize: 15, lineHeight: 22, fontWeight: "800", color: c.text }]} numberOfLines={1}>
-          {next ? `${cur ? "现在" : `${next.start} 开始`} · ${shortTitle(next)}` : "今天走完了"}
+        <Text style={[type.label, { fontSize: 15, color: c.muted }]} numberOfLines={1}>
+          {next ? <>{cur ? "现在" : `${next.start} 开始`}  <Text style={{ fontWeight: "700", color: c.text }}>{shortTitle(next)}</Text></> : "今天走完了"}
         </Text>
         {next && (
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
@@ -196,7 +198,7 @@ export default function Today() {
 
       {rows.length > 0 && (
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
-          <Text accessibilityRole="header" style={[type.body, { fontSize: 15, lineHeight: 22, fontWeight: "800", color: c.text,
+          <Text accessibilityRole="header" style={[type.label, { fontSize: 15, fontWeight: "700", color: c.text,
             paddingHorizontal: space.xs }]}>接下来</Text>
           {rows.map((b, i) => <Row key={`${b.id}${b.start}`} b={b} x={changeOf(b)} first={i === 0 && !dark} />)}
         </Animated.View>
@@ -209,7 +211,7 @@ export default function Today() {
   );
 }
 
-const unit = (color: string) => [type.body, { fontSize: 17, lineHeight: 24, fontWeight: "800" as const, color }];
+const unit = (color: string) => [type.label, { fontSize: 17, lineHeight: 24, color }];
 
 /** 接下来的一行：时间、黏土图标、标题和副标题。下一件是一块卡片底；被重排改过的行是浅主色底。 */
 function Row({ b, x, first }: { b: Block; x?: Change; first: boolean }) {
@@ -217,16 +219,21 @@ function Row({ b, x, first }: { b: Block; x?: Change; first: boolean }) {
   const life = b.kind === "life";
   const sub = note(b, x);
   return (
-    <View accessible accessibilityLabel={[b.start, shortTitle(b), sub, x && "改过"].filter(Boolean).join("，")}
+    <View accessible accessibilityLabel={[b.start, shortTitle(b), sub, x?.was && `原来 ${x.was.replace(" 分", " 分钟")}`, x && "改过"]
+      .filter(Boolean).join("，")}
       style={[{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, paddingLeft: space.xs, paddingRight: space.sm,
         borderRadius: radius.btn }, first && { minHeight: 56, backgroundColor: c.surface, boxShadow: c.clay, marginBottom: 6 },
         x && { backgroundColor: c.tint }]}>
       <Text style={[type.num, { width: 44, fontSize: 15, color: c.text }]}>{b.start}</Text>
       <EventIcon icon={b.id === "sleep" ? "sleep" : clayIcon(b)} dim={life} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={[type.body, { fontSize: 16, lineHeight: 20, fontWeight: "800", color: life ? c.muted : c.text }]}
+        <Text style={[type.label, { fontSize: 16, lineHeight: 20, color: life ? c.muted : c.text }]}
           numberOfLines={1}>{shortTitle(b)}</Text>
-        {!!sub && <Text style={[type.small, { lineHeight: 17, fontWeight: "800", color: c.muted }]} numberOfLines={1}>{sub}</Text>}
+        {!!sub && (
+          <Text style={[type.small, { lineHeight: 17, color: c.muted }]} numberOfLines={1}>
+            {sub}{x?.was && <>{"  "}<Text style={{ textDecorationLine: "line-through" }}>{x.was.replace(" 分", "")}</Text></>}
+          </Text>
+        )}
       </View>
     </View>
   );
