@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 
-import { Country, Me, putMe } from "@/api";
+import { Country, Me, putMe, say } from "@/api";
 import { haptic, Pressy } from "@/components/motion";
 import { Body, Button, Card, Chip, Display, Icon, IconName, Label, Notice, Row, Small } from "@/components/ui";
 import { space, type, useColors } from "@/theme";
@@ -29,8 +29,8 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
     setBusy(true);
     try {
       onDone(await putMe(country, adult, me.privacy.version));
-    } catch {
-      setError("没连上，网络好了再试一次。");
+    } catch (e) {
+      setError(say(e)); // 隐私说明刚更新（409）时会说「刷新后再看一遍」，不是网络问题
     } finally {
       setBusy(false);
     }

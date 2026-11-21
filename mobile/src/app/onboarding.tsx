@@ -110,7 +110,7 @@ export default function Onboarding() {
         {progress !== undefined && (
           <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.xs }}>
             <Bar value={progress} color={c.primary} height={6} />
-            {step === "chat" && <Small muted>大概 3–4 个问题</Small>}
+            {step === "chat" && <Small muted>两个问题</Small>}
           </View>
         )}
         {children}

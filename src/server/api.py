@@ -11,8 +11,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
@@ -38,7 +40,7 @@ DEFAULT_TEMPLATE = Path(__file__).resolve().parents[3] / "daily-planner" / "exam
 
 
 class EnergyIn(BaseModel):
-    level: int = Field(ge=1, le=5, description="电量几格（1–5）")
+    level: int = Field(ge=1, le=5, strict=True, description="电量几格（1–5）")
     now: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="从几点开始重排，不填 = 现在")
     done_ids: list[str] = Field(default_factory=list, description="今天已经做完的事项 id")
 
@@ -100,6 +102,49 @@ def _items(plan: dict) -> dict[str, Item]:
     return items
 
 
+_FIELD = {"habits": "习惯", "timetable": "课", "projects": "项目", "title": "名字", "minutes": "标准版分钟数",
+          "floor_min": "保底版分钟数", "wake": "起床时间", "sleep": "上床时间", "start": "开始时间", "end": "结束时间",
+          "hours_left": "剩余小时", "deadline": "截止日", "level": "电量", "evening": "对账提醒时间", "weekday": "星期几"}
+
+
+def _say_field(loc: tuple) -> str:
+    """("body", "habits", 0, "title") →「第 1 个习惯的名字」"""
+    parts, i = [], 0
+    path = [x for x in loc if x != "body"]
+    while i < len(path):
+        x = path[i]
+        if isinstance(x, str) and i + 1 < len(path) and isinstance(path[i + 1], int):
+            parts.append(f"第 {path[i + 1] + 1} 个{_FIELD.get(x, x)}")
+            i += 2
+            continue
+        if isinstance(x, str) and x in _FIELD:
+            parts.append(_FIELD[x])
+        i += 1
+    return "的".join(parts)
+
+
+def _say_error(e: dict) -> str:
+    """把 pydantic 的一条英文错误说成中文。"""
+    t, ctx = e.get("type", ""), e.get("ctx") or {}
+    if t == "value_error":  # 我们自己写的中文说明，去掉「Value error, 」前缀
+        return str(ctx.get("error") or e.get("msg", "")).removeprefix("Value error, ")
+    what = {
+        "string_too_short": "不能空着", "missing": "不能空着",
+        "string_too_long": f"最多 {ctx.get('max_length')} 个字",
+        "too_long": f"最多 {ctx.get('max_length')} 个", "too_short": f"至少 {ctx.get('min_length')} 个",
+        "greater_than_equal": f"不能小于 {ctx.get('ge')}", "greater_than": f"要大于 {ctx.get('gt')}",
+        "less_than_equal": f"不能大于 {ctx.get('le')}", "less_than": f"要小于 {ctx.get('lt')}",
+        "int_parsing": "要填整数", "int_from_float": "要填整数", "int_type": "要填整数",
+        "float_parsing": "要填数字", "string_pattern_mismatch": "格式不对", "date_from_datetime_parsing": "日期不对",
+    }.get(t, "填得不对")
+    field = _say_field(tuple(e.get("loc", ())))
+    return f"{field}：{what}" if field else what
+
+
+async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": _say_error(exc.errors()[0]) if exc.errors() else "输入有误"})
+
+
 def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calendar: CalendarPort | None = None,
                now: Callable[[ZoneInfo], datetime] = datetime.now) -> FastAPI:
     db.ensure_user(USER_ID)
@@ -109,6 +154,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 
     app = FastAPI(title="Wayfinder 后端", version="0.1.0")
+    app.add_exception_handler(RequestValidationError, _validation_error)
     # Expo 网页版开在 8081，和后端不同源，浏览器要后端明说放行；手机上的 App 不受这条限制
     app.add_middleware(CORSMiddleware, allow_origins=WEB_ORIGINS, allow_methods=["GET", "POST", "PUT", "DELETE"],
                        allow_headers=["Content-Type"])
@@ -129,17 +175,37 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                                                 "deadline": (day + timedelta(days=1)).isoformat()}]
         return d
 
-    def replan_today(day, raw: dict) -> tuple[DayPlan, int | None]:
-        """按新设置重排今天。今天报过电量就沿用：现在之前照原计划，之后按电量排（和报电量一样）。"""
+    def replan_today(day, raw: dict) -> tuple[dict, int | None]:
+        """按新设置重排今天，只动「现在之后」：已经过去的和正在做的块，照存着的计划原样留下；
+        那些块里已经排过的习惯、三餐不再排一遍。今天报过电量就沿用（和报电量一样）。"""
         latest, t = db.latest_plan(USER_ID, day), clock()
-        level = latest["energy_level"] if latest and t.date() == day else None  # 凌晨还算昨天，昨天没有「之后」了
+        same_day = latest is not None and t.date() == day  # 凌晨还算昨天，昨天没有「之后」了
+        level = latest["energy_level"] if same_day else None
         try:
             inp = input_from_dict({**day_raw(raw, day), **({"energy_level": level} if level else {})})
         except InputError as e:
             raise HTTPException(422, str(e)) from None
-        if level:
-            return solved(lambda: replan_from(inp, to_hhmm(t.hour * 60 + t.minute), [])), level
-        return solved(lambda: solve_day(inp)), None
+        if not same_day:
+            return solved(lambda: solve_day(inp)), None
+        now_min = t.hour * 60 + t.minute
+        past = [b for b in latest["plan"]["blocks"] if to_min(b["start"]) < now_min]
+        if past and all(to_min(b["end"]) <= now_min for b in latest["plan"]["blocks"]):
+            solved(lambda: solve_day(inp))  # 今天已经走完：只检查新设置排得出来，今天的计划不动
+            return latest["plan"], level
+        cut = max([now_min] + [to_min(b["end"]) for b in past])
+        known = {x.id for x in [*inp.habits, *inp.meals, *inp.flex, *inp.tasks]}
+        done = [b["id"] for b in past if b["id"] in known]
+        plan = solved(lambda: replan_from(inp, to_hhmm(cut), done))
+        return {**plan, "blocks": past + [b for b in plan["blocks"] if to_min(b["start"]) >= cut]}, level
+
+    def check_week(raw: dict, day) -> None:
+        """今天之外的六天也各试排一次：哪天排不下就不让存，免得到那天首页打不开。"""
+        for k in range(1, 7):
+            d = day + timedelta(days=k)
+            try:
+                solve_day(input_from_dict(for_day(raw, d)))
+            except (InputError, PlanInfeasible) as e:
+                raise HTTPException(422, f"星期{'一二三四五六日'[d.weekday()]}排不下：{e}") from None
 
     def plan_input(day, energy_level=None):
         raw = db.plan_input(USER_ID)
@@ -191,7 +257,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         stored = today_plan(day)
         settings = (db.plan_input(USER_ID) or {}).get("reminders")
         log = db.logs_between(USER_ID, day, day)  # 今晚对过账没有：首页据此换成「今天收好了」
-        return {**out(day, stored), "reminders": todays_reminders(stored["plan"], settings),
+        # 对过账就不再提醒对账，报过电量就不再提醒报电量
+        reminders = [r for r in todays_reminders(stored["plan"], settings)
+                     if not (r["kind"] == "evening" and log) and not (r["kind"] == "after_class" and stored["energy_level"])]
+        return {**out(day, stored), "reminders": reminders,
                 "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None}
 
     @app.post("/energy", summary="报电量 → 只重排今晚 → 返回新计划（未确认）")
@@ -258,9 +327,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                     not any(result[k] for k in ("note", "blocker", "tomorrow_task")):
                 raise HTTPException(422, "还什么都没记：点一下做没做，或者写一句")
             said = quote = result["note"]
+        # 按按钮时明确带了的字段（哪怕是空的）就是要改成这样，可以清掉；一句话里没提到的不动
+        explicit = set(body.result or {}) if body.sentence is None else set()
         if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
             old = earlier[0]
-            result = {**old, **{k: v for k, v in result.items() if v not in (None, "")},
+            result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
                       "items": {**old["items"], **result["items"]}}
 
         if ONE_THING in result["items"]:  # 昨晚定的那件事今天做到没有
@@ -423,6 +494,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             return crisis
         raw = to_plan_input(body, db.plan_input(USER_ID))
         plan, level = replan_today(day, raw)
+        check_week(raw, day)
         db.set_plan_input(USER_ID, raw)
         db.add_plan(USER_ID, day, plan, level)
         return from_plan_input(raw)

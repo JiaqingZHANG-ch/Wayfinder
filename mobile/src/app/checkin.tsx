@@ -42,6 +42,8 @@ export default function Checkin() {
   const [note, setNote] = useState("");
   const [blocker, setBlocker] = useState("");
   const [tomorrow, setTomorrow] = useState("");
+  const [touched, setTouched] = useState<Set<string>>(new Set()); // 这次动过的字段：只发这些，没动的不冲掉之前记的
+  const touch = (k: string, set: (v: string) => void) => (v: string) => { set(v); setTouched((t) => new Set(t).add(k)); };
   const [sentenceMode, setSentenceMode] = useState(false);
   const [sentence, setSentence] = useState("");
   const [logged, setLogged] = useState<boolean[] | null>(null); // 这 7 天哪晚记了
@@ -109,7 +111,8 @@ export default function Checkin() {
     for (const [id, ch] of Object.entries(choices)) {
       if (ch.status) picked[id] = { status: ch.status, vs_plan: ch.status === "skip" ? undefined : ch.vs_plan };
     }
-    send({ result: { items: picked, note, blocker, tomorrow_task: tomorrow } });
+    const texts = { note, blocker, tomorrow_task: tomorrow };
+    send({ result: { items: picked, ...Object.fromEntries(Object.entries(texts).filter(([k]) => touched.has(k))) } });
   }
 
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
@@ -265,8 +268,8 @@ export default function Checkin() {
       <>
         <Display>想说点什么吗？</Display>
         <Body muted>都可以不填。「今天的一句话」会原样出现在今晚的结尾。</Body>
-        <Field label="今天的一句话" placeholder="比如：今天比想的顺" value={note} onChangeText={setNote} multiline />
-        <Field label="今天卡在哪" placeholder="比如：下午一直犯困" value={blocker} onChangeText={setBlocker} />
+        <Field label="今天的一句话" placeholder="比如：今天比想的顺" value={note} onChangeText={touch("note", setNote)} multiline />
+        <Field label="今天卡在哪" placeholder="比如：下午一直犯困" value={blocker} onChangeText={touch("blocker", setBlocker)} />
       </>
     );
     bottom = <Button label={note || blocker ? "下一步" : "不写，下一步"} variant={note || blocker ? "primary" : "neutral"} onPress={() => go(idx + 1)} />;
@@ -275,7 +278,7 @@ export default function Checkin() {
       <>
         <Display>明天最想先做的一件事？</Display>
         <Body muted>可不填。填了，明天的计划会先给它留 30 分钟。</Body>
-        <Field accessibilityLabel="明天的一件事" placeholder="比如：把报告第三节写完" value={tomorrow} onChangeText={setTomorrow} />
+        <Field accessibilityLabel="明天的一件事" placeholder="比如：把报告第三节写完" value={tomorrow} onChangeText={touch("tomorrow_task", setTomorrow)} />
         {items.length === 0 && <Notice>今天的计划里没有要对账的事，记一句话或者明天的事就好。</Notice>}
         {message && <Notice tone="error">{message}</Notice>}
       </>

@@ -104,15 +104,18 @@ export function Header({ title, sub, onBack }: { title: string; sub?: string; on
   );
 }
 
-/** 整页没拿到数据：图标、一句人话、「再试一次」。原始错误不给用户看。 */
-export function ErrorState({ onRetry, text = "网络好了再试一次。" }: { onRetry: () => void; text?: string }) {
+/** 整页没拿到数据：图标、一句人话、「再试一次」。原始错误不给用户看。children：再给一个去处（比如「去改设置」）。 */
+export function ErrorState({ onRetry, text = "网络好了再试一次。", title = "没连上", children }: {
+  onRetry: () => void; text?: string; title?: string; children?: ReactNode;
+}) {
   const c = useColors();
   return (
     <View aria-live="polite" style={{ alignItems: "center", gap: space.md, paddingTop: space.xxl }}>
-      <Icon name="cloud-offline-outline" size={40} color={c.muted} />
-      <Title>没连上</Title>
+      <Icon name={title === "没连上" ? "cloud-offline-outline" : "calendar-clear-outline"} size={40} color={c.muted} />
+      <Title>{title}</Title>
       <Body muted center>{text}</Body>
       <Button label="再试一次" icon="refresh" variant="secondary" onPress={onRetry} />
+      {children}
     </View>
   );
 }

@@ -76,6 +76,12 @@ class SettingsIn(BaseModel):
     reminders: RemindersIn = Field(default_factory=RemindersIn)
 
     @model_validator(mode="after")
+    def sleep_after_wake(self):
+        if self.sleep <= self.wake:
+            raise ValueError("上床时间要晚于起床时间，而且不能过半夜 12 点（过了 12 点睡的作息还不支持）")
+        return self
+
+    @model_validator(mode="after")
     def classes_do_not_overlap(self):
         days: dict[int, list[ClassIn]] = {}
         for c in self.timetable or []:

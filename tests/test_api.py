@@ -273,7 +273,8 @@ def test_settings_change_replaces_todays_plan_and_keeps_other_parts(setup):
     v2 = client.get("/today").json()
     assert v2["version"] == v1["version"] + 1
     assert "math" in {b["id"] for b in v2["blocks"]}  # 模板里的课还在
-    assert {"english", "reading"}.isdisjoint(b["id"] for b in v2["blocks"])  # 旧习惯换掉了
+    later = {b["id"] for b in v2["blocks"] if b["start"] >= "21:00"}  # 现在是 21:00，之前的照旧留着
+    assert {"english", "reading"}.isdisjoint(later)  # 现在之后的旧习惯换掉了
     assert "habit_block" not in db.plan_input(1)
 
 
@@ -606,3 +607,62 @@ def test_no_one_thing_when_last_night_left_it_empty(setup):
                     "tomorrow_task": "", "yesterday_done": None})
     plan = client.post("/energy", json={"level": 4, "now": "18:00"}).json()
     assert not any(b.get("task_id") == "one-thing" for b in plan["blocks"])
+
+
+# ---- 功能走查 2026-11-21 ----
+def test_settings_change_keeps_what_already_happened_today(tmp_path):
+    db = Db(tmp_path / "a.db")
+    client = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("17:00")))
+    before = client.get("/today").json()
+    past = [b for b in before["blocks"] if b["start"] < "17:00"]
+    assert past
+    client.put("/settings", json={**SETTINGS, "wake": "07:00", "sleep": "23:00"})
+    after = client.get("/today").json()
+    assert after["blocks"][:len(past)] == past  # 已经过去的块一个不动
+    later = after["blocks"][len(past):]
+    assert all(b["start"] >= max(p["end"] for p in past) for b in later)  # 新排的都在之后，不重叠
+    done = {b["id"] for b in past if b["kind"] == "must"}
+    assert done.isdisjoint(b["id"] for b in later)  # 上午做过的习惯晚上不再排一遍
+
+
+def test_settings_that_cannot_be_planned_on_another_weekday_are_refused(new_user):
+    client, db, _ = new_user  # 今天是 2026-11-20 星期五
+    sunday = {"title": "一整天的课", "weekday": 6, "start": "07:30", "end": "23:20", "where": "other"}
+    r = client.put("/settings", json={**SETTINGS, "timetable": [sunday]})
+    assert r.status_code == 422 and r.json()["detail"].startswith("星期日排不下")
+    assert db.plan_input(1) is None or all(c["weekday"] != 6 for c in db.plan_input(1).get("timetable", []))
+
+
+def test_checkin_can_clear_text_written_earlier(setup):
+    client, _, _ = setup
+    items = {"english": {"status": "done"}}
+    client.post("/checkin", json={"result": {"items": items, "note": "今天很顺", "tomorrow_task": "做往年卷"}})
+    r = client.post("/checkin", json={"result": {"items": items, "note": "", "tomorrow_task": ""}}).json()
+    assert r["saved"]["note"] == "" and r["saved"]["tomorrow_task"] == ""
+    assert client.get("/today").json()["tomorrow_task"] is None
+    kept = client.post("/checkin", json={"result": {"items": {"reading": {"status": "skip"}}, "blocker": "犯困"}}).json()
+    assert kept["saved"]["items"]["english"] == {"status": "done"}  # 没带的字段和事项不动
+
+
+def test_reminders_stop_once_done(setup):
+    client, _, _ = setup
+    client.post("/energy", json={"level": 3, "now": "17:00"})
+    assert [x["kind"] for x in client.get("/today").json()["reminders"]] == ["evening"]  # 报过电量就不再提醒报电量
+    client.post("/checkin", json={"result": {"items": {"english": {"status": "done"}}}})
+    assert client.get("/today").json()["reminders"] == []  # 对过账就不再提醒对账
+
+
+@pytest.mark.parametrize("body, said", [
+    ({**SETTINGS, "habits": [{"title": "", "minutes": 30, "floor_min": 10}]}, "第 1 个习惯的名字：不能空着"),
+    ({**SETTINGS, "habits": [{"title": "x", "minutes": 4, "floor_min": 1}]}, "第 1 个习惯的标准版分钟数：不能小于 5"),
+    ({**SETTINGS, "habits": [{"title": "x", "minutes": 10, "floor_min": 20}]}, "保底版不能比标准版还长"),
+    ({**SETTINGS, "habits": [{"title": f"x{i}", "minutes": 10, "floor_min": 5} for i in range(4)]}, "习惯：最多 3 个"),
+    ({**SETTINGS, "sleep": "00:30"}, "上床时间要晚于起床时间"),
+])
+def test_validation_errors_are_said_in_chinese(new_user, body, said):
+    r = new_user[0].put("/settings", json=body)
+    assert r.status_code == 422 and said in r.json()["detail"] and "Value error" not in r.json()["detail"]
+
+
+def test_energy_level_must_be_a_number(setup):
+    assert setup[0].post("/energy", json={"level": "3", "now": "17:00"}).status_code == 422

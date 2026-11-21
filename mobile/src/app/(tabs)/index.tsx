@@ -1,6 +1,6 @@
 import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Platform, RefreshControl, Text, View } from "react-native";
+import { AppState, Platform, RefreshControl, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInUp, FadeOutUp } from "react-native-reanimated";
 
 import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
@@ -59,6 +59,11 @@ export default function Today() {
   // 从提醒直接进报电量面板时，这页垫在下面、没有焦点，就在打开时先拿一次。
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { if (!navigation.isFocused()) load(); }, [load, navigation]);
+  // 从后台切回来（比如第二天早上）也重新拿：不然还显示昨天的计划
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") load(); });
+    return () => sub.remove();
+  }, [load]);
   // 已经有计划时刷新失败：顶上说一句，4 秒后收起，计划照旧显示
   useEffect(() => {
     if (!error || !plan) return;
@@ -73,6 +78,16 @@ export default function Today() {
   }
 
   if (error instanceof ApiError && error.status === 409) return <Redirect href="/onboarding" />; // 还没建档
+  if (error instanceof ApiError && error.status === 422 && !plan) {
+    // 这一天的课和习惯排不下：说清楚原因，给去改设置的路（不是网络问题）
+    return (
+      <Screen scroll={false} safeTop>
+        <ErrorState onRetry={load} title="今天排不出来" text={error.message}>
+          <Button label="去改设置" variant="neutral" onPress={() => router.push("/settings?part=classes")} />
+        </ErrorState>
+      </Screen>
+    );
+  }
   if (error && !plan) return <Screen scroll={false} safeTop><ErrorState onRetry={load} /></Screen>;
   if (!plan) return <TodaySkeleton />;
   if (me && !me.consented) return <Redirect href="/consent" />; // 隐私说明换了新版本：老用户先看完再用

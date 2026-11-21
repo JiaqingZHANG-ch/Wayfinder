@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { Text, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { getWeek, Week } from "@/api";
@@ -29,6 +29,10 @@ export default function WeekScreen() {
     getWeek().then((w) => { setWeek(w); setError(false); }, () => setError(true));
   }, []);
   useFocusEffect(load);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") load(); });
+    return () => sub.remove();
+  }, [load]);
 
   if (error && !week) return <Screen safeTop bottom={TAB_SPACE} sky={now}><ErrorState onRetry={load} /></Screen>;
   if (!week) {
@@ -114,7 +118,7 @@ export default function WeekScreen() {
       ) : (
         <Animated.View entering={enter(4)} style={{ flexDirection: "row", gap: space.sm, alignItems: "center", paddingHorizontal: space.xs }}>
           <Icon name="time-outline" size={16} color={c.muted} />
-          <Small muted>记满 7 晚、离上次复盘满一周，这里会出现复盘。</Small>
+          <Small muted>从第一次对账起满一周、离上次复盘也满一周，这里会出现复盘。</Small>
         </Animated.View>
       )}
     </Screen>

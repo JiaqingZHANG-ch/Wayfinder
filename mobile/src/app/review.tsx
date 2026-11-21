@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import Animated, { FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Adjustment, answerAdjustment, confirmProfile, getReview, getWeek, isCrisis, Review, Week } from "@/api";
+import { Adjustment, answerAdjustment, ApiError, confirmProfile, getReview, getWeek, isCrisis, Review, say, Week } from "@/api";
 import { ahead, Bar, haptic, Skeleton } from "@/components/motion";
 import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, IconButton, Notice, Small, Stat, Title } from "@/components/ui";
 import { radius, space, useColors } from "@/theme";
@@ -61,8 +61,12 @@ export default function ReviewScreen() {
       haptic.select();
       setReview(await answerAdjustment(review.id, index, accept));
       go(idx + 1);
-    } catch {
-      setMessage("没记上，再点一次。");
+    } catch (e) {
+      // 其实上次已经记上了（只是回复没收到）：拿一遍最新的复盘，接着往下走
+      if (e instanceof ApiError && e.status === 409 && e.message.includes("回答过")) {
+        getReview().then((r) => { if (r && !isCrisis(r)) setReview(r); }, () => {});
+        go(idx + 1);
+      } else setMessage(say(e));
     } finally {
       setBusy(false);
     }
@@ -75,8 +79,8 @@ export default function ReviewScreen() {
       const res = await confirmProfile(review.still_right.id, content);
       if (isCrisis(res)) setCrisis(res.message);
       else setStillRight("done");
-    } catch {
-      setMessage("没记上，再点一次。");
+    } catch (e) {
+      setMessage(say(e));
     } finally {
       setBusy(false);
     }

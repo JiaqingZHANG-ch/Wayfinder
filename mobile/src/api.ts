@@ -127,7 +127,10 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => {
+    if (res.ok) throw new Error("bad json");
+    return { detail: "服务那边出了点问题，过一会儿再试。" };
+  });
   if (!res.ok) {
     // 422 的 detail 可能是字段错误的列表，取第一条的 msg
     const detail = typeof data.detail === "string" ? data.detail : data.detail?.[0]?.msg;
