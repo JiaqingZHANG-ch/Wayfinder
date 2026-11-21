@@ -267,7 +267,7 @@ def test_new_user_goes_from_onboarding_to_first_plan(new_user):
 
     saved = client.put("/settings", json=SETTINGS).json()
     hid = saved["habits"][0]["id"]
-    assert saved == {**SETTINGS, "habits": [{"id": hid, **SETTINGS["habits"][0]}], "timetable": [], "projects": [],
+    assert saved == {**SETTINGS, "habits": [{"id": hid, "source": "self", "goal_id": None, **SETTINGS["habits"][0]}], "timetable": [], "projects": [],
                      "reminders": {"after_class": True, "evening": "21:00"}}
     plan = client.get("/today").json()
     assert any(b["title"] == "练法语" for b in plan["blocks"])
@@ -739,3 +739,28 @@ def test_checkin_can_clear_only_the_text(setup):
 def test_today_gives_reminders_for_the_next_six_days(setup):
     later = setup[0].get("/today").json()["later_reminders"]
     assert len({r["day"] for r in later}) == 6 and all(r["kind"] in ("after_class", "evening") for r in later)
+
+
+def test_settings_round_trip_keeps_habit_meta(setup):
+    client, _, _ = setup
+    s = client.get("/settings").json()
+    s["habits"][0] |= {"source": "deep_talk", "goal_id": 7, "energy": "love"}
+    client.put("/settings", json=s)
+    client.put("/settings", json=client.get("/settings").json())  # 设置页原样再存一次
+    h = client.get("/settings").json()["habits"][0]
+    assert (h["source"], h["goal_id"], h["energy"]) == ("deep_talk", 7, "love")
+
+
+def test_removed_habit_drops_its_meta(setup):
+    client, db, _ = setup
+    s = client.get("/settings").json()
+    assert len(s["habits"]) >= 2
+    for h, goal in zip(s["habits"][:2], (1, 2)):
+        h |= {"source": "invest", "goal_id": goal}
+    client.put("/settings", json=s)
+    s = client.get("/settings").json()
+    s["habits"] = s["habits"][:1] + s["habits"][2:]
+    client.put("/settings", json=s)
+    meta = db.plan_input(1)["habit_meta"]
+    assert list(meta) == [s["habits"][0]["id"]] and meta[s["habits"][0]["id"]] == {"source": "invest", "goal_id": 1}
+    assert client.get("/settings").json()["habits"][0]["goal_id"] == 1

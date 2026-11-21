@@ -76,7 +76,7 @@ export type OnboardingTurn =
   | { crisis: false; done: boolean; reply: string | null; question: string | null; proposals?: Profile[] };
 
 export type Energy = "love" | "recharge" | "drain";
-export type Habit = { id?: string; title: string; minutes: number; floor_min: number; energy: Energy | null };
+export type Habit = { id?: string; title: string; minutes: number; floor_min: number; energy: Energy | null; source?: "self" | "deep_talk" | "invest"; goal_id?: number | null };
 /** 每周课表里的一节课：weekday 0 = 星期一 … 6 = 星期日。 */
 export type ClassItem = {
   title: string;

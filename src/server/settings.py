@@ -28,6 +28,8 @@ class HabitIn(BaseModel):
     floor_min: int = Field(ge=1, le=180, description="保底版几分钟（没电时做这么多）")
     energy: Literal["love", "recharge", "drain"] | None = Field(
         None, description="做这件事：热爱 love／累但回血 recharge／擅长但耗能 drain")
+    source: Literal["self", "deep_talk", "invest"] = Field("self", description="这个习惯怎么来的")
+    goal_id: int | None = Field(None, description="服务哪个目标")
 
     @model_validator(mode="after")
     def floor_not_above_standard(self):
@@ -137,6 +139,9 @@ def to_plan_input(s: SettingsIn, base: dict | None) -> dict:
     energy = dict(raw.get("energy", {}))
     cost = {k: v for k, v in energy.get("cost", {}).items() if k not in changed}
     cost.update({i: ENERGY_COST[e] for i, e in pairs if e})
+    # 来源和目标按稳定 id 存；只存有内容的，删掉的习惯不留。排程器不读这个键
+    raw["habit_meta"] = {h["id"]: {"source": x.source, "goal_id": x.goal_id} for h, x in zip(habits, s.habits)
+                         if x.source != "self" or x.goal_id is not None}
     raw.update(wake=s.wake, sleep=s.sleep, habits=habits, energy={**energy, "cost": cost},
                reminders=s.reminders.model_dump())  # 求解器不认这一段，读输入时会忽略
     if {h["id"] for h in habits} != {h["id"] for h in old_habits}:
@@ -151,9 +156,12 @@ def from_plan_input(raw: dict) -> dict:
     def en(i):
         return by_cost.get(cost.get(i))
 
+    meta = raw.get("habit_meta", {})
     return {"wake": raw["wake"], "sleep": raw["sleep"],
             "habits": [{"id": h["id"], "title": h["title"], "minutes": h["minutes"],
-                        "floor_min": h.get("floor_min", h["minutes"]), "energy": en(h["id"])}
+                        "floor_min": h.get("floor_min", h["minutes"]), "energy": en(h["id"]),
+                        "source": meta.get(h["id"], {}).get("source", "self"),
+                        "goal_id": meta.get(h["id"], {}).get("goal_id")}
                        for h in raw.get("habits", [])],
             "timetable": [{**{k: c[k] for k in ("title", "weekday", "start", "end", "where")}, "energy": en(c["id"])}
                           for c in raw.get("timetable", [])],

@@ -304,6 +304,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 status = "failed"
         return {**out(day, db.latest_plan(USER_ID, day)), "calendar": status}
 
+    def merge_log(day, result: dict, explicit: set[str]) -> dict:
+        """和今天已有的记录合并（只补这次说到的，explicit 里的字段可以清空），补上电量，存下，返回整条。"""
+        stored = today_plan(day)
+        said_energy = result["energy_after_class"]
+        if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
+            old = earlier[0]
+            result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
+                      "items": {**old["items"], **result["items"]}}
+        if ONE_THING in result["items"]:  # 昨晚定的那件事今天做到没有
+            result["yesterday_done"] = result["items"][ONE_THING]["status"] != "skip"
+        if said_energy is None and stored["energy_level"] is not None:  # 这次没说电量：用今天最后一次报的
+            result["energy_after_class"] = stored["energy_level"]
+        db.save_log(USER_ID, result)
+        return result
+
     @app.post("/checkin", summary="晚间对账：按钮结果或一句话 → 校验 → 写入 day_logs")
     def post_checkin(body: CheckinIn):
         if (body.result is None) == (body.sentence is None):
@@ -338,17 +353,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             said = quote = result["note"]
         # 按按钮时明确带了的字段（哪怕是空的）就是要改成这样，可以清掉；一句话里没提到的不动
         explicit = set(body.result or {}) if body.sentence is None else set()
-        said_energy = result["energy_after_class"]
-        if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
-            old = earlier[0]
-            result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
-                      "items": {**old["items"], **result["items"]}}
-
-        if ONE_THING in result["items"]:  # 昨晚定的那件事今天做到没有
-            result["yesterday_done"] = result["items"][ONE_THING]["status"] != "skip"
-        if said_energy is None and stored["energy_level"] is not None:  # 这次没说电量：用今天最后一次报的
-            result["energy_after_class"] = stored["energy_level"]
-        db.save_log(USER_ID, result)
+        result = merge_log(day, result, explicit)
         if said:
             mid = db.add_message(USER_ID, day, "对账", "user", said)
             if quote:  # 只引用这一次说的话
@@ -499,8 +504,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(404, "还没有设置")
         return from_plan_input(raw)
 
-    @app.put("/settings", summary="保存设置；排得出今天的计划才保存，今天的计划跟着换成新版本")
-    def put_settings(body: SettingsIn):
+    def save_settings(body: SettingsIn) -> dict:
+        """保存设置；排不下抛 422。设置页和深度长谈共用。"""
         day = logical_date(clock())
         if crisis := screen(body, day):
             return crisis
@@ -510,6 +515,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.set_plan_input(USER_ID, raw)
         db.add_plan(USER_ID, day, plan, level)
         return from_plan_input(raw)
+
+    @app.put("/settings", summary="保存设置；排得出今天的计划才保存，今天的计划跟着换成新版本")
+    def put_settings(body: SettingsIn):
+        return save_settings(body)
 
     @app.get("/me", summary="国家、是否成年、隐私说明和有没有同意过这一版")
     def get_me():
