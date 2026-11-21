@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, withTiming } from "react-native-reanimated"
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { haptic, Pressy } from "@/components/motion";
-import { Icon, IconName } from "@/components/ui";
+import { Glass, Icon, IconName } from "@/components/ui";
 import { motion, radius, space, type, useColors } from "@/theme";
 
 /** 每个标签：未选中用线条图标，选中用实心图标。 */
@@ -24,15 +24,14 @@ export default function TabsLayout() {
   );
 }
 
-/** 浮在底部的圆角标签栏：选中的那个有一块柔和底，图标变实心。 */
+/** 浮在底部的玻璃标签栏：选中的那个有一块很淡的底，图标变实心。 */
 function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
-  const c = useColors();
   const bottom = useSafeAreaInsets().bottom;
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0,
       paddingBottom: Math.max(bottom, space.md), paddingHorizontal: space.lg, alignItems: "center" }}>
-      <View accessibilityRole="tablist" style={{ flexDirection: "row", width: "100%", maxWidth: 420, padding: space.xs + 2,
-        borderRadius: radius.pill, backgroundColor: c.card, borderWidth: 1, borderColor: c.edge, boxShadow: c.shadow }}>
+      <Glass style={{ width: "100%", maxWidth: 420, borderRadius: radius.pill }}>
+      <View accessibilityRole="tablist" style={{ flexDirection: "row", padding: space.xs + 2 }}>
         {state.routes.map((route, i) => {
           const t = TABS[route.name];
           if (!t) return null;
@@ -47,6 +46,7 @@ function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
           return <TabItem key={route.key} title={t.title} icon={on ? t.on : t.icon} on={on} onPress={go} />;
         })}
       </View>
+      </Glass>
     </View>
   );
 }
@@ -59,9 +59,9 @@ function TabItem({ title, icon, on, onPress }: { title: string; icon: IconName; 
     <Pressy onPress={onPress} accessibilityRole="tab" accessibilityLabel={title} accessibilityState={{ selected: on }}
       scaleTo={0.92} style={{ flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 2 }}>
       <Animated.View style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-        borderRadius: radius.pill, backgroundColor: c.soft }, pill]} />
-      <Icon name={icon} size={22} color={on ? c.onSoft : c.muted} />
-      <Text style={[type.small, { fontSize: 12, lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.onSoft : c.muted }]}>
+        borderRadius: radius.pill, backgroundColor: c.hair }, pill]} />
+      <Icon name={icon} size={22} color={on ? c.text : c.muted} />
+      <Text style={[type.small, { lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.text : c.muted }]}>
         {title}
       </Text>
     </Pressy>

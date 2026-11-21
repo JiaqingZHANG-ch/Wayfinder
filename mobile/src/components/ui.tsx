@@ -1,12 +1,13 @@
 /** 公共组件：页面、卡片、文字、按钮、选项、输入框、提示、图标、列表行。页面只拼这些，不自己写样式数值。 */
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ReactNode, useState } from "react";
-import { ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
+import { Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { enter, haptic, Pressy } from "@/components/motion";
-import { radius, space, type, useColors } from "@/theme";
+import { radius, space, type, useColors, useDark } from "@/theme";
 
 const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
 const TOUCH = 44; // 可点区域至少 44pt（Apple HIG）
@@ -18,13 +19,28 @@ export function Icon({ name, size = 20, color }: { name: IconName; size?: number
   return <Ionicons name={name} size={size} color={color ?? c.text} />;
 }
 
-/** safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空。 */
+// iOS 26 起用系统的液态玻璃；其余（老 iOS、安卓、网页）用半透明底加发丝边，网页再加背景模糊
+const liquid = Platform.OS === "ios" && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
+
+/** 玻璃只给控制层用：底部标签栏、底部面板。内容卡片不用。 */
+export function Glass({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const c = useColors();
+  const dark = useDark(); // 夜里强制深色时系统可能还是浅色，玻璃要跟着 App 走
+  if (liquid) return <GlassView glassEffectStyle="regular" colorScheme={dark ? "dark" : "light"} style={[{ overflow: "hidden" }, style]}>{children}</GlassView>;
+  return (
+    <View style={[{ backgroundColor: c.glass, borderWidth: 1, borderColor: c.glassEdge, boxShadow: c.glassShadow },
+      Platform.OS === "web" && ({ backdropFilter: "blur(22px) saturate(160%)" } as ViewStyle), style]}>{children}</View>
+  );
+}
+
+/** safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。 */
 export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh }: {
   children: ReactNode; scroll?: boolean; safeTop?: boolean; bottom?: number; refresh?: ReactNode;
 }) {
   const c = useColors();
-  const top = useSafeAreaInsets().top;
-  const inner = { padding: space.lg, paddingTop: safeTop ? top + space.xl : space.lg, paddingBottom: space.xxl + bottom,
+  const insets = useSafeAreaInsets();
+  const inner = { padding: space.lg, paddingTop: safeTop ? insets.top + space.xl : space.lg,
+    paddingBottom: space.xxl + bottom + (bottom ? insets.bottom : 0),
     gap: space.lg, maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
   return scroll ? (
     <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={inner}
@@ -66,6 +82,25 @@ export const Title = make("title", "header");
 export const Body = make("body");
 export const Label = make("label");
 export const Small = make("small");
+
+/** 一块数字瓷砖：小标题、一个数字加单位、一句话。size="big" 用于一页里最重要的那个数。 */
+export function Stat({ label, value, unit, sub, size = "stat", style, children }: {
+  label: string; value: string | number; unit?: string; sub?: string; size?: "stat" | "big";
+  style?: StyleProp<ViewStyle>; children?: ReactNode;
+}) {
+  const c = useColors();
+  return (
+    <Card style={[{ flex: 1, gap: 2 }, style]}>
+      <Text style={[type.small, { color: c.muted }]}>{label}</Text>
+      <Text accessibilityLabel={`${label} ${value}${unit ?? ""}`}>
+        <Text style={[type[size], { color: c.text }]}>{value}</Text>
+        {unit && <Text style={[type.label, { color: c.muted }]}> {unit}</Text>}
+      </Text>
+      {sub && <Text style={[type.small, { color: c.muted }]}>{sub}</Text>}
+      {children}
+    </Card>
+  );
+}
 
 /** 小节标题：在卡片上面的一行小字。 */
 export function Eyebrow({ children }: { children: ReactNode }) {

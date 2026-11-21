@@ -1,11 +1,10 @@
-/** 动效和触感：按下缩放、错峰入场、骨架屏、进度环、触感反馈。数值都在 theme.ts 的 motion 里。 */
+/** 动效和触感：按下缩放、错峰入场、骨架屏、进度条、触感反馈。数值都在 theme.ts 的 motion 里。 */
 import * as Haptics from "expo-haptics";
-import { ReactNode, useEffect } from "react";
+import { useEffect } from "react";
 import { DimensionValue, Platform, Pressable, PressableProps, StyleProp, View, ViewStyle } from "react-native";
 import Animated, {
-  Easing, FadeInDown, useAnimatedProps, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming,
+  Easing, FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle } from "react-native-svg";
 
 import { motion, radius, useColors } from "@/theme";
 
@@ -45,33 +44,6 @@ export function Skeleton({ height, width = "100%", r = radius.md }: { height: nu
   }, [o]);
   const a = useAnimatedStyle(() => ({ opacity: o.value }));
   return <Animated.View style={[{ height, width, borderRadius: r, backgroundColor: c.sunken }, a]} />;
-}
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
-/** 进度环：value 0–1，出现时从 0 长到 value。中间放 children。 */
-export function Ring({ value, size = 88, stroke = 9, color, children, label }: {
-  value: number; size?: number; stroke?: number; color: string; children?: ReactNode; label: string;
-}) {
-  const c = useColors();
-  const r = (size - stroke) / 2;
-  const len = 2 * Math.PI * r;
-  const p = useSharedValue(0);
-  useEffect(() => {
-    p.set(withTiming(Math.max(0, Math.min(1, value)), { duration: 900, easing: Easing.out(Easing.cubic) }));
-  }, [p, value]);
-  const props = useAnimatedProps(() => ({ strokeDashoffset: len * (1 - p.value) }));
-  return (
-    <View accessible accessibilityRole="progressbar" accessibilityLabel={label}
-      style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <Svg width={size} height={size} style={{ position: "absolute", transform: [{ rotate: "-90deg" }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={c.sunken} strokeWidth={stroke} fill="none" />
-        <AnimatedCircle cx={size / 2} cy={size / 2} r={r} stroke={color} strokeWidth={stroke} fill="none"
-          strokeLinecap="round" strokeDasharray={`${len} ${len}`} animatedProps={props} />
-      </Svg>
-      {children}
-    </View>
-  );
 }
 
 /** 横向进度条：出现时从 0 长到 value（0–1）。用 flex 比例做，不用算像素宽度。 */

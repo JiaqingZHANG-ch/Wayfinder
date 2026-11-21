@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, postCheckin } from "@/api";
 import { Bar, haptic, Pressy } from "@/components/motion";
-import { Body, Button, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
+import { Body, Button, Card, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, radius, space, type, useColors } from "@/theme";
 
@@ -138,6 +138,13 @@ export default function Checkin() {
               </View>
               <Small muted>这 7 天记录了 {logged} 天</Small>
             </View>
+          )}
+          {!!done.saved.tomorrow_task?.trim() && (
+            <Card style={{ alignSelf: "stretch", gap: 2, marginTop: space.md }}>
+              <Small muted>明天先做</Small>
+              <Title>{done.saved.tomorrow_task.trim()}</Title>
+              <Small muted>明天的计划会先给它留 30 分钟。</Small>
+            </Card>
           )}
         </Animated.View>
       </View>,

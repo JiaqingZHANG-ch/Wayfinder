@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { Block, Plan } from "@/api";
-import { enter } from "@/components/motion";
+import { enter, Pressy } from "@/components/motion";
 import { Card, Icon, IconName, Notice, Small } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
@@ -21,8 +21,8 @@ export function dayLabel(day: string): string {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 星期${"日一二三四五六"[d.getDay()]}`;
 }
 
-/** "HH:MM" → 当天第几分钟。 */
-export const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+/** "HH:MM" → 当天第几分钟。凌晨 4 点前算前一天（和 nowMin 一样超过 24:00），过了午夜的块才排在后面。 */
+export const toMin = (t: string) => { const h = Number(t.slice(0, 2)); return (h < 4 ? h + 24 : h) * 60 + Number(t.slice(3, 5)); };
 export const fromMin = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 /** 现在是这一天的第几分钟。凌晨 4 点前还算前一天（和后端 DAY_STARTS_AT 一致），所以会超过 24:00。 */
@@ -45,12 +45,17 @@ export function useNow() {
  * 一天的时间线：每块左边一个小圆点，颜色按种类；吃饭、路上、自由时间淡一些。
  * now：给了就把过去的块调淡、正在做的块高亮，空档处画一条「现在」线。
  * from：只看这个时间之后的（报电量面板用）。showEnergy：顶上显示精力条。
+ * fold（要和 now 一起给）：已经过去的块收成一行「早些时候 · N 件」，点开才显示。
  */
-export function PlanView({ plan, from, now, showEnergy = true }: {
-  plan: Plan; from?: string; now?: number; showEnergy?: boolean;
+export function PlanView({ plan, from, now, showEnergy = true, fold }: {
+  plan: Plan; from?: string; now?: number; showEnergy?: boolean; fold?: boolean;
 }) {
   const c = useColors();
-  const blocks = from ? plan.blocks.filter((b) => b.end > from) : plan.blocks;
+  const [open, setOpen] = useState(false);
+  const all = from ? plan.blocks.filter((b) => toMin(b.end) > toMin(from)) : plan.blocks;
+  const hidden = fold && now !== undefined && !open ? all.filter((b) => toMin(b.end) <= now).length : 0;
+  const pastCount = fold && now !== undefined ? all.filter((b) => toMin(b.end) <= now).length : 0;
+  const blocks = hidden ? all.filter((b) => now === undefined || toMin(b.end) > now) : all;
   const used = plan.energy_cap ? Math.min(1, plan.energy_used / plan.energy_cap) : 0;
   const current = now === undefined ? -1 : blocks.findIndex((b) => toMin(b.start) <= now && now < toMin(b.end));
   const lineAt = now === undefined || current >= 0 ? -1 : blocks.findIndex((b) => toMin(b.start) > now);
@@ -71,7 +76,15 @@ export function PlanView({ plan, from, now, showEnergy = true }: {
       )}
       {plan.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
       {from && blocks.length === 0 && <Small muted>今天已经没有剩下的安排了，早点休息。</Small>}
-      <View>
+      {pastCount > 0 && (
+        <Pressy onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
+          accessibilityLabel={open ? "收起早些时候的安排" : `早些时候的 ${pastCount} 件，点开看`} scaleTo={0.98}
+          style={{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44 }}>
+          <Small muted>{open ? "收起早些时候" : `早些时候 · ${pastCount} 件`}</Small>
+          <Icon name={open ? "chevron-up" : "chevron-down"} size={14} color={c.muted} />
+        </Pressy>
+      )}
+      {blocks.length > 0 && <View>
         {blocks.map((b, i) => (
           <Animated.View key={b.id} entering={enter(i)}>
             {i === lineAt && now !== undefined && <NowLine now={now} />}
@@ -80,7 +93,7 @@ export function PlanView({ plan, from, now, showEnergy = true }: {
           </Animated.View>
         ))}
         {lineAtEnd && now !== undefined && <NowLine now={now} />}
-      </View>
+      </View>}
     </Card>
   );
 }
@@ -93,8 +106,8 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
   return (
     <View style={{ flexDirection: "row", gap: space.md, minHeight: 48 }}
       accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${live ? "，正在进行" : ""}`}>
-      <Text style={[type.small, { width: 44, color: live ? c.primary : c.muted, fontWeight: live ? "600" : "400",
-        fontVariant: ["tabular-nums"], paddingTop: live ? space.sm + 2 : 2 }]}>
+      <Text style={[type.small, type.num, { width: 44, color: live ? c.primary : c.muted,
+        paddingTop: live ? space.sm + 2 : 2 }]}>
         {b.start}
       </Text>
       <View style={{ alignItems: "center", width: 14 }}>
@@ -127,7 +140,7 @@ function NowLine({ now }: { now: number }) {
   return (
     <View accessible accessibilityLabel={`现在 ${fromMin(now)}`}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
-      <Text style={[type.small, { width: 44, color: c.primary, fontWeight: "600", fontVariant: ["tabular-nums"] }]}>
+      <Text style={[type.small, type.num, { width: 44, color: c.primary }]}>
         {fromMin(now)}
       </Text>
       <View style={{ width: 14, alignItems: "center" }}>

@@ -7,3 +7,6 @@ export const ENERGY_LABELS = { love: "热爱", recharge: "累但回血", drain: 
 
 export type Status =keyof typeof STATUS_LABELS;
 export type VsPlan = keyof typeof VS_PLAN_LABELS;
+
+// 电量 1–5 格各是什么感觉（下标就是格数，0 不用）
+export const BATTERY_HINT = ["", "很累了", "有点累", "还行", "不错", "满格"] as const;

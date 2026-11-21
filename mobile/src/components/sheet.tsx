@@ -11,6 +11,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
 
+import { Glass } from "@/components/ui";
 import { motion, radius, space, useColors } from "@/theme";
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
@@ -52,15 +53,16 @@ export function Sheet({ children }: { children: (close: () => void) => ReactNode
       <Animated.View style={[{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.overlay }, backdrop]}>
         <Pressable style={{ flex: 1 }} onPress={close} accessibilityRole="button" accessibilityLabel="关闭" />
       </Animated.View>
-      <Animated.View accessibilityViewIsModal style={[{ width: "100%", maxWidth: 560, alignSelf: "center",
-        backgroundColor: c.card, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
-        paddingHorizontal: space.lg, paddingBottom: bottom + space.lg, boxShadow: c.shadow, maxHeight: "92%" }, panel]}>
+      <Animated.View accessibilityViewIsModal style={[{ width: "100%", maxWidth: 560, alignSelf: "center", maxHeight: "92%" }, panel]}>
+        <Glass style={{ borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderBottomWidth: 0,
+          paddingHorizontal: space.lg, paddingBottom: bottom + space.lg, flexShrink: 1 }}>
         <GestureDetector gesture={drag}>
           <View style={{ alignItems: "center", paddingTop: space.sm, paddingBottom: space.md }}>
             <View style={{ width: 40, height: 5, borderRadius: radius.pill, backgroundColor: c.line }} />
           </View>
         </GestureDetector>
         {children(close)}
+        </Glass>
       </Animated.View>
     </View>
   );

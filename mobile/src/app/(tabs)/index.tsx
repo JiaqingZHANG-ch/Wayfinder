@@ -4,9 +4,10 @@ import { RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
-import { enter, Pressy, Ring, Skeleton } from "@/components/motion";
-import { dayLabel, kindIcon, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
-import { Body, Button, Card, Display, Eyebrow, Icon, IconName, Screen, Small, Title } from "@/components/ui";
+import { enter, Skeleton } from "@/components/motion";
+import { dayLabel, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
+import { Body, Button, Card, Display, Eyebrow, Icon, Screen, Small, Stat, Title } from "@/components/ui";
+import { BATTERY_HINT } from "@/labels";
 import { scheduleToday } from "@/notifications";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
@@ -18,13 +19,14 @@ function greeting(h: number): string {
   return "晚上好";
 }
 
-/** 90 → 「1 小时 30 分」，25 → 「25 分钟」 */
-function span(min: number): string {
-  if (min < 60) return `${min} 分钟`;
-  return min % 60 ? `${Math.floor(min / 60)} 小时 ${min % 60} 分` : `${min / 60} 小时`;
+/** 还剩多少分钟 → 大号数字和单位：50 →「50 分钟后结束」，90 →「1 小时 30 分后结束」 */
+function spanParts(min: number, tail: string): [number, string][] {
+  if (min < 60) return [[min, `分钟${tail}`]];
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? [[h, "小时"], [m, `分${tail}`]] : [[h, `小时${tail}`]];
 }
 
-const EVENING = 19 * 60; // 这之后首页把「晚间对账」放到最显眼
+const EVENING = 19 * 60; // 这之后唯一的主按钮从「报电量」换成「对账」
 
 export default function Today() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -73,152 +75,114 @@ export default function Today() {
   if (!plan) return <TodaySkeleton />;
   if (me && !me.consented) return <Redirect href="/consent" />; // 隐私说明换了新版本：老用户先看完再用
 
-  const evening = now >= EVENING;
+  // 一屏只有一个实心按钮：白天是报电量，19 点后或者今天的事都过完了是对账。
+  // 今天的事都过完了就不再给报电量（后端会说「今天已经过完了」）。
+  const canReport = plan.blocks.some((b) => toMin(b.end) > now);
+  const checkinFirst = now >= EVENING || !canReport;
+  const energy = () => router.push("/energy");
+  const checkin = () => router.push("/checkin");
+  const level = plan.energy_level;
   return (
     <Screen safeTop bottom={TAB_SPACE}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}>
-      <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
+      <Animated.View entering={enter(0)} style={{ gap: 2 }}>
         <Small muted>{dayLabel(plan.day)}</Small>
-        <Display>{greeting(new Date().getHours())}</Display>
+        <Display>{greeting(Math.floor(now / 60) % 24)}</Display>
       </Animated.View>
 
       <Animated.View entering={enter(1)}><NowCard blocks={plan.blocks} now={now} /></Animated.View>
 
-      <Animated.View entering={enter(2)} style={{ flexDirection: "row", gap: space.md }}>
-        <Action icon="battery-half-outline" title="下课了" sub="报一下电量" strong={!evening}
-          onPress={() => router.push("/energy")} />
-        <Action icon="moon-outline" title="晚间对账" sub="一两分钟" strong={evening}
-          onPress={() => router.push("/checkin")} />
+      <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
+        {checkinFirst
+          ? <Button label="对个账" icon="moon-outline" onPress={checkin} />
+          : <Button label="下课了，报个电量" icon="battery-half-outline" onPress={energy} />}
+        {checkinFirst
+          ? canReport && <Button label="还想报一下电量" variant="quiet" onPress={energy} />
+          : <Button label="提前对账" variant="quiet" onPress={checkin} />}
       </Animated.View>
 
-      <Card i={3} style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-        <EnergyRing plan={plan} />
-        <View style={{ flex: 1, gap: space.xs }}>
-          <Title>今天的精力</Title>
-          <Small muted>
-            {plan.energy_level ? `电量 ${plan.energy_level} 格` : "还没报电量"}{plan.confirmed ? " · 计划已确认" : ""}
-          </Small>
-          {week && <WeekDots logged={week.logged_days} />}
-        </View>
-      </Card>
+      <Animated.View entering={enter(3)} style={{ flexDirection: "row", gap: space.md }}>
+        <Stat label="电量" value={level ?? "—"} unit={level ? "/ 5 格" : undefined}
+          sub={level ? BATTERY_HINT[level] : "下课后报一下"} />
+        {week && <Stat label="这 7 天" value={week.logged_days} unit="天" sub="留了晚间记录" />}
+      </Animated.View>
 
       {week?.review && (
         <Card i={4} onPress={() => router.push("/review")} label="打开这周的复盘"
           style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-          <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: c.soft,
-            alignItems: "center", justifyContent: "center" }}>
-            <Icon name="leaf" size={22} color={c.onSoft} />
-          </View>
+          <Icon name="leaf-outline" size={22} color={c.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={[type.label, { color: c.text, fontWeight: "600" }]}>
-              {week.review === "due" ? "满 7 天了，来看看这一周" : "这周的复盘"}
-            </Text>
+            <Text style={[type.label, { color: c.text }]}>{week.review === "due" ? "可以复盘这一周了" : "这周的复盘"}</Text>
             <Small muted>大约 5 分钟。只看事实，不打分。</Small>
           </View>
           <Icon name="chevron-forward" size={18} color={c.muted} />
         </Card>
       )}
 
-      <Eyebrow>今天的安排</Eyebrow>
-      <PlanView plan={plan} now={now} showEnergy={false} />
+      <Eyebrow>{canReport ? "接下来" : "今天"}</Eyebrow>
+      <PlanView plan={plan} now={now} showEnergy={false} fold />
     </Screen>
   );
 }
 
-/** 「此刻」卡片：正在做的事和还剩多久；空档里就显示下一件；都过完了就提醒对账。 */
+/** 「此刻」卡片，一屏唯一的主角：最大的是还剩几分钟。空档里是离下一件还有多久；都过完了是还有几件等对账。 */
 function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
   const c = useColors();
   const cur = blocks.find((b) => toMin(b.start) <= now && now < toMin(b.end));
   const next = blocks.find((b) => toMin(b.start) > now && b.kind !== "life");
-  const fg = c.onPrimary;
+  const items = blocks.filter((b) => b.kind !== "life").length;
 
-  let eyebrow: string, title: string, sub: string, icon: IconName, progress: number | null = null;
+  let head: string, time = "", big: [number, string][], sub = "", progress: number | null = null;
   if (cur) {
-    eyebrow = `现在 · 还剩 ${span(toMin(cur.end) - now)}`;
-    title = cur.title;
-    icon = kindIcon(cur);
-    sub = `${kindName(cur) ? `${kindName(cur)} · ` : ""}${cur.start}–${cur.end}`;
+    head = `现在 · ${cur.title}`;
+    time = `${cur.start}–${cur.end}`;
+    big = spanParts(toMin(cur.end) - now, "后结束");
+    sub = [kindName(cur), cur.pomodoros ? `番茄 ${cur.pomodoros} 个` : ""].filter(Boolean).join(" · ");
     progress = (now - toMin(cur.start)) / (toMin(cur.end) - toMin(cur.start));
   } else if (next) {
-    eyebrow = `接下来 · ${span(toMin(next.start) - now)}后`;
-    title = next.title;
-    icon = kindIcon(next);
-    sub = `${kindName(next) ? `${kindName(next)} · ` : ""}${next.start}–${next.end}`;
+    head = `接下来 · ${next.title}`;
+    time = `${next.start}–${next.end}`;
+    big = spanParts(toMin(next.start) - now, "后开始");
+    sub = kindName(next);
   } else {
-    eyebrow = "今天";
-    title = "今天的安排都走完了";
-    icon = "moon";
+    head = "今天的安排都走完了";
+    big = items ? [[items, "件事"]] : [];
     sub = "花一两分钟对个账，就可以休息了。";
   }
   const after = cur && next ? next : null;
+  const said = big.map(([n, u]) => `${n} ${u}`).join(" ");
 
   return (
-    <View accessible accessibilityLabel={`${eyebrow}，${title}，${sub}`}
-      style={{ backgroundColor: c.primary, borderRadius: radius.xl, padding: space.xl, gap: space.md, boxShadow: c.shadow }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-        <Icon name={icon} size={16} color={fg} />
-        <Text style={[type.small, { color: fg, fontWeight: "600" }]}>{eyebrow}</Text>
+    <View accessible accessibilityLabel={[head, time, said, sub, after && `接下来 ${after.start} ${after.title}`].filter(Boolean).join("，")}
+      style={{ backgroundColor: c.card, borderRadius: radius.xl, borderWidth: 1, borderColor: c.edge, boxShadow: c.glow,
+        padding: space.xl, gap: space.sm }}>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <Text style={[type.small, { flex: 1, color: c.muted }]} numberOfLines={1}>{head}</Text>
+        {time !== "" && <Text style={[type.small, type.num, { color: c.muted }]}>{time}</Text>}
       </View>
-      <Text style={[type.display, { color: fg, fontSize: 26, lineHeight: 34 }]} numberOfLines={2}>{title}</Text>
-      <Text style={[type.small, { color: fg }]}>{sub}</Text>
+      {big.length > 0 && (
+        <Text>
+          {big.map(([n, u]) => (
+            <Text key={u}>
+              <Text style={[type.hero, { color: c.text }]}>{n}</Text>
+              <Text style={[type.label, { color: c.muted }]}> {u} </Text>
+            </Text>
+          ))}
+        </Text>
+      )}
+      {sub !== "" && <Text style={[type.small, { color: c.muted }]}>{sub}</Text>}
       {progress !== null && (
-        <View style={{ height: 6, borderRadius: radius.pill, backgroundColor: c.primaryTrack, overflow: "hidden" }}>
-          <View style={{ width: `${Math.round(progress * 100)}%`, height: "100%", borderRadius: radius.pill, backgroundColor: fg }} />
+        <View style={{ height: 3, borderRadius: radius.pill, backgroundColor: c.hair, overflow: "hidden", marginTop: space.xs }}>
+          <View style={{ width: `${Math.round(progress * 100)}%`, height: "100%", borderRadius: radius.pill, backgroundColor: c.primary }} />
         </View>
       )}
       {after && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs, paddingTop: space.xs }}>
-          <Icon name="arrow-forward" size={14} color={fg} />
-          <Text style={[type.small, { color: fg }]} numberOfLines={1}>{after.start} {after.title}</Text>
+        <View style={{ flexDirection: "row", gap: space.sm, paddingTop: space.xs }}>
+          <Text style={[type.small, { color: c.muted }]}>接下来</Text>
+          <Text style={[type.small, type.num, { color: c.text }]}>{after.start}</Text>
+          <Text style={[type.small, { color: c.text, flex: 1 }]} numberOfLines={1}>{after.title}</Text>
         </View>
       )}
-    </View>
-  );
-}
-
-/** 两个入口块：当下更该做的那个用实心陶土色。 */
-function Action({ icon, title, sub, strong, onPress }: {
-  icon: IconName; title: string; sub: string; strong: boolean; onPress: () => void;
-}) {
-  const c = useColors();
-  const fg = strong ? c.onPrimary : c.onSoft;
-  return (
-    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={`${title}，${sub}`}
-      style={{ flex: 1, minHeight: 112, borderRadius: radius.lg, padding: space.lg, justifyContent: "space-between",
-        backgroundColor: strong ? c.primary : c.soft }}>
-      <View style={{ width: 36, height: 36, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
-        backgroundColor: strong ? c.primaryTrack : c.card }}>
-        <Icon name={icon} size={20} color={fg} />
-      </View>
-      <View>
-        <Text style={[type.label, { color: fg, fontWeight: "600" }]}>{title}</Text>
-        <Text style={[type.small, { color: fg }]}>{sub}</Text>
-      </View>
-    </Pressy>
-  );
-}
-
-function EnergyRing({ plan }: { plan: Plan }) {
-  const c = useColors();
-  const used = plan.energy_cap ? Math.min(1, plan.energy_used / plan.energy_cap) : 0;
-  const pct = Math.round(used * 100);
-  return (
-    <Ring value={used} color={c.kind.must} label={`今天的精力安排了 ${pct}%`}>
-      <Text style={[type.title, { color: c.text, fontVariant: ["tabular-nums"] }]}>{pct}%</Text>
-    </Ring>
-  );
-}
-
-/** 这 7 天哪几天记了：实心点是记了的天数（不分哪天，后端只给总数）。 */
-function WeekDots({ logged }: { logged: number }) {
-  const c = useColors();
-  return (
-    <View accessible accessibilityLabel={`这 7 天记录了 ${logged} 天`} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      {Array.from({ length: 7 }, (_, i) => (
-        <View key={i} style={{ width: 10, height: 10, borderRadius: radius.pill,
-          backgroundColor: i < logged ? c.primary : c.sunken }} />
-      ))}
-      <Small muted>  记了 {logged}/7 天</Small>
     </View>
   );
 }
@@ -228,12 +192,12 @@ function TodaySkeleton() {
     <Screen safeTop bottom={TAB_SPACE}>
       <Skeleton height={16} width={140} />
       <Skeleton height={36} width={180} />
-      <Skeleton height={176} r={radius.xl} />
+      <Skeleton height={188} r={radius.xl} />
+      <Skeleton height={52} r={radius.pill} />
       <View style={{ flexDirection: "row", gap: space.md }}>
-        <View style={{ flex: 1 }}><Skeleton height={112} r={radius.lg} /></View>
-        <View style={{ flex: 1 }}><Skeleton height={112} r={radius.lg} /></View>
+        <View style={{ flex: 1 }}><Skeleton height={104} r={radius.lg} /></View>
+        <View style={{ flex: 1 }}><Skeleton height={104} r={radius.lg} /></View>
       </View>
-      <Skeleton height={120} r={radius.lg} />
     </Screen>
   );
 }

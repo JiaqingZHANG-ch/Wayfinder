@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 
-import { ApiError, confirmPlan, isCrisis, Plan, postEnergy } from "@/api";
+import { ApiError, Block, confirmPlan, getToday, isCrisis, Plan, postEnergy } from "@/api";
+import { planDiff } from "@/diff";
 import { haptic, Pressy, Skeleton } from "@/components/motion";
+import { BATTERY_HINT } from "@/labels";
 import { PlanView } from "@/components/plan-view";
 import { Sheet } from "@/components/sheet";
-import { Button, CrisisCard, IconButton, Notice, Small, Title } from "@/components/ui";
+import { Button, Card, CrisisCard, Eyebrow, IconButton, Notice, Small, Title } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const nowHHMM = () => new Date().toTimeString().slice(0, 5);
-const HINT = ["", "很累了", "有点累", "还行", "不错", "满格"];
 
-/** 下课后报电量：底部弹出的面板。点一格 → 后端只重排今晚 → 先给你看，点「就这样」才算确认。 */
+
+/** 下课后报电量：底部弹出的面板。点一格 → 后端只重排今晚 → 先列出改了哪几处，点「就这样」才算确认。 */
 export default function EnergyScreen() {
   return <Sheet>{(close) => <EnergyPanel close={close} />}</Sheet>;
 }
@@ -25,6 +27,12 @@ function EnergyPanel({ close }: { close: () => void }) {
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [from] = useState(nowHHMM);
+  const [before, setBefore] = useState<Block[] | null>(null); // 报之前的安排，用来比出改了什么；拿不到就只显示新安排
+
+  useEffect(() => {
+    getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
+  }, []);
+  const changes = plan && before ? planDiff(before, plan.blocks, from) : null;
 
   async function report(n: number) {
     haptic.select();
@@ -34,6 +42,8 @@ function EnergyPanel({ close }: { close: () => void }) {
     setCrisis(null);
     setPlan(null);
     try {
+      // 面板刚打开就点、原来的安排还没拿到时，先拿到再报，不然比出来是「不用动」
+      if (!before) await getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
       const res = await postEnergy(n);
       if (isCrisis(res)) setCrisis(res.message);
       else setPlan(res);
@@ -89,7 +99,8 @@ function EnergyPanel({ close }: { close: () => void }) {
         {message && <Notice tone={message.error ? "error" : "info"}>{message.text}</Notice>}
         {plan && (
           <Animated.View entering={FadeIn.duration(260)} style={{ gap: space.md }}>
-            <Small muted>今晚这样排：</Small>
+            {changes && <Changes changes={changes} />}
+            <Eyebrow>{changes ? "今晚完整的安排" : "今晚这样排"}</Eyebrow>
             <PlanView plan={plan} from={from} />
           </Animated.View>
         )}
@@ -98,6 +109,26 @@ function EnergyPanel({ close }: { close: () => void }) {
       {plan && !confirmed && <Button label="就这样" icon="checkmark" busyLabel={busy ? "正在确认……" : undefined} onPress={confirm} />}
       {confirmed && <Button label="好" variant="secondary" onPress={close} />}
     </View>
+  );
+}
+
+/** 改了的几处：时长变了的划掉原来的；没改就说一句。 */
+function Changes({ changes }: { changes: ReturnType<typeof planDiff> }) {
+  const c = useColors();
+  if (!changes.length) return <Small muted>今晚的安排不用动。</Small>;
+  return (
+    <Card style={{ gap: space.sm }}>
+      <Small muted>今晚这样排（改了 {changes.length} 处）</Small>
+      {changes.map((x) => (
+        <View key={`${x.time}${x.title}`} accessible style={{ flexDirection: "row", gap: space.md, alignItems: "baseline" }}
+          accessibilityLabel={`${x.time} ${x.title}，${x.was ? `从 ${x.was} 改成 ` : ""}${x.now}`}>
+          <Text style={[type.small, type.num, { width: 44, color: c.muted }]}>{x.time}</Text>
+          <Text style={[type.label, { flex: 1, color: c.text }]} numberOfLines={1}>{x.title}</Text>
+          {x.was && <Text style={[type.small, type.num, { color: c.muted, textDecorationLine: "line-through" }]}>{x.was}</Text>}
+          <Text style={[type.small, { color: c.ok, fontWeight: "600" }]}>{x.was ? "→ " : ""}{x.now}</Text>
+        </View>
+      ))}
+    </Card>
   );
 }
 
@@ -111,16 +142,16 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
     <View accessibilityRole="radiogroup" accessibilityLabel="电量" style={{ gap: space.sm }}>
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <View style={{ flex: 1, flexDirection: "row", gap: 6, padding: 6, borderRadius: radius.lg,
-          borderWidth: 2, borderColor: c.line }}>
+          borderWidth: 1.5, borderColor: c.line }}>
           {[1, 2, 3, 4, 5].map((n) => {
             const lit = level !== null && n <= level;
             return (
               <Pressy key={n} onPress={() => onPick(n)} disabled={disabled} scaleTo={0.92}
                 accessibilityRole="radio" accessibilityState={{ checked: level === n, disabled }}
-                accessibilityLabel={`电量 ${n} 格，${HINT[n]}`}
-                style={{ flex: 1, height: 64, borderRadius: radius.md - 4, backgroundColor: lit ? fill : c.sunken,
+                accessibilityLabel={`电量 ${n} 格，${BATTERY_HINT[n]}`}
+                style={{ flex: 1, height: 56, borderRadius: radius.md - 6, backgroundColor: lit ? fill : c.sunken,
                   alignItems: "center", justifyContent: "center" }}>
-                <Text style={[type.title, { color: lit ? ink : c.muted, fontVariant: ["tabular-nums"] }]}>{n}</Text>
+                <Text style={[type.title, type.num, { color: lit ? ink : c.muted }]}>{n}</Text>
               </Pressy>
             );
           })}
@@ -130,7 +161,7 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
       <View style={{ flexDirection: "row", paddingHorizontal: 8, paddingRight: 17 }}>
         {[1, 2, 3, 4, 5].map((n) => (
           <Text key={n} style={[type.small, { flex: 1, textAlign: "center", color: level === n ? c.text : c.muted,
-            fontWeight: level === n ? "600" : "400" }]}>{HINT[n]}</Text>
+            fontWeight: level === n ? "600" : "400" }]}>{BATTERY_HINT[n]}</Text>
         ))}
       </View>
     </View>
