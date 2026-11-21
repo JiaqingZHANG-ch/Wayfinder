@@ -45,8 +45,9 @@ export function useNow() {
  * fold（要和 now 一起给）：已经过去的块收成一行「早些时候 · N 件」，点开才显示。title：卡片顶上的小标题。
  * 行不单独错峰入场（卡片整张入场一次）；展开、收起、计划变了，行平滑挪位，新出现的行淡入。
  */
-export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
+export function PlanView({ plan, from, now, showEnergy = true, fold, title, action }: {
   plan: Plan; from?: string; now?: number; showEnergy?: boolean; fold?: boolean; title?: string;
+  action?: { label: string; onPress: () => void }; // 标题那一行右边的一个小入口（首页的「提前对账」）
 }) {
   const c = useColors();
   const [open, setOpen] = useState(false);
@@ -60,18 +61,28 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
   const current = now === undefined ? -1 : blocks.findIndex((b) => toMin(b.start) <= now && now < toMin(b.end));
   const lineAt = now === undefined || current >= 0 ? -1 : blocks.findIndex((b) => toMin(b.start) > now);
   const lineAtEnd = now !== undefined && current < 0 && lineAt < 0 && blocks.length > 0;
-  // 「自由时间：刷视频、看动漫都行」第一次写整句，后面只写冒号前面那半
-  const seen = new Set<string>();
-  const titles = blocks.map((b) => {
-    const [head] = b.title.split("：");
-    if (b.kind !== "life" || head === b.title) return b.title;
-    if (seen.has(head)) return head;
-    seen.add(head);
-    return b.title;
-  });
+  const foldRow = pastCount > 0 && (
+    <Pressy onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
+      accessibilityLabel={open ? "收起早些时候的安排" : "早些时候的安排，点开看"} scaleTo={0.98}
+      style={{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44, marginTop: action ? -space.md : 0 }}>
+      <Small muted>{open ? "收起早些时候" : pastTasks ? `早些时候 · ${pastTasks} 件事` : "早些时候"}</Small>
+      <Icon name={open ? "chevron-up" : "chevron-down"} size={14} color={c.muted} />
+    </Pressy>
+  );
   return (
     <Card style={{ gap: space.lg, paddingBottom: space.md }}>
-      {title && <Text style={[type.eyebrow, { color: c.muted }]}>{title}</Text>}
+      {/* 标题一行：左边标题，右边「早些时候」折叠；有小入口时入口在右、折叠挪到下一行 */}
+      {(title || action) && (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44, marginVertical: -space.sm }}>
+          <Text style={[type.eyebrow, { color: c.muted }]}>{title}</Text>
+          {action ? (
+            <Pressy onPress={action.onPress} accessibilityRole="button" accessibilityLabel={action.label}
+              style={{ minHeight: 44, justifyContent: "center", paddingLeft: space.md }}>
+              <Small muted>{action.label}</Small>
+            </Pressy>
+          ) : foldRow}
+        </View>
+      )}
       {showEnergy && (
         <View style={{ gap: space.sm }}>
           <Small muted>
@@ -86,19 +97,12 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
       )}
       {plan.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
       {from && blocks.length === 0 && <Small muted>今天已经没有剩下的安排了，早点休息。</Small>}
-      {pastCount > 0 && (
-        <Pressy onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }}
-          accessibilityLabel={open ? "收起早些时候的安排" : "早些时候的安排，点开看"} scaleTo={0.98}
-          style={{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44 }}>
-          <Small muted>{open ? "收起早些时候" : pastTasks ? `早些时候 · ${pastTasks} 件事` : "早些时候"}</Small>
-          <Icon name={open ? "chevron-up" : "chevron-down"} size={14} color={c.muted} />
-        </Pressy>
-      )}
+      {(action || !(title || action)) && foldRow}
       {blocks.length > 0 && <View>
         {blocks.map((b, i) => (
           <Animated.View key={b.id} entering={FadeIn.duration(200)} layout={LinearTransition.duration(260).easing(EASE)}>
             {i === lineAt && now !== undefined && <NowLine now={now} />}
-            <BlockRow b={b} title={titles[i]} last={i === blocks.length - 1}
+            <BlockRow b={b} last={i === blocks.length - 1}
               state={now === undefined ? "plain" : i === current ? "now" : toMin(b.end) <= now ? "past" : "plain"} />
           </Animated.View>
         ))}
@@ -113,7 +117,7 @@ const span = (b: Block) => {
   return m < 60 ? `${m} 分钟` : m % 60 ? `${h} 小时 ${m % 60} 分` : `${h} 小时`;
 };
 
-function BlockRow({ b, title, last, state }: { b: Block; title: string; last: boolean; state: "plain" | "now" | "past" }) {
+function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" | "now" | "past" }) {
   const c = useColors();
   const quiet = b.kind === "life";
   const live = state === "now";
@@ -144,9 +148,10 @@ function BlockRow({ b, title, last, state }: { b: Block; title: string; last: bo
       </View>
       <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2, paddingTop: quiet ? 0 : 4 },
         live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
-        <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }]
+        {/* 吃饭、路上、自由时间只占一行：冒号前那段加时长，细节留给读屏 */}
+        <Text numberOfLines={quiet ? 1 : undefined} style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }]
           : [type.body, { fontWeight: "500", color: live ? c.onSoft : past ? c.muted : c.text }]}>
-          {title}
+          {quiet ? `${b.title.split("：")[0]}${live ? "" : ` · ${span(b)}`}` : b.title}
         </Text>
         {(!quiet || live) && (
           <Small color={live ? c.onSoft : c.muted}>

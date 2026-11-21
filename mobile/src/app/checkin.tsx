@@ -144,14 +144,14 @@ export default function Checkin() {
   if (done) {
     // 今晚对过的事，一件一个它自己的记号：做了实心、保底半满、没做描边
     const marks = (items ?? []).filter((it) => done.saved.items?.[it.id]?.status);
-    const big = marks.length > 5 ? 32 : 40;
+    const big = marks.length > 5 ? 40 : 56;
     return shell(
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.xl }}>
         {marks.length ? (
-          <View style={{ alignItems: "center", justifyContent: "center", minHeight: 120, alignSelf: "stretch" }}
+          <View style={{ alignItems: "center", justifyContent: "center", minHeight: 160, alignSelf: "stretch" }}
             accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-            <Glow color={c.primary} size={260} opacity={0.22} />
-            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.lg, maxWidth: 300 }}>
+            <Glow color={c.kind.must} size={320} opacity={0.16} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.xl, maxWidth: 320 }}>
               {marks.map((it, i) => {
                 const s = done.saved.items?.[it.id]?.status;
                 return (

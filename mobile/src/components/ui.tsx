@@ -50,11 +50,14 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
     gap: space.lg, maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      {sky !== undefined && <Sky min={sky} />}
       {scroll ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={inner}
-          keyboardShouldPersistTaps="handled" refreshControl={refresh as never}>{children}</ScrollView>
-      ) : <View style={inner}>{children}</View>}
+        // 天色画在滚动内容里：跟着内容滚走，卡片后面是干净的底
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled" refreshControl={refresh as never}>
+          {sky !== undefined && <Sky min={sky} />}
+          <View style={inner}>{children}</View>
+        </ScrollView>
+      ) : <>{sky !== undefined && <Sky min={sky} />}<View style={inner}>{children}</View></>}
     </View>
   );
 }

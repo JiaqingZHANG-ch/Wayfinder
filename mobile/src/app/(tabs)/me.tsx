@@ -19,7 +19,7 @@ export default function MeScreen() {
   useFocusEffect(useCallback(() => { getSettings().then(setS, () => {}); }, [])); // 拿不到就不写小结
 
   const classes = new Set((s?.timetable ?? []).map((x) => x.title)).size;
-  const summary = s && [`${s.wake} 起`, classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : ""]
+  const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : ""]
     .filter(Boolean).join(" · ");
   const evening = s?.reminders?.evening;
 
@@ -33,12 +33,15 @@ export default function MeScreen() {
       {s && s.habits.length + (s.projects?.length ?? 0) > 0 && (
         // 我的记号：每个习惯、项目一个，和时间线、本周页里长一样
         <Animated.View entering={enter(1)}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.lg, paddingVertical: space.xs }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: space.md, paddingVertical: space.xs, flexGrow: 1, justifyContent: "space-around" }}>
             {[...s.habits.map((h) => [h.title, c.kind.must] as const), ...(s.projects ?? []).map((p) => [p.title, c.kind.proj] as const)]
               .map(([t, col]) => (
-                <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.xs, width: 64 }}>
-                  <Glyph name={t} color={col} size={28} />
-                  <Text style={[type.small, { fontSize: 11, lineHeight: 15, color: c.muted }]} numberOfLines={1}>{t}</Text>
+                <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.sm, width: 80 }}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", backgroundColor: `${col}29` }}>
+                    <Glyph name={t} color={col} size={40} />
+                  </View>
+                  <Text style={[type.small, { fontSize: 12, lineHeight: 16, color: c.muted }]} numberOfLines={1}>{t}</Text>
                 </View>
               ))}
           </ScrollView>

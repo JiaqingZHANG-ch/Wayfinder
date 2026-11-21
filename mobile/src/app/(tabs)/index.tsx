@@ -6,7 +6,7 @@ import Animated, { FadeIn, FadeInUp, FadeOutUp } from "react-native-reanimated";
 import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
 import { Arc } from "@/components/art";
 import { enter, Skeleton } from "@/components/motion";
-import { dayLabel, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
+import { dayLabel, PlanView, toMin, useNow } from "@/components/plan-view";
 import { Button, Card, ErrorState, Icon, Notice, Screen, Small, Stat, Title } from "@/components/ui";
 import { BATTERY_HINT } from "@/labels";
 import { scheduleReminders } from "@/notifications";
@@ -135,7 +135,7 @@ export default function Today() {
         {/* 换的是哪种卡片才淡入；白天、报过、傍晚都是同一张「此刻」卡片，不重来 */}
         <Animated.View key={phase === "over" || done ? phase : "now"} entering={FadeIn.duration(320)}>
           {phase === "over" ? <OverCard blocks={plan.blocks} now={now} onCheckin={checkin} />
-            : done ? <DoneCard blocks={plan.blocks} now={now} tomorrow={plan.tomorrow_task ?? null} checkin={plan.checkin} />
+            : done ? <DoneCard blocks={plan.blocks} now={now} tomorrow={plan.tomorrow_task ?? null} checkin={plan.checkin} nights={week?.logged_days} />
             : <NowCard blocks={plan.blocks} now={now} />}
         </Animated.View>
       </Animated.View>
@@ -144,9 +144,6 @@ export default function Today() {
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
           {phase === "day" && <Button hug label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
           {phase === "evening" && <Button hug label="对个账" icon="moon-outline" onPress={checkin} />}
-          {(phase === "day" || phase === "reported") && (
-            <Button label={plan.checked_in ? "改一下今天的对账" : "提前对账"} variant="neutral" onPress={checkin} />
-          )}
           {done && <Button label="再改一下今晚的对账" variant="neutral" onPress={checkin} />}
         </Animated.View>
       )}
@@ -176,7 +173,9 @@ export default function Today() {
 
       {!done && (
         <Animated.View entering={enter(5)}>
-          <PlanView plan={plan} now={now} showEnergy={false} fold title={canReport ? "接下来" : "今天"} />
+          <PlanView plan={plan} now={now} showEnergy={false} fold title={canReport ? "接下来" : "今天"}
+            action={phase === "day" || phase === "reported"
+              ? { label: plan.checked_in ? "改一下对账" : "提前对账", onPress: checkin } : undefined} />
         </Animated.View>
       )}
 
@@ -204,7 +203,7 @@ function Cells({ n, lit, marks, color, round, tall }: { n: number; lit: number; 
   );
 }
 
-const HERO = { alignItems: "center", gap: space.sm, paddingVertical: space.sm } as const;
+const HERO = { alignItems: "center", gap: space.xs, paddingVertical: space.sm } as const;
 
 /** 首屏的弧：量出宽度再画；两脚下面标今天从几点画到几点。 */
 function HeroArc({ blocks, now, done, fills }: { blocks: Block[]; now: number; done?: boolean; fills?: Record<string, Fill> }) {
@@ -256,7 +255,7 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
   if (!b) return null;
   const parts = cur ? spanParts(toMin(cur.end) - now, "后结束") : spanParts(toMin(b.start) - now, "后开始");
   const after = cur && next ? next : null;
-  const meta = [kindName(b), b.pomodoros ? `番茄 ${b.pomodoros} 个` : ""].filter(Boolean).join(" · ");
+  const pomo = b.pomodoros ? ` · 番茄 ${b.pomodoros} 个` : "";
   const said = parts.map(([n, u]) => `${n} ${u}`).join(" ");
   return (
     <View accessible accessibilityLabel={[cur ? "现在" : "接下来", b.title, said, after && `然后 ${after.start} ${after.title}`]
@@ -267,13 +266,12 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
           <BigNumber parts={parts} />
         </View>
       </View>
-      <Text style={[type.eyebrow, type.num, { color: c.primary, marginTop: space.md }]}>
-        {cur ? "现在" : "接下来"} · {b.start}–{b.end}
+      <Text style={[type.eyebrow, type.num, { color: c.primary, marginTop: space.sm }]}>
+        {cur ? `现在 · 到 ${b.end}` : `接下来 · ${b.start} 开始`}{pomo}
       </Text>
       <Text style={[type.display, { color: c.text, textAlign: "center" }]} numberOfLines={2}>
         {b.kind === "life" ? b.title.split("：")[0] : b.title}
       </Text>
-      {meta !== "" && <Small muted>{meta}</Small>}
       {after && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: space.xs,
           paddingVertical: space.xs, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: c.surface }}>
@@ -300,7 +298,9 @@ function OverCard({ blocks, now, onCheckin }: { blocks: Block[]; now: number; on
 }
 
 /** 对完账：弧收好，只说明天先做什么，然后晚安。 */
-function DoneCard({ blocks, now, tomorrow, checkin }: { blocks: Block[]; now: number; tomorrow: string | null; checkin?: Plan["checkin"] }) {
+function DoneCard({ blocks, now, tomorrow, checkin, nights }: {
+  blocks: Block[]; now: number; tomorrow: string | null; checkin?: Plan["checkin"]; nights?: number;
+}) {
   const c = useColors();
   // 弧上的记号按今晚对账的结果画：做了实心、保底半满、没做描边
   const fills = checkin ? Object.fromEntries(Object.entries(checkin.items).map(([k, v]) =>
@@ -309,18 +309,17 @@ function DoneCard({ blocks, now, tomorrow, checkin }: { blocks: Block[]; now: nu
     <View accessible accessibilityLabel={`今天收好了，${tomorrow ? `明天先做：${tomorrow}` : "明天见"}，晚安`} style={[HERO, { gap: space.md }]}>
       <View style={{ alignSelf: "stretch" }}>
         <HeroArc blocks={blocks} now={now} done fills={fills} />
-        <View style={{ position: "absolute", left: 0, right: 0, bottom: 22, alignItems: "center" }}>
-          <Icon name="moon" size={40} color={c.primary} />
+        {/* 弧里写这 7 天记了几晚；拿不到就画月亮 */}
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: nights === undefined ? 22 : 10, alignItems: "center" }}>
+          {nights === undefined ? <Icon name="moon" size={40} color={c.primary} /> : <BigNumber parts={[[nights, "/ 7 晚"]]} />}
         </View>
       </View>
-      <Text style={[type.eyebrow, { color: c.primary }]}>今天收好了</Text>
       {tomorrow ? (
         <View style={{ gap: 2, alignItems: "center" }}>
           <Small muted>明天先做</Small>
           <Text style={[type.display, { color: c.text, textAlign: "center" }]}>{tomorrow}</Text>
         </View>
       ) : <Title>明天见。</Title>}
-      <Text style={[type.label, { color: c.muted, fontWeight: "400" }]}>晚安。</Text>
     </View>
   );
 }

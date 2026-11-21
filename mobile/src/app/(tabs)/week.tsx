@@ -176,7 +176,7 @@ function HabitRow({ h, start }: { h: Week["habits"][number]; start: string }) {
 function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
   const c = useColors();
   const total = p.less + p.same + p.more;
-  const cols: [string, number, number][] = [["比预想少", p.less, 0.45], ["差不多", p.same, 0.7], ["比预想多", p.more, 1]];
+  const cols: [string, number][] = [["比预想少", p.less], ["差不多", p.same], ["比预想多", p.more]];
   const top = Math.max(p.less, p.same, p.more);
   const leaders = cols.filter(([, v]) => v === top);
   const said = !total ? "这周还没记" : leaders.length > 1 ? "有时多、有时少" :
@@ -193,14 +193,14 @@ function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
         {total > 0 && (
           <>
             <View style={{ flexDirection: "row", height: 10, borderRadius: radius.pill, overflow: "hidden", gap: 2 }}>
-              {cols.filter(([, v]) => v > 0).map(([k, v, o]) => (
-                <View key={k} style={{ flex: v, backgroundColor: c.kind.proj, opacity: o }} />
+              {cols.filter(([, v]) => v > 0).map(([k, v]) => (
+                <View key={k} style={{ flex: v, backgroundColor: k === "比预想少" ? c.sunken : c.kind.proj, opacity: k === "差不多" ? 0.6 : 1 }} />
               ))}
             </View>
             <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap" }}>
-              {cols.map(([k, v, o]) => (
+              {cols.map(([k, v]) => (
                 <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: c.kind.proj, opacity: o }} />
+                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: k === "比预想少" ? c.sunken : c.kind.proj, opacity: k === "差不多" ? 0.6 : 1 }} />
                   <Small muted>{k} <Text style={type.num}>{v}</Text></Small>
                 </View>
               ))}
