@@ -59,7 +59,7 @@ function EnergyPanel({ close }: { close: () => void }) {
     try {
       // 面板刚打开就点、原来的安排还没拿到时，先拿到再报，不然比出来是「不用动」
       if (!before) await getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
-      const res = await postEnergy(n);
+      const res = await postEnergy(n, true); // 先预览：关掉面板就什么都没改
       if (isCrisis(res)) setCrisis(res.message);
       else setPlan(res);
     } catch (e) {
@@ -73,10 +73,13 @@ function EnergyPanel({ close }: { close: () => void }) {
   }
 
   async function confirm() {
-    if (!plan) return;
+    if (!plan || level === null) return;
     setBusy(true); // 连点两次「就这样」只发一次
     try {
-      const res = await confirmPlan(plan.version);
+      // 点「就这样」才正式报电量、存下这一版，再确认
+      const saved = await postEnergy(level);
+      if (isCrisis(saved)) { setCrisis(saved.message); return; }
+      const res = await confirmPlan(saved.version);
       haptic.success();
       if (res.calendar === "reconnect") {
         setConfirmed(true);

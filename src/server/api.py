@@ -44,6 +44,7 @@ class EnergyIn(BaseModel):
     level: int = Field(ge=1, le=5, strict=True, description="电量几格（1–5）")
     now: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="从几点开始重排，不填 = 现在")
     done_ids: list[str] = Field(default_factory=list, description="今天已经做完的事项 id")
+    preview: bool = Field(False, description="只算不存：面板里点一格先看会改什么，点「就这样」再正式报")
 
 
 class ConfirmIn(BaseModel):
@@ -279,6 +280,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         inp = plan_input(day, body.level)
         # shortcut: 总是从当天的原始计划重排，不在上一次重排的结果上叠；一天报两次电量时，第二次之前的手动改动会丢
         plan = solved(lambda: replan_from(inp, body.now or to_hhmm(t.hour * 60 + t.minute), body.done_ids))
+        if body.preview:  # 预览不存：关掉面板，今天的计划和电量都不变；version 0 表示「还没存」
+            return {"day": day.isoformat(), "version": 0, "confirmed": False, "energy_level": body.level, **plan}
         db.add_plan(USER_ID, day, plan, body.level)
         return out(day, db.latest_plan(USER_ID, day))
 

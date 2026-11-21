@@ -148,7 +148,8 @@ export const putSettings = (s: Settings) => send<Settings | Crisis>("PUT", "/set
 export const postOnboarding = (answer?: string) => send<OnboardingTurn>("POST", "/onboarding", { answer });
 export const confirmProfile = (id: number, content?: string) =>
   send<{ confirmed: Profile[]; pending: Profile[] } | Crisis>("POST", "/profile/confirm", { id, content });
-export const postEnergy = (level: number) => send<Plan | Crisis>("POST", "/energy", { level });
+/** preview：只算不存（version 是 0），面板里点「就这样」时再正式报一次。 */
+export const postEnergy = (level: number, preview = false) => send<Plan | Crisis>("POST", "/energy", { level, preview });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
 export const getMe = () => send<Me>("GET", "/me");
 /** consent 不填 = 只改国家，不算同意。 */

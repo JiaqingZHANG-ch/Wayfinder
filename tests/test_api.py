@@ -51,6 +51,16 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin")} == after
 
 
+def test_energy_preview_changes_nothing_until_reported(setup):
+    client, _, _ = setup
+    before = client.get("/today").json()
+    preview = client.post("/energy", json={"level": 2, "now": "18:00", "preview": True}).json()
+    assert preview["version"] == 0 and preview["energy_level"] == 2
+    assert client.get("/today").json() == before  # 关掉面板：计划、电量都没动
+    real = client.post("/energy", json={"level": 2, "now": "18:00"}).json()
+    assert real["version"] == 2 and real["blocks"] == preview["blocks"]
+
+
 @pytest.mark.parametrize("body", [{"level": 0}, {"level": 6}, {"level": 3, "now": "6pm"}, {}])
 def test_energy_rejects_bad_input(setup, body):
     assert setup[0].post("/energy", json=body).status_code == 422

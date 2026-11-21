@@ -194,13 +194,13 @@ function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
           <>
             <View style={{ flexDirection: "row", height: 10, borderRadius: radius.pill, overflow: "hidden", gap: 2 }}>
               {cols.filter(([, v]) => v > 0).map(([k, v]) => (
-                <View key={k} style={{ flex: v, backgroundColor: k === "比预想少" ? c.sunken : c.kind.proj, opacity: k === "差不多" ? 0.6 : 1 }} />
+                <View key={k} style={{ flex: v, backgroundColor: c.kind.proj, opacity: k === "比预想少" ? 0.3 : k === "差不多" ? 0.6 : 1 }} />
               ))}
             </View>
             <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap" }}>
               {cols.map(([k, v]) => (
                 <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: k === "比预想少" ? c.sunken : c.kind.proj, opacity: k === "差不多" ? 0.6 : 1 }} />
+                  <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: c.kind.proj, opacity: k === "比预想少" ? 0.3 : k === "差不多" ? 0.6 : 1 }} />
                   <Small muted>{k} <Text style={type.num}>{v}</Text></Small>
                 </View>
               ))}
