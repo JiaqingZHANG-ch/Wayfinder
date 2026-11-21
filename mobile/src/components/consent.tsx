@@ -50,7 +50,7 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
           </View>
         ))}
         <Button label={full ? "收起完整说明" : "看完整说明"} variant="quiet" onPress={() => setFull(!full)} />
-        {full && <Body muted>{me.privacy.text}</Body>}
+        {full && me.privacy.text.split("\n").filter(Boolean).map((p, i) => <Body key={i} muted>{p}</Body>)}
       </Card>
       <Label>你现在在哪个国家？遇到危险时会显示当地的求助电话。</Label>
       <Row>

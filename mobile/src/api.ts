@@ -1,4 +1,4 @@
-import type { Status } from "./labels";
+import type { Status, VsPlan } from "./labels";
 
 // 和后端（growth-mentor 的 serve.ps1，默认 http://127.0.0.1:8000）说话的地方。接口说明见后端的 /docs 页。
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -28,6 +28,7 @@ export type Plan = {
   reminders?: Reminder[]; // 只有 GET /today 带
   checked_in?: boolean; // 只有 GET /today 带：今晚对过账没有
   tomorrow_task?: string | null; // 只有 GET /today 带：对账时写的「明天先做」
+  checkin?: { items: Record<string, { status?: Status; vs_plan?: VsPlan }>; note: string | null; blocker: string | null } | null; // 只有 GET /today 带：今晚上次对账记的
   calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
 };
 

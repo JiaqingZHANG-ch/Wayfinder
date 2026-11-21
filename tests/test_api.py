@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k not in ("reminders", "checked_in", "tomorrow_task")} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "checked_in", "tomorrow_task", "checkin")} == after
 
 
 @pytest.mark.parametrize("body", [{"level": 0}, {"level": 6}, {"level": 3, "now": "6pm"}, {}])
@@ -666,3 +666,11 @@ def test_validation_errors_are_said_in_chinese(new_user, body, said):
 
 def test_energy_level_must_be_a_number(setup):
     assert setup[0].post("/energy", json={"level": "3", "now": "17:00"}).status_code == 422
+
+
+def test_today_returns_last_checkin_so_it_can_be_edited(setup):
+    client, _, _ = setup
+    assert client.get("/today").json()["checkin"] is None
+    client.post("/checkin", json={"result": {"items": {"english": {"status": "floor"}}, "note": "挺顺"}})
+    got = client.get("/today").json()["checkin"]
+    assert got["items"] == {"english": {"status": "floor"}} and got["note"] == "挺顺"

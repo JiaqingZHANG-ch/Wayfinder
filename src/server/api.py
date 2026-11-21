@@ -261,7 +261,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         reminders = [r for r in todays_reminders(stored["plan"], settings)
                      if not (r["kind"] == "evening" and log) and not (r["kind"] == "after_class" and stored["energy_level"])]
         return {**out(day, stored), "reminders": reminders,
-                "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None}
+                "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
+                # 再改一下对账时，先把上次选的填好
+                "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None}
 
     @app.post("/energy", summary="报电量 → 只重排今晚 → 返回新计划（未确认）")
     def post_energy(body: EnergyIn):

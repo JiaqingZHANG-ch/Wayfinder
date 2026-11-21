@@ -103,7 +103,7 @@ export default function Today() {
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now); // 按钮和电量瓷砖用同一个判断
   const left = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now);
   const lastEnd = plan.blocks.length ? plan.blocks[plan.blocks.length - 1].end : "";
-  const summary = done ? "今天收好了。" : phase === "over" ? "今天的安排都走完了。"
+  const summary = done ? "做过的都记下了。" : phase === "over" ? "今天的安排都走完了。"
     : left.length ? `今天还有 ${left.length} 件事，${lastEnd} 收尾。` : "剩下的都是休息时间。";
   const review = week?.review === "due" && (
     <Card i={4} onPress={() => router.push("/review")} label="打开这周的复盘"

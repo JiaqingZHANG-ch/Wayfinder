@@ -79,7 +79,8 @@ export function Glyph({ name, color, size = 16, fill = "full", star, dim }: {
       )}
       {fill === "full" && <Path d={d} fill={color} />}
       {fill === "half" && <G clipPath={`url(#h${id})`}><Path d={d} fill={color} /></G>}
-      {fill !== "full" && <Path d={d} fill="none" stroke={color} strokeWidth={1.4} strokeLinejoin="round" />}
+      {/* 大记号的描边别跟着放大成粗框 */}
+      {fill !== "full" && <Path d={d} fill="none" stroke={color} strokeWidth={1.4 * Math.min(1, 40 / size)} strokeLinejoin="round" />}
     </Svg>
   );
 }
@@ -127,7 +128,7 @@ export function Arc({ blocks, now, width, height = 120, done }: {
         return (
           <G key={b.id} x={q.x - 6} y={q.y - 6}>
             <Circle cx={6} cy={6} r={7} fill={c.bg} />
-            <G opacity={past ? 0.55 : 1}>
+            <G opacity={past && !done ? 0.55 : 1}>
               <GlyphPath name={b.title} star={b.task_id === "one-thing"} color={c.kind[b.kind]} filled={past} />
             </G>
           </G>

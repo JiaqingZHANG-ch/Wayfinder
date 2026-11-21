@@ -56,7 +56,15 @@ export default function Checkin() {
   const [back, setBack] = useState(false); // 刚才是往回翻：新的一屏从左边进来
 
   useEffect(() => {
-    getToday().then((plan) => setItems(checkinItems(plan)), () => setMessage(OFFLINE));
+    getToday().then((plan) => {
+      setItems(checkinItems(plan));
+      if (plan.checkin) { // 再改一下：上次选的先填好（没动的字段不会发回去）
+        setChoices(plan.checkin.items);
+        setNote(plan.checkin.note ?? "");
+        setBlocker(plan.checkin.blocker ?? "");
+        setTomorrow(plan.tomorrow_task ?? "");
+      }
+    }, () => setMessage(OFFLINE));
     getWeek().then((w) => setLogged(w.logged), () => {});
     AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
     return () => { if (advance.current) clearTimeout(advance.current); };
@@ -236,6 +244,7 @@ export default function Checkin() {
       <>
         <ItemHead item={step.item} />
         <Display>{step.item.title}</Display>
+        <BigMark item={step.item} status={cur} />
         <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {keys.map((k) => (
             <Option key={k} icon={STATUS_LOOK[k].icon} title={STATUS_LABELS[k]} sub={floor ? FLOOR_SUB[k] : STATUS_LOOK[k].sub}
@@ -245,7 +254,7 @@ export default function Checkin() {
         </View>
       </>
     );
-    bottom = reader && cur
+    bottom = cur // 再改一下时已经选好了：直接下一步
       ? <Button label="下一步" onPress={() => go(idx + 1)} />
       : <Button label="先不记这件" variant="neutral" onPress={() => go(idx + 1)} />;
   } else if (step.t === "vs") {
@@ -254,6 +263,7 @@ export default function Checkin() {
       <>
         <ItemHead item={step.item} title />
         <Display>和预想比，花的时间？</Display>
+        <BigMark item={step.item} status={choices[step.item.id]?.status} />
         <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {(Object.keys(VS_PLAN_LABELS) as VsPlan[]).map((k) => (
             <Option key={k} icon={VS_LOOK[k]} title={VS_PLAN_LABELS[k]} on={cur === k}
@@ -262,7 +272,7 @@ export default function Checkin() {
         </View>
       </>
     );
-    bottom = <Button label={reader && cur ? "下一步" : "跳过"} variant={reader && cur ? "primary" : "neutral"} onPress={() => go(idx + 1)} />;
+    bottom = <Button label={cur ? "下一步" : "跳过"} variant={cur ? "primary" : "neutral"} onPress={() => go(idx + 1)} />;
   } else if (step.t === "note") {
     body = (
       <>
@@ -302,6 +312,20 @@ export default function Checkin() {
 }
 
 /** 每屏标题上面那行：这件事的记号和它是什么（习惯 / 项目 / 昨晚定的一件事）。title：项目那屏再带上事情名。 */
+/** 每屏中间的大记号：选了「做了」就填满、「保底」填一半，和本周页一样；还没选是淡的描边。 */
+function BigMark({ item, status }: { item: CheckinItem; status?: Status }) {
+  const c = useColors();
+  return (
+    <View style={{ flex: 1, minHeight: 120, alignItems: "center", justifyContent: "center" }}
+      accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Animated.View key={status ?? "none"} entering={ZoomIn.duration(220)}>
+        <Glyph name={item.title} star={item.one} color={c.kind[item.kind]} size={112}
+          fill={status === "done" ? "full" : status === "floor" ? "half" : "empty"} dim={!status || status === "skip"} />
+      </Animated.View>
+    </View>
+  );
+}
+
 function ItemHead({ item, title }: { item: CheckinItem; title?: boolean }) {
   const c = useColors();
   return (

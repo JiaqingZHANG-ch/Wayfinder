@@ -14,10 +14,10 @@ export default function PrivacyScreen() {
   useFocusEffect(load);
   return (
     <Screen safeTop>
-      <Header title="隐私说明" sub={me ? `版本 ${me.privacy.version}` : undefined} />
+      <Header title="隐私说明" />
       {error && !me ? <ErrorState onRetry={load} />
         : !me ? <Skeleton height={320} r={radius.lg} />
-        : <Card><Body muted>{me.privacy.text}</Body></Card>}
+        : <Card>{me.privacy.text.split("\n").filter(Boolean).map((p, i) => <Body key={i} muted>{p}</Body>)}</Card>}
     </Screen>
   );
 }
