@@ -5,7 +5,7 @@ import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { getSettings, Settings } from "@/api";
-import { Glyph } from "@/components/art";
+import { Arc, Glyph } from "@/components/art";
 import { enter } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
 import { Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
@@ -22,6 +22,8 @@ export default function MeScreen() {
   const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : ""]
     .filter(Boolean).join(" · ");
   const evening = s?.reminders?.evening;
+  const [w, setW] = useState(0);
+  const marks = s ? [...s.habits.map((h) => [h.title, c.kind.must] as const), ...(s.projects ?? []).map((p) => [p.title, c.kind.proj] as const)] : [];
 
   return (
     <Screen safeTop bottom={TAB_SPACE} sky={now}>
@@ -30,13 +32,36 @@ export default function MeScreen() {
         <Display>我</Display>
       </Animated.View>
 
-      {s && s.habits.length + (s.projects?.length ?? 0) > 0 && (
-        // 我的记号：每个习惯、项目一个，和时间线、本周页里长一样
+      {s && marks.length > 0 && marks.length <= 4 && (
+        // 我的一天：从起床到睡觉一道弧，弧下站着我的记号（和时间线、本周页里长一样）
+        <Animated.View entering={enter(1)}>
+          <View style={{ height: 130 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+            <Arc blocks={[{ id: "day", title: "", start: s.wake, end: s.sleep, kind: "life", task_id: null, pomodoros: null }]}
+              now={0} width={w} height={112} />
+            <View style={{ position: "absolute", left: 0, right: 0, top: 44, flexDirection: "row", justifyContent: "center",
+              gap: marks.length > 3 ? 12 : 16 }}>
+              {marks.map(([t, col]) => (
+                <View key={t} accessible accessibilityLabel={t} style={{ width: 56, height: 56, borderRadius: 28,
+                  alignItems: "center", justifyContent: "center", backgroundColor: `${col}29` }}>
+                  <Glyph name={t} color={col} size={32} />
+                </View>
+              ))}
+            </View>
+            <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "space-between" }}
+              accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+              <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{s.wake} 起</Text>
+              <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{s.sleep} 睡</Text>
+            </View>
+          </View>
+        </Animated.View>
+      )}
+
+      {s && marks.length > 4 && (
+        // 记号多了一道弧站不下：横着一排，可以滑
         <Animated.View entering={enter(1)}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: space.md, paddingVertical: space.xs, flexGrow: 1, justifyContent: "space-around" }}>
-            {[...s.habits.map((h) => [h.title, c.kind.must] as const), ...(s.projects ?? []).map((p) => [p.title, c.kind.proj] as const)]
-              .map(([t, col]) => (
+            {marks.map(([t, col]) => (
                 <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.sm, width: 80 }}>
                   <View style={{ width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", backgroundColor: `${col}29` }}>
                     <Glyph name={t} color={col} size={40} />

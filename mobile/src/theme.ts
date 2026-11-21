@@ -12,15 +12,15 @@ const light = {
   card: "#FFFDF9", // 实色：底部面板、保存栏这类盖在别的东西上面的
   surface: "rgba(255, 253, 249, 0.82)", // 内容卡片：微透，底下的天色透一点上来
   surfaceGrad: ["rgba(255, 253, 249, 0.92)", "rgba(255, 253, 249, 0.74)"] as [string, string], // 卡片表面：上亮下淡
-  primaryGrad: ["#C06445", "#A94F34"] as [string, string], // 主按钮的两段渐变
-  primaryShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 24px rgba(180, 87, 58, 0.22)", // 主按钮：顶边高光 + 同色投影
+  primaryGrad: ["#B4573A", "#A04A30"] as [string, string], // 主按钮的两段渐变
+  primaryShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 6px 16px rgba(169, 79, 52, 0.18)", // 主按钮：顶边高光 + 同色投影
   sunken: "#F3ECE2", // 输入框、未选中的块
   line: "#E8DFD3",
   edge: "rgba(46, 42, 38, 0.08)", // 卡片的发丝边
   hair: "rgba(46, 42, 38, 0.06)", // 极浅的填充：选中的标签、进度槽
   text: "#2E2A26", // 13.2:1
   muted: "#6E655C", // 5.3:1
-  primary: "#B4573A", // 陶土色；上面的白字 4.8:1
+  primary: "#A94F34", // 陶土色；上面的白字 5.4:1，天色中段上当小字 4.76:1
   onPrimary: "#FFFFFF",
   soft: "#F6E3D9", // 选中的柔和底
   onSoft: "#8A3F27", // 6.0:1
@@ -29,7 +29,7 @@ const light = {
   onWarm: "#2E2A26", // 琥珀色（kind.flex）上的字 6.3:1
   primaryTrack: "rgba(255, 255, 255, 0.28)", // 陶土色底上的进度槽、图标圆
   overlay: "rgba(46, 42, 38, 0.5)", // 底部面板后面的遮罩
-  shadow: "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(90, 58, 40, 0.05), 0 8px 24px rgba(90, 58, 40, 0.05)",
+  shadow: "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(90, 58, 40, 0.07), 0 10px 28px rgba(90, 58, 40, 0.09)",
   glow: "0 6px 24px rgba(90, 58, 40, 0.07)", // 「此刻」主卡片；深色里换成一圈陶土微光
   glass: "rgba(255, 252, 247, 0.94)", // 标签栏、底部面板在不支持液态玻璃时的半透明底
   glassEdge: "rgba(255, 255, 255, 0.75)",
@@ -109,7 +109,7 @@ export const type = {
 } as const;
 
 /**
- * 天色：页面顶上那片渐变跟着时段走。清晨淡青、白天沙金、傍晚陶土粉、夜里靛紫。
+ * 天色：页面顶上那片渐变跟着时段走。清晨淡青、白天雾蓝、傍晚陶土粉、夜里靛紫。
  * top 是渐变最上面的颜色，glow 是右上角那团柔光。min 是这一天的第几分钟（凌晨可以超过 24:00）。
  */
 export type SkyTone = { top: string; mid: string; glow: string };
@@ -123,10 +123,11 @@ export function skyTone(min: number, darkMode: boolean): SkyTone {
     { top: "#1D1B33", mid: "#191726", glow: "#8C84D6" }, // 夜里：靛紫
   ];
   const lightSky = [
-    { top: "#DCEBEE", mid: "#EBF1EF", glow: "#9CCAD6" },
-    { top: "#F5E6C6", mid: "#F8EEDC", glow: "#F0C36A" },
-    { top: "#F5D8CA", mid: "#F8E7DD", glow: "#E8987A" },
-    { top: "#DEDBF0", mid: "#ECE8F0", glow: "#9F98DE" },
+    // 浅色：光是白的，比天亮（彩色的光在浅色天上反而发灰）；白天和深色一样是雾蓝
+    { top: "#DCEBEE", mid: "#EBF1EF", glow: "#FFFFFF" },
+    { top: "#DDE7F5", mid: "#ECF0F5", glow: "#FFFFFF" },
+    { top: "#F5D8CA", mid: "#F8E7DD", glow: "#FFFFFF" },
+    { top: "#DEDBF0", mid: "#ECE8F0", glow: "#FFFFFF" },
   ];
   return (darkMode ? darkSky : lightSky)[slot];
 }

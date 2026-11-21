@@ -102,6 +102,8 @@ export default function Today() {
   const checkin = () => router.push("/checkin");
   const done = phase === "done";
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now); // 按钮和电量瓷砖用同一个判断
+  // 下课了（或今天没课）才放「报个电量」主按钮；下课前只有电量瓷砖，瓷砖上写着「下课后报一下」
+  const ready = classOver || !plan.blocks.some((b) => b.kind === "class");
   const left = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now);
   const lastEnd = plan.blocks.length ? plan.blocks[plan.blocks.length - 1].end : "";
   const summary = done ? "做过的都记下了" : phase === "over" ? "今天的安排都走完了"
@@ -142,7 +144,7 @@ export default function Today() {
 
       {phase !== "over" && (
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
-          {phase === "day" && <Button hug label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
+          {phase === "day" && ready && <Button hug label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
           {phase === "evening" && <Button hug label="对个账" icon="moon-outline" onPress={checkin} />}
         </Animated.View>
       )}
@@ -156,9 +158,9 @@ export default function Today() {
         ) : (
           // 没报时不写「—」：画一节空电池，下面一句话
           <Stat label="电量" onPress={canReport ? energy : undefined}
-            a11y={`报电量，${!canReport ? "今天没报" : classOver ? "还没报" : "下课后报一下"}`}>
+            a11y={`报电量，${!canReport ? "今天没报" : ready ? "还没报" : "下课后报一下"}`}>
+            <Small muted>{!canReport ? "今天没报" : ready ? "还没报" : "下课后报一下"}</Small>
             <Cells n={5} lit={0} color={c.kind.must} tall />
-            <Small muted>{!canReport ? "今天没报" : classOver ? "还没报" : "下课后报一下"}</Small>
           </Stat>
         )}
         {week && (
@@ -194,15 +196,15 @@ export default function Today() {
 function Cells({ n, lit, marks, color, round, tall }: { n: number; lit: number; marks?: boolean[]; color: string; round?: boolean; tall?: boolean }) {
   const c = useColors();
   return (
-    <View style={{ flexDirection: "row", gap: tall ? 3 : 4, marginTop: tall ? space.xs : "auto", paddingTop: tall ? 0 : space.sm }}
+    <View style={{ flexDirection: "row", gap: tall ? 3 : 4, marginTop: "auto", paddingTop: space.sm }}
       importantForAccessibility="no-hide-descendants">
       {Array.from({ length: n }, (_, i) => {
         const on = marks ? marks[i] : i < lit;
         const today = round && i === n - 1 && !on; // 今天还没记：只描边，和「那天没记」分开（和本周页一个规矩）
         return (
           <View key={i} style={{ flex: round ? undefined : 1, width: round ? 10 : undefined, height: round ? 10 : tall ? 16 : 6,
-            borderRadius: tall ? 4 : radius.pill, backgroundColor: on ? color : today ? "transparent" : c.sunken,
-            borderWidth: today ? 1.5 : 0, borderColor: c.line }} />
+            borderRadius: tall ? 4 : radius.pill, backgroundColor: on ? color : today || tall ? "transparent" : c.sunken,
+            borderWidth: today || (tall && !on) ? 1.5 : 0, borderColor: c.line }} />
         );
       })}
     </View>

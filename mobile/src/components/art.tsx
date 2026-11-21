@@ -26,8 +26,8 @@ export function Sky({ min }: { min: number }) {
       <Svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>
         <Defs>
           <RadialGradient id={`g${id}`} cx={x} cy="2%" rx="26%" ry="22%" fx={x} fy="2%">
-            <Stop offset="0" stopColor={tone.glow} stopOpacity={dark ? 0.55 : 0.5} />
-            <Stop offset="0.35" stopColor={tone.glow} stopOpacity={0.18} />
+            <Stop offset="0" stopColor={tone.glow} stopOpacity={dark ? 0.55 : 0.8} />
+            <Stop offset="0.35" stopColor={tone.glow} stopOpacity={dark ? 0.18 : 0.3} />
             <Stop offset="1" stopColor={tone.glow} stopOpacity={0} />
           </RadialGradient>
         </Defs>
@@ -128,6 +128,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
   fills?: Record<string, Fill>; // 对完账：每件事按对账结果画（实心 / 半满 / 描边）；没给就按时间
 }) {
   const c = useColors();
+  const dark = useDark();
   const id = useId().replace(/:/g, "");
   if (!blocks.length || width <= 0) return null;
   const start = toMin(blocks[0].start);
@@ -160,7 +161,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
           gradientTransform={`translate(${cx} ${base}) scale(1 ${ry / rx}) translate(${-cx} ${-base})`}>
           <Stop offset="0" stopColor={c.primary} stopOpacity={0} />
           <Stop offset="0.75" stopColor={c.primary} stopOpacity={0} />
-          <Stop offset="1" stopColor={c.primary} stopOpacity={0.2} />
+          <Stop offset="1" stopColor={c.primary} stopOpacity={dark ? 0.2 : 0.14} />
         </RadialGradient>
         <SvgLinearGradient id={`t${id}`} gradientUnits="userSpaceOnUse" x1={pad} y1="0" x2={Math.max(pad + 1, p.x)} y2="0">
           <Stop offset="0" stopColor={c.primary} stopOpacity={0.35} />
@@ -168,7 +169,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
         </SvgLinearGradient>
       </Defs>
       {lit !== "" && <Path d={`${lit} L${cx} ${base} Z`} fill={`url(#f${id})`} /> /* 扇形：从弧底中点扫出来，边落在半径上，跟着渐变淡掉 */}
-      <Path d={full} stroke={c.line} strokeWidth={1.5} strokeDasharray="2 5" strokeLinecap="round" fill="none" />
+      <Path d={full} stroke={dark ? c.line : c.kind.life} strokeWidth={1.5} strokeDasharray="2 5" strokeLinecap="round" fill="none" />
       {lit !== "" && <Path d={lit} stroke={`url(#t${id})`} strokeWidth={3} strokeLinecap="round" fill="none" />}
       {marks.map((b) => {
         const q = at(toMin(b.start));
