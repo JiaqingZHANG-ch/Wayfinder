@@ -463,3 +463,8 @@ def test_versions_council_crisis_and_too_few():
     assert run_versions_council(FakeModel(['{"crisis": true}'] * 2), [A, C], ["a", "b", "c"], "") == ("crisis", None)
     bad = json.dumps({"versions": [{"sees": "只有一个版本", "unknown": "x", "test": "y"}]}, ensure_ascii=False)
     assert run_versions_council(FakeModel([VERSIONS_LENS] + [bad] * 2), [A, C], ["a", "b", "c"], "") == ("failed", None)
+
+
+def test_versions_lens_saying_user_in_third_person_is_invalid():
+    bad = json.dumps({"versions": [{"sees": "用户没有经验", "unknown": "x", "test": "y"}] * 3}, ensure_ascii=False)
+    assert run_versions_council(FakeModel([VERSIONS_LENS] + [bad] * 2), [A, C], ["a", "b", "c"], "") == ("failed", None)

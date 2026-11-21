@@ -249,6 +249,8 @@ _VERSIONS_LENS = """\
 要求：
 - 每个版本写三句：sees 从这个视角看到了什么；unknown 这个版本最大的未知是什么；test 一个月内能做的最便宜的试验。
 - 每句不超过 60 字。具体，引用他写的原话，对他说话用「你」。
+- 只用他写的三个版本和上面给的情况，不编他没说过的经历、年数、数字。
+- 用『你』称呼他，不要写『用户』。
 - 不排名，不说该选哪个版本，不替他做决定。
 - 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
 - 不建议退学、辞职、换专业、换工作这类难回头的决定；试验是一个月内能做完、随时能停的小事。
@@ -280,8 +282,8 @@ def _versions_fields(obj) -> tuple[list[dict]] | None:
     # 提示里说 60 字，这里放宽到 120（同 _lens_fields 的做法），免得多几个字就丢掉一个视角
     vs = obj.get("versions") if isinstance(obj, dict) else None
     keys = ("sees", "unknown", "test")
-    if isinstance(vs, list) and len(vs) == 3 and all(isinstance(v, dict) and all(_ok(v.get(k), 120) for k in keys)
-                                                     for v in vs):
+    if isinstance(vs, list) and len(vs) == 3 and all(
+            isinstance(v, dict) and all(_ok(v.get(k), 120) and "用户" not in v[k] for k in keys) for v in vs):
         return ([{k: v[k] for k in keys} for v in vs],)
     return None
 
