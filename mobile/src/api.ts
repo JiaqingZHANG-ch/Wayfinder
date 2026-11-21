@@ -144,10 +144,12 @@ export const OFFLINE = "没连上，网络好了再试一次。";
 export const say = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE);
 
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // FormData（录音上传）原样发，Content-Type 让 fetch 自己带上 boundary
+  const raw = body === undefined || body instanceof FormData;
   const res = await fetch(API_URL + path, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: raw ? undefined : { "Content-Type": "application/json" },
+    body: raw ? (body as FormData | undefined) : JSON.stringify(body),
   });
   const data = await res.json().catch(() => {
     if (res.ok) throw new Error("bad json");
