@@ -214,6 +214,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     db.ensure_user(USER_ID)
     model = RecordingModel(model, lambda call: db.add_model_call(USER_ID, call))
     settings_lock = threading.Lock()
+    # (用户, 轮) → 正在跑的智囊团线程。shortcut: 只在一个进程里有效；后端开多个进程时要换成数据库里的心跳
+    council_threads: dict[tuple[int, int], threading.Thread] = {}
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 
@@ -640,6 +642,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                                          if not (full and h["source"] == "invest" and h["status"] == "pending")],
                               "tomorrow": None if a4.get("tomorrow_done") else a4.get("tomorrow")},
                 "tonight_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
+                "can_set_tomorrow": bool(log),  # 今晚对过账才能定明天的一件事
                 "habits_full": full, "energy_items": _energy_items(raw), "reply": said}
 
     def finish_step(step: int, answers: dict[int, dict]) -> tuple[dict, bool] | None:
@@ -710,6 +713,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 return crisis
         answers = {**answers, body.step: mine}
         fields: dict = {}
+        # 日期部分用逻辑日：凌晨 4 点前聊的算前一晚，邀请规则按这个日期比
+        stamp = f"{day.isoformat()}T{t.strftime('%H:%M')}"
         if next_screen(answers, body.step) is None:
             done = finish_step(body.step, answers)
             if done is None:
@@ -719,9 +724,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             mine.update(extra)
             if mismatch:
                 said = f"{said or ''}\n这两句指的方向不太一样，先记下。".strip()
-            fields["finished_at"] = t.isoformat(timespec="seconds")
+            fields["finished_at"] = stamp
         if not rows.get(body.step, {}).get("started_at"):  # 开始一步：「明天再说」清零
-            fields.update(started_at=t.isoformat(timespec="seconds"), snoozes=0)
+            fields.update(started_at=stamp, snoozes=0)
         db.upsert_deep_talk(USER_ID, rnd, body.step, answers=mine, **fields)
         return talk_state(said)
 
@@ -741,7 +746,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         a4 = answers.get(4, {})
         if not all(k in a4 for k in ("v1", "v2", "v3")):
             raise HTTPException(409, "三个版本都写完，才能请顾问们看")
-        if rows[4]["council_status"] in ("running", "done"):  # 刷新、连点都不重开
+        live = council_threads.get((USER_ID, rnd))
+        # 刷新、连点都不重开；存着 running 却没有活着的线程（后端重启过）就重跑
+        if rows[4]["council_status"] == "done" or (rows[4]["council_status"] == "running" and live and live.is_alive()):
             return talk_state()
         db.upsert_deep_talk(USER_ID, rnd, 4, council=None, council_status="running")
         state = talk_state()  # 先取状态再开线程：返回的一定是 running
@@ -760,8 +767,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             db.upsert_deep_talk(USER_ID, rnd, 4, council=result, council_status="done" if outcome == "ok" else "failed")
 
         # 测试靠这个引用等线程跑完；Db 每次调用各开连接，后台线程里用是安全的
-        app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
-        app.state.deep_talk_thread.start()
+        thread = council_threads[(USER_ID, rnd)] = app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
+        thread.start()
         return state
 
     @app.post("/deep-talk/confirm", summary="确认或不要一条提议：档案、习惯（走设置保存）、明天的一件事（并进今晚的对账）")
@@ -804,6 +811,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if not a4.get("tomorrow") or a4.get("tomorrow_done"):
                 raise HTTPException(409, "没有待确认的明天的一件事")
             if body.accept:  # 只带 tomorrow_task 一项：今晚对账的其他内容原样保留
+                if not db.logs_between(USER_ID, day, day):  # 不能替他建一条今晚的对账
+                    raise HTTPException(409, "先对完今晚的账，再定明天的一件事")
                 merge_log(day, validate_checkin({"tomorrow_task": body.content or a4["tomorrow"]}, day, {}), {"tomorrow_task"})
             db.upsert_deep_talk(USER_ID, rnd, 4, answers={**a4, "tomorrow_done": True})
         return talk_state()

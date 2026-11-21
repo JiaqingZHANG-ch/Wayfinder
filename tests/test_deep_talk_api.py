@@ -172,6 +172,7 @@ def test_tomorrow_confirm_keeps_tonight_log(setup):
                                              "items": {"english": {"status": "done"}}}})
     s = finish_step4(client, model)
     assert s["tonight_task"] == "做一套往年卷" and s["proposals"]["tomorrow"] == "投一份实习申请"
+    assert s["can_set_tomorrow"] is True
     r = client.post("/deep-talk/confirm", json={"kind": "tomorrow", "accept": True}).json()
     assert r["proposals"]["tomorrow"] is None and r["tonight_task"] == "投一份实习申请"
     assert client.get("/today").json()["tomorrow_task"] == "投一份实习申请"
@@ -227,3 +228,44 @@ def test_restart_keeps_old_round(setup):
     s = client.post("/deep-talk/restart").json()
     assert (s["round"], s["step"], s["screen"], s["answers"]) == (2, 1, "scores", {})
     assert db.deep_talk_rows(1, 1)[0]["finished_at"] is not None
+
+
+def test_tomorrow_needs_tonight_checkin(setup):
+    client, db, model = setup
+    s = finish_step4(client, model)
+    assert s["can_set_tomorrow"] is False and s["proposals"]["tomorrow"] == "投一份实习申请"
+    r = client.post("/deep-talk/confirm", json={"kind": "tomorrow", "accept": True})
+    assert r.status_code == 409 and r.json()["detail"] == "先对完今晚的账，再定明天的一件事"
+    assert client.get("/today").json()["checked_in"] is False
+    assert client.get("/deep-talk").json()["proposals"]["tomorrow"] == "投一份实习申请"  # 对完账还能回来定
+
+
+def test_talk_after_midnight_counts_for_the_evening_before(tmp_path):
+    t = [datetime(2026, 11, 20, 21, 0)]
+    client = TestClient(create_app(Db(tmp_path / "app.db"), FakeModel(), template=TEMPLATE,
+                                   now=lambda tz: t[0].replace(tzinfo=tz), cards=CARDS))
+    client.post("/checkin", json={"result": {"items": {"english": {"status": "done"}}}})
+    t[0] = datetime(2026, 11, 21, 1, 30)  # 凌晨 1:30 还算 11-20 那一晚
+    s = walk(client, STEPS_1_3[:1])
+    assert s["invite"] is False
+    t[0] = datetime(2026, 11, 21, 21, 0)  # 第二天晚上对完账：照常邀请
+    client.post("/checkin", json={"result": {"items": {"english": {"status": "done"}}}})
+    assert client.get("/deep-talk").json()["invite"] is True
+
+
+def test_talk_started_at_uses_logical_day(tmp_path):
+    db = Db(tmp_path / "app.db")
+    client = TestClient(create_app(db, FakeModel(), template=TEMPLATE,
+                                   now=lambda tz: datetime(2026, 11, 21, 1, 30, tzinfo=tz), cards=CARDS))
+    walk(client, STEPS_1_3[:1])
+    assert db.deep_talk_rows(1, 1)[0]["started_at"] == "2026-11-20T01:30"
+
+
+def test_council_stuck_running_after_restart_runs_again(setup):
+    client, db, model = setup
+    walk(client, STEPS_1_3 + VERSIONS)
+    db.upsert_deep_talk(1, 1, 4, council_status="running")  # 后端重启前留下的，没有线程在跑
+    model.replies += [LENS, LENS, SYNTH]
+    assert client.post("/deep-talk/council").json()["council"]["status"] == "running"
+    client.app.state.deep_talk_thread.join()
+    assert client.get("/deep-talk").json()["council"]["status"] == "done"
