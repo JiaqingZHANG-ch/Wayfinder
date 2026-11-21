@@ -1,6 +1,6 @@
 import type { Block } from "./api";
 
-/** 重排前后（报电量的今晚、长谈标完累不累的明天）变了的一件事：time 是新的开始时间，was 是原来的时长（只在时长变了时有）。 */
+/** 重排前后（报电量的今晚、长谈标完累不累的明天）变了的一件事：time 是开始时间（只挪了时间的写原来的，右边写挪到几点），was 是原来的时长（只在时长变了时有）。 */
 export type Change = { time: string; title: string; was?: string; now: string };
 
 // 凌晨 4 点前算前一天（和 plan-view 的 toMin 一致），过了午夜的块才不会被当成过去
@@ -29,7 +29,7 @@ export function planDiff(before: Block[], after: Block[], from: string, dropped 
     old.delete(k);
     if (!o) out.push({ time: b.start, title: b.title, now: `新加 ${dur(b)} 分` });
     else if (dur(o) !== dur(b)) out.push({ time: b.start, title: b.title, was: `${dur(o)} 分`, now: `${dur(b)} 分` });
-    else if (o.start !== b.start) out.push({ time: b.start, title: b.title, now: `挪到 ${b.start}` });
+    else if (o.start !== b.start) out.push({ time: o.start, title: b.title, now: `挪到 ${b.start}` });
   }
   for (const o of old.values()) out.push({ time: o.start, title: o.title, now: dropped });
   return out.sort((a, b) => a.time.localeCompare(b.time));

@@ -23,8 +23,8 @@ const after = [
 
 assert.deepEqual(planDiff(before, after, "17:05"), [
   { time: "18:40", title: "看书（保底）", was: "45 分", now: "15 分" },
-  { time: "19:30", title: "课程报告", now: "挪到 19:30" },
   { time: "19:30", title: "英语听力", now: "今晚不排了" },
+  { time: "20:00", title: "课程报告", now: "挪到 19:30" },
   { time: "22:00", title: "散步", now: "新加 20 分" },
 ]);
 assert.deepEqual(planDiff(before, before, "17:05"), []);
