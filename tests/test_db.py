@@ -128,3 +128,22 @@ def test_export_and_delete_cover_every_table(tmp_path):
     with closing(sqlite3.connect(tmp_path / "x.db")) as c:
         tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert tables == set(USER_TABLES)  # 加了新表要加进 USER_TABLES，导出和删除才带得上
+
+
+def test_deep_talk_upsert_and_read(tmp_path):
+    db = Db(tmp_path / "app.db"); db.ensure_user(1)
+    assert db.deep_talk_round(1) == 1 and db.deep_talk_rows(1, 1) == []
+    db.upsert_deep_talk(1, 1, 1, answers={"scores": {"健康": 4}}, started_at="2026-11-21T20:00")
+    db.upsert_deep_talk(1, 1, 1, finished_at="2026-11-21T20:08")
+    row = db.deep_talk_rows(1, 1)[0]
+    assert row["answers"] == {"scores": {"健康": 4}} and row["finished_at"] == "2026-11-21T20:08"
+    with pytest.raises(ValueError):
+        db.upsert_deep_talk(1, 1, 1, user_id=2)
+
+
+def test_deep_talks_are_exported_and_deleted(tmp_path):
+    db = Db(tmp_path / "app.db"); db.ensure_user(1)
+    db.upsert_deep_talk(1, 1, 2, answers={"why": "换一份能养活自己的工作"})
+    assert db.export(1)["deep_talks"][0]["answers"]["why"] == "换一份能养活自己的工作"
+    db.delete_user(1)
+    assert db.deep_talk_rows(1, 1) == []

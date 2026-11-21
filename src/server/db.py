@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS user_quotes (
 CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     level TEXT NOT NULL, content TEXT NOT NULL, confirmed_at TEXT, source TEXT NOT NULL, created_at TEXT NOT NULL);
+-- 深度长谈：一轮 4 步，一步一行；answers 是这一步用户的回答，council 是智囊团的看法
+CREATE TABLE IF NOT EXISTS deep_talks (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL, step INTEGER NOT NULL, answers TEXT NOT NULL, council TEXT, council_status TEXT,
+    snoozes INTEGER NOT NULL DEFAULT 0, started_at TEXT, finished_at TEXT, UNIQUE(user_id, round, step));
 -- 每周复盘：adjustments 里每条带 answer（null = 还没点，"好" / "先不改"）；still_right 是这次问「还对吗」的那条档案
 CREATE TABLE IF NOT EXISTS weekly_reviews (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -59,9 +64,9 @@ CREATE TABLE IF NOT EXISTS crisis_events (
 """
 
 # 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
-USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles",
+USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles", "deep_talks",
                "weekly_reviews", "model_calls", "crisis_events")
-JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request")
+JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
 PROFILE_SOURCES = ("建档", "复盘", "深度长谈")
@@ -117,13 +122,41 @@ class Db:
             for t in USER_TABLES:
                 cur = c.execute(f"SELECT * FROM {t} WHERE {'id' if t == 'users' else 'user_id'} = ?", (user_id,))
                 cols = [d[0] for d in cur.description]
-                out[t] = [{k: json.loads(v) if k in JSON_COLUMNS else v for k, v in zip(cols, row)} for row in cur]
+                out[t] = [{k: json.loads(v) if k in JSON_COLUMNS and v is not None else v for k, v in zip(cols, row)} for row in cur]
             return out
         return self._run(go)
 
     def delete_user(self, user_id: int) -> None:
         """删掉这个用户和他的全部数据（各表外键都是 ON DELETE CASCADE）。"""
         self._run(lambda c: c.execute("DELETE FROM users WHERE id = ?", (user_id,)))
+
+    # 深度长谈
+    def deep_talk_rows(self, user_id: int, round: int) -> list[dict]:
+        def go(c):
+            cur = c.execute("SELECT * FROM deep_talks WHERE user_id = ? AND round = ? ORDER BY step", (user_id, round))
+            cols = [d[0] for d in cur.description]
+            return [{k: json.loads(v) if k in JSON_COLUMNS and v is not None else v for k, v in zip(cols, r)}
+                    for r in cur]
+        return self._run(go)
+
+    def deep_talk_round(self, user_id: int) -> int:
+        row = self._run(lambda c: c.execute("SELECT MAX(round) FROM deep_talks WHERE user_id = ?", (user_id,)).fetchone())
+        return row[0] or 1
+
+    def upsert_deep_talk(self, user_id: int, round: int, step: int, /, **fields) -> None:
+        """没有这一行就建，有就只改给出的字段。"""
+        bad = set(fields) - {"answers", "council", "council_status", "snoozes", "started_at", "finished_at"}
+        if bad:
+            raise ValueError(f"不能改的字段：{sorted(bad)}")
+        vals = {k: json.dumps(v, ensure_ascii=False) if k in JSON_COLUMNS and v is not None else v
+                for k, v in fields.items()}
+        vals.setdefault("answers", "{}")
+        cols = ", ".join(vals)
+        sets = ", ".join(f"{k} = excluded.{k}" for k in fields)  # 没给的字段不动
+        self._run(lambda c: c.execute(
+            f"INSERT INTO deep_talks (user_id, round, step, {cols}) VALUES (?, ?, ?, {', '.join('?' * len(vals))}) "
+            f"ON CONFLICT(user_id, round, step) DO " + (f"UPDATE SET {sets}" if sets else "NOTHING"),
+            (user_id, round, step, *vals.values())))
 
     def plan_input(self, user_id: int) -> dict | None:
         row = self._run(lambda c: c.execute("SELECT plan_input FROM settings WHERE user_id = ?", (user_id,)).fetchone())

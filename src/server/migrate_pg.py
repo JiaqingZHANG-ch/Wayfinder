@@ -24,6 +24,8 @@ TABLES = {
     "user_quotes": {"id": "int", "message_id": "int", "text": "text", "used_in": "text", "day": "text"},
     "profiles": {"id": "int", "level": "text", "content": "text", "confirmed_at": "text", "source": "text",
                  "created_at": "text"},
+    "deep_talks": {"id": "int", "round": "int", "step": "int", "answers": "json", "council": "json",
+                   "council_status": "text", "snoozes": "int", "started_at": "text", "finished_at": "text"},
     "weekly_reviews": {"id": "int", "week_end": "text", "stats": "json", "summary": "text", "adjustments": "json",
                        "question": "text", "still_right": "int", "created_at": "text"},
     "model_calls": {"id": "int", "created_at": "text", "model": "text", "request": "json", "reply": "text",

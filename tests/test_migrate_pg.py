@@ -25,6 +25,7 @@ def full_db(path):
         db.add_model_call(u, {"model": "fake", "messages": [], "think": False, "schema": None, "reply": "{}",
                               "error": None, "ms": 3})
         db.log_crisis(u, DAY, "（测试）")
+        db.upsert_deep_talk(u, 1, 1, answers={"why": "x"})
     return db
 
 

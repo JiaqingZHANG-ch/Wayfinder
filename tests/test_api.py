@@ -474,6 +474,7 @@ def test_export_has_everything_and_delete_removes_it(setup):
     client.post("/review", json={})
     client.post("/checkin", json={"result": {"note": "今天读得很顺", "items": {"reading": {"status": "done"}}}})
     db.propose_profile(1, "方向", "想做产品", "建档")
+    db.upsert_deep_talk(1, 1, 1, answers={"scores": {"健康": 4}})
     client.post("/checkin", json={"sentence": "我想死"})
     db.consent(1, "隐私", PRIVACY_VERSION)
     tables = client.get("/export").json()["tables"]
