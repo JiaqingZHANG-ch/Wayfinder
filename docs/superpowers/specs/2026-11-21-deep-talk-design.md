@@ -202,7 +202,7 @@
 9. **危机检查**：每一段自由文字在提交那一刻检查，包括追问补的那句和三个版本的每一个。命中就不存这一段，显示危机文案，长谈停在这里；之前答过的保留。
 10. **能量标注**：习惯、课、项目都标，一屏全列（习惯最多 3 个；课按名字去重），可以不标。
 
-## 12. 灵感来源（只进文档）
+## 11. 灵感来源（只进文档）
 
 - life-designer（Jackychen-12/life-designer，MIT），方法源自 Burnett & Evans《Designing Your Life》。
 - LifeOS（danielmiessler/LifeOS，MIT）：档案层级、逐条确认。
