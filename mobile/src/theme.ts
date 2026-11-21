@@ -108,11 +108,11 @@ const nunito = (w: "700Bold" | "800ExtraBold" | "900Black") =>
   Platform.select({ web: `Nunito_${w}, ${stack}`, default: `Nunito_${w}` });
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 
-// 字号阶梯 13 / 14 / 16 / 20 / 28 / 48 / 80。中文正文行高约 1.6 倍，不用斜体。
+// 字号阶梯 13 / 14 / 16 / 20 / 28 / 48 / 60。中文正文行高约 1.6 倍，不用斜体。
 // hero / big / stat 是 Nunito 大数字，一屏最多一个 hero。num 是给时间、计数用的 Nunito 数字（叠在别的字号上）。
 // eyebrow 是卡片和区块顶上的小标签：小字、加字距、灰色。
 export const type = {
-  hero: { fontFamily: nunito("900Black"), fontSize: 80, lineHeight: 88, letterSpacing: -1 },
+  hero: { fontFamily: nunito("900Black"), fontSize: 60, lineHeight: 66, letterSpacing: -1.5 }, // 今天页「还剩 N 分钟」
   big: { fontFamily: nunito("900Black"), fontSize: 48, lineHeight: 56, letterSpacing: -0.5 },
   stat: { fontFamily: nunito("800ExtraBold"), fontSize: 34, lineHeight: 40 }, // 瓷砖里的数字
   display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "500" }, // 中文标题靠字号和留白分层，不靠加粗
@@ -126,7 +126,7 @@ export const type = {
 
 /**
  * 页面顶上那片底色。黏土小镇没有天色渐变：顶上就是舞台天空的颜色，往下淡进奶油底（夜里是石板底）；光和天同色，等于不画。
- * min 留着是为了不改调用处；任务 2 舞台上线后 Sky 会被舞台替掉。
+ * min 留着是为了不改调用处。今天页已经换成黏土舞台，对账、长谈和另两个标签页还在用，任务 5 统一清理。
  */
 export type SkyTone = { top: string; mid: string; glow: string };
 export function skyTone(_min: number, darkMode: boolean): SkyTone {

@@ -1,13 +1,12 @@
 /**
- * Wayfinder 的三样招牌画面（对标调研：docs/design.md 开头）：
- * Sky：页面顶上跟着时段变的天色；Arc：今天从第一件到上床的一道弧，小光点是现在；Glyph：每件事自己的记号。
+ * Wayfinder 的招牌画面（对标调研：docs/design.md 开头）：
+ * Sky：页面顶上的底色；Glyph：每件事自己的记号。今天页的弧已经换成黏土舞台（components/clay.tsx）。
  */
 import { LinearGradient } from "expo-linear-gradient";
 import { useId } from "react";
 import { View } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, LinearGradient as SvgLinearGradient, Path, RadialGradient, Rect, Stop } from "react-native-svg";
+import Svg, { ClipPath, Defs, G, LinearGradient as SvgLinearGradient, Path, RadialGradient, Rect, Stop } from "react-native-svg";
 
-import { Block } from "@/api";
 import { skyTone, useColors, useDark } from "@/theme";
 
 const SKY_HEIGHT = 460;
@@ -112,112 +111,5 @@ export function Glow({ color, size, opacity }: { color: string; size: number; op
       </Defs>
       <Rect x="0" y="0" width={size} height={size} fill={`url(#o${id})`} />
     </Svg>
-  );
-}
-
-// ---------- 今天的弧 ----------
-
-const toMin = (t: string) => { const h = Number(t.slice(0, 2)); return (h < 4 ? h + 24 : h) * 60 + Number(t.slice(3, 5)); };
-
-/**
- * 一道像太阳走过天空的弧：左端是今天第一件事开始，右端是最后一件结束。
- * 走过的那段亮起来，弧上每件正事一个记号，现在的位置一个发光的小点。done：今天收好了，整道弧都亮。
- */
-export function Arc({ blocks, now, width, height = 120, done, fills }: {
-  blocks: Block[]; now: number; width: number; height?: number; done?: boolean;
-  fills?: Record<string, Fill>; // 对完账：每件事按对账结果画（实心 / 半满 / 描边）；没给就按时间
-}) {
-  const c = useColors();
-  const dark = useDark();
-  const id = useId().replace(/:/g, "");
-  if (!blocks.length || width <= 0) return null;
-  const start = toMin(blocks[0].start);
-  const end = Math.max(...blocks.map((b) => toMin(b.end)));
-  const span = Math.max(1, end - start);
-  const pad = 12;
-  const rx = (width - pad * 2) / 2, ry = height - 24, cx = width / 2, base = height - 4;
-  const at = (m: number) => {
-    const t = Math.min(1, Math.max(0, (m - start) / span));
-    return { x: cx - rx * Math.cos(Math.PI * t), y: base - ry * Math.sin(Math.PI * t), t };
-  };
-  const p = done ? at(end) : at(now);
-  const full = `M${pad} ${base} A${rx} ${ry} 0 0 1 ${width - pad} ${base}`;
-  const lit = p.t > 0 ? `M${pad} ${base} A${rx} ${ry} 0 0 1 ${p.x} ${p.y}` : "";
-  const marks = blocks.filter((b) => b.kind !== "life");
-  const live = done ? undefined : marks.find((b) => toMin(b.start) <= now && now < toMin(b.end));
-  const hit = done || !(p.t > 0 && p.t < 1) ? undefined : marks.find((b) => {
-    const q = at(toMin(b.start));
-    return Math.hypot(q.x - p.x, q.y - p.y) < (b === live ? 18 : 14);
-  });
-  return (
-    <Svg width={width} height={height}>
-      <Defs>
-        <RadialGradient id={`n${id}`} cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor={c.primary} stopOpacity={0.55} />
-          <Stop offset="1" stopColor={c.primary} stopOpacity={0} />
-        </RadialGradient>
-        {/* 走过的那段：弧下一层光，线是一道拖尾（起点淡、现在最亮） */}
-        <RadialGradient id={`f${id}`} gradientUnits="userSpaceOnUse" cx={cx} cy={base} r={rx}
-          gradientTransform={`translate(${cx} ${base}) scale(1 ${ry / rx}) translate(${-cx} ${-base})`}>
-          <Stop offset="0" stopColor={c.primary} stopOpacity={0} />
-          <Stop offset="0.75" stopColor={c.primary} stopOpacity={0} />
-          <Stop offset="1" stopColor={c.primary} stopOpacity={dark ? 0.2 : 0.1} />
-        </RadialGradient>
-        <SvgLinearGradient id={`t${id}`} gradientUnits="userSpaceOnUse" x1={pad} y1="0" x2={Math.max(pad + 1, p.x)} y2="0">
-          <Stop offset="0" stopColor={c.primary} stopOpacity={0.35} />
-          <Stop offset="1" stopColor={c.primary} stopOpacity={1} />
-        </SvgLinearGradient>
-      </Defs>
-      {lit !== "" && <Path d={`${lit} L${cx} ${base} Z`} fill={`url(#f${id})`} /> /* 扇形：从弧底中点扫出来，边落在半径上，跟着渐变淡掉 */}
-      <Path d={full} stroke={c.kind.life} strokeWidth={1.5} strokeDasharray="2 5" strokeLinecap="round" fill="none" />
-      {lit !== "" && <Path d={lit} stroke={`url(#t${id})`} strokeWidth={3} strokeLinecap="round" fill="none" />}
-      {marks.map((b) => {
-        const q = at(toMin(b.start));
-        const past = done || toMin(b.end) <= now;
-        const fill: Fill = done && fills && b.kind !== "class" ? fills[b.id] ?? fills[b.task_id ?? ""] ?? "empty"
-          : past ? "full" : "empty";
-        if (b === live) {
-          return (
-            <G key={b.id} x={q.x - 8} y={q.y - 8}>
-              {hit === b && <Circle cx={8} cy={8} r={22} fill={`url(#n${id})`} />}
-              <Circle cx={8} cy={8} r={11} fill={c.primary} />
-              <GlyphPath id={`${id}${b.id}`} name={b.title} star={b.task_id === "one-thing"} color={c.onPrimary} fill="full" />
-            </G>
-          );
-        }
-        return (
-          <G key={b.id} x={q.x - 8} y={q.y - 8}>
-            {hit === b && <Circle cx={8} cy={8} r={22} fill={`url(#n${id})`} />}
-            <Circle cx={8} cy={8} r={10} fill={c.bg} />
-            <Circle cx={8} cy={8} r={10} fill={b.kind === "class" ? c.muted : c.kind[b.kind]} opacity={0.18} />
-            <G opacity={past && !done ? 0.8 : 1}>
-              <GlyphPath id={`${id}${b.id}`} name={b.title} star={b.task_id === "one-thing"}
-                color={b.kind === "class" ? c.muted : c.kind[b.kind]} fill={fill} />
-            </G>
-          </G>
-        );
-      })}
-      {!done && !hit && p.t > 0 && p.t < 1 && (
-        <G>
-          <Circle cx={p.x} cy={p.y} r={22} fill={`url(#n${id})`} />
-          <Circle cx={p.x} cy={p.y} r={6} fill={c.primaryEdge} />
-          <Circle cx={p.x} cy={p.y} r={2.5} fill={c.bg} />
-        </G>
-      )}
-    </Svg>
-  );
-}
-
-type Fill = "full" | "half" | "empty";
-
-/** 弧上的记号（16×16）：实心、左半实心、描边。 */
-function GlyphPath({ id, name, star, color, fill }: { id: string; name: string; star?: boolean; color: string; fill: Fill }) {
-  const d = SHAPES[star ? STAR : glyphIndex(name)];
-  return (
-    <G>
-      {fill === "half" && <Defs><ClipPath id={`h${id}`}><Rect x="0" y="0" width="8" height="16" /></ClipPath></Defs>}
-      {fill === "half" && <G clipPath={`url(#h${id})`}><Path d={d} fill={color} /></G>}
-      <Path d={d} fill={fill === "full" ? color : "none"} stroke={color} strokeWidth={1.4} strokeLinejoin="round" />
-    </G>
   );
 }

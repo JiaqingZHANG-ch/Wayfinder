@@ -10,7 +10,7 @@ import { Sky } from "@/components/art";
 import { enter, haptic, Pressy } from "@/components/motion";
 import { radius, space, type, useColors } from "@/theme";
 
-const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
+export const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
 const TOUCH = 44; // 可点区域至少 44pt（Apple HIG）
 
 export type IconName = keyof typeof Ionicons.glyphMap;
