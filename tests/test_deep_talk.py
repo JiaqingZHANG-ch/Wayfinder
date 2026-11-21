@@ -89,6 +89,12 @@ def test_propose_step4_clamps_goals_and_minutes():
     assert out["tomorrow"] == "装好 Expo"
 
 
+def test_propose_step4_habit_name_drops_minutes():
+    raw = json.dumps({"mission": "m", "goals": [], "prototype": {"title": "每天写App 30分钟", "minutes": 30, "floor_min": 10}})
+    _, out = propose(FakeModel([raw]), 4, {4: {"v1": "x", "v2": "y", "v3": "z", "choose": 0}})
+    assert out["prototype"]["title"] == "每天写App"  # 时长另有一栏，名字里再写一遍时间线上就重复了
+
+
 def test_propose_step4_fallback_uses_chosen_version():
     _, out = propose(FakeModel([]), 4, {4: {"v1": "x", "v2": "y", "v3": "z", "choose": 1}})
     assert out == {"mission": "y", "goals": [], "prototype": None, "tomorrow": None}

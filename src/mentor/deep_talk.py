@@ -3,6 +3,7 @@
 不碰数据库和网络：API 层传进来行和回答，这里只算。问题由程序定，模型只回应一句或提议一小段，且只回 JSON。
 """
 import json
+import re
 from datetime import date
 from typing import Literal
 
@@ -115,6 +116,14 @@ def _dump(answers: dict, step: int) -> str:
                      for s in sorted(answers) if s <= step) or "（没有回答）"
 
 
+# 模型常把时长写进名字（「每天写 App 30分钟」），时间线上就成了「… 30分钟 · 30 分钟」
+_MINUTES = re.compile(r"[\s，,（(]*(\d+|半|一|两|二|三)\s*(分钟|分|min|小时|个小时)[)）]?\s*$")
+
+
+def _no_minutes(title: str) -> str:
+    return _MINUTES.sub("", title).strip() or title
+
+
 def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "crisis"], dict]:
     def _you(v, limit):
         return _text(v, limit, ("用户",))
@@ -138,7 +147,7 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
     else:
         system = _system(
             f"他选了一个版本，据此写：使命一句（{MAX_DIRECTION} 字以内）；目标最多 3 条（每条 30 字以内）；"
-            f"一个每天能做的小习惯（名字 20 字以内、分钟数 5 到 180、保底分钟数）；明天的一件事。{rule}",
+            f"一个每天能做的小习惯（名字 20 字以内、名字里不写分钟数、分钟数 5 到 180、保底分钟数）；明天的一件事。{rule}",
             '{"mission": "……", "goals": ["……"], "prototype": {"title": "……", "minutes": 30, "floor_min": 10}, '
             '"tomorrow": "……"}')
 
@@ -149,7 +158,7 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
             p, proto = o.get("prototype"), None
             if isinstance(p, dict):
                 minutes = min(max(int(p["minutes"]), 5), 180)
-                proto = {"title": _you(p["title"], 20), "minutes": minutes,
+                proto = {"title": _no_minutes(_you(p["title"], 20)), "minutes": minutes,
                          "floor_min": min(max(int(p["floor_min"]), 1), minutes)}
             tomorrow = o.get("tomorrow")
             return {"mission": _you(o["mission"], MAX_DIRECTION), "goals": goals, "prototype": proto,

@@ -119,6 +119,8 @@ def test_energy_screen_rewrites_settings_and_replans(setup):
     before = client.get("/today").json()["version"]
     r = answer(client, 3, "energy", {"reading": "drain", "english": "love"}).json()
     assert r["step"] == 4 and r["answers"]["3"]["loved"] == ["背单词"] and r["answers"]["3"]["energy_changed"] is True
+    change = r["tomorrow_change"]  # 明天按改前、改后各排一次，小结页列出差别
+    assert change["before"] and change["after"] and all("start" in b for b in change["after"])
     habits ={h["id"]: h["energy"] for h in client.get("/settings").json()["habits"]}
     assert habits == {"reading": "drain", "english": "love"}
     assert client.get("/today").json()["version"] == before + 1
@@ -367,3 +369,4 @@ def test_energy_screen_unchanged_says_so(setup):
     items = client.get("/deep-talk").json()["energy_items"]
     r = answer(client, 3, "energy", {i["id"]: i["energy"] for i in items}).json()
     assert r["answers"]["3"]["energy_changed"] is False  # 小结页就不说「按你标的排了」
+    assert "tomorrow_change" not in r

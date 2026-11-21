@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
-import Animated, { Easing, FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
+import Animated, { Easing, FadeIn, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
 import { ApiError, Block, confirmPlan, getToday, isCrisis, Plan, postEnergy, say } from "@/api";
 import { planDiff } from "@/diff";
-import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
+import { Changes } from "@/components/changes";
+import { haptic, Pressy, Skeleton } from "@/components/motion";
 import { BATTERY_HINT } from "@/labels";
 import { PlanView } from "@/components/plan-view";
 import { Sheet } from "@/components/sheet";
-import { Button, Card, CrisisCard, Icon, IconButton, Notice, Small, Title } from "@/components/ui";
+import { Button, CrisisCard, Icon, IconButton, Notice, Small, Title } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const nowHHMM = () => new Date().toTimeString().slice(0, 5);
@@ -129,37 +130,6 @@ function EnergyPanel({ close }: { close: () => void }) {
       {plan && !confirmed && <Button label="就这样" icon="checkmark" disabled={busy} onPress={confirm} />}
       {confirmed && <Button label="好" variant="secondary" onPress={close} />}
     </View>
-  );
-}
-
-/** 改了的几处，一行一句话：「看书　45 分 → 10 分（保底）」。新加的用绿色，今晚不排了的用灰色；一行接一行进场。 */
-function Changes({ changes }: { changes: ReturnType<typeof planDiff> }) {
-  const c = useColors();
-  if (!changes.length) return <Text style={[type.label, { color: c.text }]}>今晚不用动，照原来的来。</Text>;
-  const floors = changes.some((x) => x.title.endsWith("（保底）"));
-  return (
-    <Card style={{ gap: space.sm }}>
-      <Text style={[type.label, { color: c.text }]}>帮你改了 {changes.length} 处</Text>
-      {changes.map((x, i) => {
-        const floor = x.title.endsWith("（保底）");
-        const name = floor ? x.title.slice(0, -4) : x.title;
-        const dropped = x.now === "今晚不排了";
-        const said = x.was ? `从 ${x.was} 改成 ${x.now}${floor ? "，保底" : ""}` : x.now;
-        return (
-          <Animated.View key={`${x.time}${x.title}`} entering={FadeInDown.delay(120 + i * 60).duration(240).easing(EASE)}
-            accessible accessibilityLabel={`${x.time} ${name}，${said}`}
-            style={{ flexDirection: "row", gap: space.sm, alignItems: "baseline", minHeight: 28 }}>
-            <Text style={[type.small, type.num, { width: 44, color: c.muted }]}>{x.time}</Text>
-            <Text style={[type.label, { flex: 1, color: dropped ? c.muted : c.text }]} numberOfLines={1}>{name}</Text>
-            {x.was && <Text style={[type.small, type.num, { color: c.muted, textDecorationLine: "line-through" }]}>{x.was}</Text>}
-            {x.was && <Small muted>→</Small>}
-            <Text style={[type.small, type.num, { fontWeight: dropped ? "400" : "600",
-              color: dropped ? c.muted : x.was ? c.text : c.ok }]}>{x.now}{floor ? "（保底）" : ""}</Text>
-          </Animated.View>
-        );
-      })}
-      {floors && <Small muted>累的时候，习惯只排保底的那几分钟。</Small>}
-    </Card>
   );
 }
 

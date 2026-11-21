@@ -707,7 +707,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             mine["council_seen"] = True
         else:
             mine[body.screen] = body.value
-        said = None
+        said, tomorrow_change = None, None
         if s["kind"] == "open":
             outcome, said = talk_reply(model, s["question"], body.value)
             if outcome == "crisis":
@@ -723,9 +723,17 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 for c in form["timetable"]:
                     c["energy"] = body.value.get(f"class:{c['title']}", c["energy"])
             with settings_lock:  # 和接受习惯排队：两边各读一份旧设置，后写的会盖掉先写的
+                old_raw = db.plan_input(USER_ID)
                 crisis = change_settings(mark)
             if crisis:
                 return crisis
+            if mine["energy_changed"]:  # 小结页列「明天改了哪几处」：用改前、改后的设置各排一次明天
+                nxt = day + timedelta(days=1)
+                try:
+                    tomorrow_change = {"before": _plan_json(solve_day(input_from_dict(day_raw(old_raw, nxt))))["blocks"],
+                                       "after": _plan_json(solve_day(input_from_dict(day_raw(db.plan_input(USER_ID), nxt))))["blocks"]}
+                except (InputError, PlanInfeasible):
+                    tomorrow_change = None  # 存设置时已经试排过一周，到这里排不出来只是不列对比
         answers = {**answers, body.step: mine}
         fields: dict = {}
         # 日期部分用逻辑日：凌晨 4 点前聊的算前一晚，邀请规则按这个日期比
@@ -743,7 +751,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         if not rows.get(body.step, {}).get("started_at"):  # 开始一步：「明天再说」清零
             fields.update(started_at=stamp, snoozes=0)
         db.upsert_deep_talk(USER_ID, rnd, body.step, answers=mine, **fields)
-        return talk_state(said)
+        state = talk_state(said)
+        return {**state, "tomorrow_change": tomorrow_change} if tomorrow_change else state
 
     @app.post("/deep-talk/snooze", summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
     def post_deep_talk_snooze():

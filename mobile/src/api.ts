@@ -212,6 +212,7 @@ export type DeepTalkState = {
   habits_full: boolean;
   energy_items: { id: string; title: string; kind: "habit" | "class" | "project"; energy: Energy | null }[];
   reply: string | null; // 只有答开放问题时有：导师的一句
+  tomorrow_change?: { before: Block[]; after: Block[] }; // 只有第 3 次标完累不累、真改了时有：明天改前改后的计划
 };
 /** 这一步还有几张待确认的卡片：档案提议（「不要」过的后端已经去掉），第 4 次再加习惯和明天的一件事。 */
 export function pendingCount(s: DeepTalkState, step: number) {

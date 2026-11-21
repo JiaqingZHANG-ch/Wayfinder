@@ -10,11 +10,13 @@ import {
 } from "@/api";
 import { Glyph, Sky } from "@/components/art";
 import { EnergyPick } from "@/components/chips";
+import { Changes } from "@/components/changes";
 import { CouncilView, VERSION } from "@/components/council-view";
 import { ahead, Bar, haptic, Pressy, Skeleton } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
 import { Body, Button, Card, Chip, CrisisCard, Display, Field, IconButton, Notice, Small, Title } from "@/components/ui";
 import { motion, radius, space, type, useColors } from "@/theme";
+import { planDiff } from "@/diff";
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -128,6 +130,7 @@ export default function DeepTalk() {
       haptic.select();
       setRechoose(false);
       if (res.reply) setSaid({ step, screen, reply: res.reply });
+      if (res.tomorrow_change) setTomorrow(res.tomorrow_change);
       if (res.step !== step) { setSummary(step); markLand(res, step); }
     });
   }
@@ -135,6 +138,7 @@ export default function DeepTalk() {
   // 这一场他点了「对」/「加进计划」的内容，第 4 次小结里原样列出
   const [kept, setKept] = useState<{ step: number; text: string }[]>([]);
   const [landN, setLandN] = useState<Record<number, number>>({}); // 每一步开始落地时待确认的卡片数
+  const [tomorrowPlans, setTomorrow] = useState<DeepTalkState["tomorrow_change"]>(); // 第 3 次标完累不累：明天改前改后
   const markLand = (s: DeepTalkState, step: number) => setLandN((m) => (step in m ? m : { ...m, [step]: pendingCount(s, step) }));
   const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(() => confirmDeepTalk(what, accept, content), () => {
     const text = content ?? (what.kind === "habit" ? st?.proposals.habits.find((h) => h.key === what.key)?.title : undefined);
@@ -305,6 +309,9 @@ export default function DeepTalk() {
         {eyebrow(step, progress)}
         <Display>{title}</Display>
         {step === 3 && a.energy_changed === true && <Body>接下来的安排，按你刚才标的累不累来排了</Body>}
+        {step === 3 && tomorrowPlans && (
+          <Changes changes={planDiff(tomorrowPlans.before, tomorrowPlans.after, "04:00", "明天不排了")} when="明天" max={3} />
+        )}
         {body}
       </>
     ), !open && <Button label="好" variant="secondary" onPress={leave} />, true);
