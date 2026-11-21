@@ -162,8 +162,8 @@ class Db:
 
     def last_quarter(self, user_id: int) -> dict | None:
         def go(c):
-            cur = c.execute("SELECT * FROM quarterly_reviews WHERE user_id = ? ORDER BY day DESC, id DESC LIMIT 1",
-                            (user_id,))
+            cur = c.execute("SELECT id, day, scores, focus, start, stop, keep, goals FROM quarterly_reviews "
+                            "WHERE user_id = ? ORDER BY day DESC, id DESC LIMIT 1", (user_id,))
             row = cur.fetchone()
             if row is None:
                 return None
@@ -317,6 +317,10 @@ class Db:
         return self._run(lambda c: c.execute(
             "INSERT INTO profiles (user_id, level, content, source, created_at) VALUES (?, ?, ?, ?, ?)",
             (user_id, level, content.strip(), source, _now())).lastrowid)
+
+    def delete_profiles(self, user_id: int, level: str, source: str) -> None:
+        self._run(lambda c: c.execute("DELETE FROM profiles WHERE user_id = ? AND level = ? AND source = ?",
+                                      (user_id, level, source)))
 
     def confirm_profile(self, user_id: int, profile_id: int, content: str | None = None) -> bool:
         """用户确认一条档案（可以先改字）。也用于「还对吗」之后的再确认：confirmed_at 更新成现在。"""

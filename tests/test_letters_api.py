@@ -1,9 +1,10 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mentor.model import FakeModel
+from mentor.tone import banned_hits
 from server.api import create_app
 from server.db import Db
 from test_deep_talk_api import CARDS, RATE, STEP4, STEPS_1_3, TEMPLATE, VERSIONS, finish_step4, walk
@@ -125,3 +126,83 @@ def test_letters_exported_and_deleted(setup):
     assert db.export(1)["letters"][0]["text"] == "信"
     db.delete_user(1)
     assert db.export(1)["letters"] == []
+
+
+def test_long_crisis_text_gets_crisis_reply_not_422(setup):
+    client, db, model, _ = setup
+    finish_step4(client, model)
+    r = client.post("/letters", json={"days": 30, "text": "我不想活了" + "字" * 5000})
+    assert r.status_code == 200 and r.json()["crisis"] is True and db.crisis_count(1) == 1 and db.letters(1) == []
+
+
+def test_span_is_exactly_days_after_writing_day(setup):
+    client, db, model, today = setup
+    finish_step4(client, model)
+    client.post("/letters", json={"days": 30, "text": "信"})
+    for d in range(30 + 1):  # 写信当天到到期日，每天都对账：31 条，写信当天不算
+        day = (date(2026, 11, 20) + timedelta(days=d)).isoformat()
+        db.save_log(1, {"date": day, "energy_after_class": None, "items": {}, "blocker": "", "note": "",
+                        "tomorrow_task": "", "yesterday_done": None})
+    today[0] = date(2026, 12, 20)
+    [letter] = client.get("/letters").json()["letters"]
+    assert (letter["logged_days"], letter["span_days"]) == (30, 30)
+
+
+def test_renamed_prototype_still_matches_habit(setup):
+    client, db, model, today = setup
+    finish_step4(client, model)
+    client.post("/deep-talk/confirm", json={"kind": "habit", "key": "prototype", "accept": True, "content": "每天写十行"})
+    client.post("/letters", json={"days": 30, "text": "信"})
+    today[0] = date(2026, 12, 20)
+    [letter] = client.get("/letters").json()["letters"]
+    assert letter["prototype"] == "每天写十行" and letter["done_days"] == 0
+
+
+def test_letter_after_restart_falls_back_to_deep_talk_habit(setup):
+    client, db, model, today = setup
+    finish_step4(client, model)
+    accept_prototype(client)
+    client.post("/letters/decline")
+    client.post("/deep-talk/restart")
+    finish_step4(client, model)  # 新一轮：原型还是 pending，没接受
+    client.post("/letters", json={"days": 30, "text": "信"})
+    habit = next(h for h in db.plan_input(1)["habits"] if h["title"] == "写一段代码")
+    assert (db.letters(1)[0]["prototype"], db.letters(1)[0]["habit_id"]) == ("写一段代码", habit["id"])
+
+
+def test_fallback_takes_last_deep_talk_habit(setup):
+    client, db, model, today = setup
+    finish_step4(client, model)
+    raw = db.plan_input(1)
+    a, b = raw["habits"][:2]
+    raw["habit_meta"] = {a["id"]: {"source": "deep_talk", "goal_id": None}, b["id"]: {"source": "deep_talk", "goal_id": None}}
+    db.set_plan_input(1, raw)
+    client.post("/letters", json={"days": 30, "text": "信"})
+    assert db.letters(1)[0]["habit_id"] == b["id"]
+
+
+def test_letters_409_when_not_asking(setup):
+    client, _, model, _ = setup
+    body = {"days": 30, "text": "信"}
+    r = client.post("/letters", json=body)
+    assert r.status_code == 409 and banned_hits(r.json()["detail"]) == []
+    assert client.post("/letters/decline").status_code == 409
+    finish_step4(client, model)
+    assert client.post("/letters/decline").status_code == 200
+    assert client.post("/letters/decline").status_code == 409 and client.post("/letters", json=body).status_code == 409
+
+
+def test_letter_422_copy_passes_banned_phrases(setup):
+    client, _, model, _ = setup
+    finish_step4(client, model)
+    r = client.post("/letters", json={"days": 30, "text": " "})
+    assert r.status_code == 422 and banned_hits(r.json()["detail"]) == []
+
+
+def test_choose_later_does_not_repeat_obstacles(setup):
+    client, db, model, _ = setup
+    with_obstacles(client, db, model, None)
+    model.replies.append(STEP4)
+    walk(client, [(4, "choose", 0)])
+    assert [p["content"] for p in db.profiles(1, confirmed=False) if p["level"] == "障碍"] == [
+        "甲说版本0的未知", "乙说版本0的未知", "丙说版本0的未知"]

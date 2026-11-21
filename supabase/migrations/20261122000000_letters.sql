@@ -8,7 +8,7 @@ create table public.letters (
   text text not null,
   prototype text,
   habit_id text,
-  created_at text not null
+  created_at timestamptz not null default now()
 );
 create index on public.letters (user_id);
 

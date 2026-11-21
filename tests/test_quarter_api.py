@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from mentor.model import FakeModel
 from server.api import AREAS, create_app
+from mentor.tone import banned_hits
 from server.db import Db
 from test_deep_talk_api import CARDS, TEMPLATE
 
@@ -60,7 +61,8 @@ def test_valid_post_saves_and_goals_become_confirmed_profiles(setup):
 ])
 def test_validation_rejects(setup, bad):
     client, db, _ = setup
-    assert client.post("/quarter", json=bad).status_code == 422
+    r = client.post("/quarter", json=bad)
+    assert r.status_code == 422 and banned_hits(r.json()["detail"]) == []
     assert db.last_quarter(1) is None and db.profiles(1, confirmed=True) == []
 
 
@@ -98,3 +100,21 @@ def test_exported_and_deleted(setup):
     assert db.export(1)["quarterly_reviews"][0]["goals"][0]["check"] == "跑了几次"
     db.delete_user(1)
     assert db.last_quarter(1) is None
+
+
+def test_crisis_beats_validation(setup):
+    client, db, _ = setup
+    r = client.post("/quarter", json=body(scores={}, stop="我不想活了")).json()
+    assert r["crisis"] is True and db.crisis_count(1) == 1 and db.last_quarter(1) is None
+
+
+def test_new_review_replaces_old_quarter_goals(setup):
+    client, db, _ = setup
+    other = db.propose_profile(1, "目标", "长谈的目标", "深度长谈")
+    db.confirm_profile(1, other)
+    client.post("/quarter", json=body())
+    client.post("/quarter", json=body(goals=[{"text": "每周读书", "check": "读了几章"}]))
+    assert [(p["content"], p["source"]) for p in db.profiles(1, confirmed=True)] == [
+        ("长谈的目标", "深度长谈"), ("每周读书（每周看：读了几章）", "季度回顾")]
+    assert len(db.export(1)["quarterly_reviews"]) == 2  # 原文都还在
+    assert set(client.get("/quarter").json()["last"]) == {"id", "day", "scores", "focus", "start", "stop", "keep", "goals"}

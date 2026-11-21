@@ -789,6 +789,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         state = talk_state(said)
         return {**state, "tomorrow_change": tomorrow_change} if tomorrow_change else state
 
+    def letter_ask_now() -> bool:
+        _, rows, answers = talk_rows()
+        return bool(rows.get(4, {}).get("finished_at")) and not answers.get(4, {}).get("letter_asked")
+
     def mark_letter_asked() -> None:
         rnd, _, answers = talk_rows()
         db.upsert_deep_talk(USER_ID, rnd, 4, answers={**answers.get(4, {}), "letter_asked": True})
@@ -796,24 +800,32 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     @app.post("/letters", summary="写一封给将来自己的信：原样存，到期前不显示")
     def post_letter(body: LetterIn):
         day = logical_date(clock())
+        if crisis := screen(body, day):
+            return crisis
         text = body.text.strip()
         if not text or len(text) > MAX_INPUT:
             raise HTTPException(422, f"信不能是空的，也不能超过 {MAX_INPUT} 字")
-        if crisis := screen(body, day):
-            return crisis
-        _, _, answers = talk_rows()
-        proto = next((p for p in answers.get(4, {}).get("proposals", [])
-                      if p["key"] == "prototype" and p["status"] == "accepted"), None)
-        raw = db.plan_input(USER_ID) or {}  # 习惯被用户改过名就对不上，存 null
-        habit = proto and next((h for h in raw.get("habits", []) if h["title"] == proto["title"]
-                                and raw.get("habit_meta", {}).get(h["id"], {}).get("source") == "deep_talk"), None)
-        db.add_letter(USER_ID, day, body.days, text, proto and proto["title"], habit and habit["id"])
-        mark_letter_asked()
+        with settings_lock:  # mark_letter_asked 整份读、整份写回：和确认提议排队
+            if not letter_ask_now():
+                raise HTTPException(409, "现在不用问要不要写信")
+            _, _, answers = talk_rows()
+            proto = next((p for p in answers.get(4, {}).get("proposals", [])
+                          if p["key"] == "prototype" and p["status"] == "accepted"), None)
+            raw = db.plan_input(USER_ID) or {}  # 习惯被用户改过名就对不上，存 null
+            mine = [h for h in raw.get("habits", []) if raw.get("habit_meta", {}).get(h["id"], {}).get("source") == "deep_talk"]
+            # 这一轮没接受过原型（重新聊时沿用旧的）：退回设置里来源是长谈的习惯，不止一个就取最后一个（最新加的）
+            habit = next((h for h in reversed(mine) if h["title"] == proto["title"]), None) if proto else (mine[-1] if mine else None)
+            db.add_letter(USER_ID, day, body.days, text, proto["title"] if proto else habit and habit["title"],
+                          habit and habit["id"])
+            mark_letter_asked()
         return get_letters()
 
     @app.post("/letters/decline", summary="不写信：以后不再问")
     def post_letter_decline():
-        mark_letter_asked()
+        with settings_lock:
+            if not letter_ask_now():
+                raise HTTPException(409, "现在不用问要不要写信")
+            mark_letter_asked()
         return talk_state()
 
     @app.get("/letters", summary="信的列表：没到期只给日期，到期了给原文和这段时间的数字")
@@ -824,8 +836,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             item = {"id": x["id"], "written_on": x["written_on"], "due": x["due"], "days": x["days"],
                     "status": "open" if today >= x["due"] else "sealed"}
             if item["status"] == "open":
-                logs = db.logs_between(USER_ID, date.fromisoformat(x["written_on"]),
-                                       date.fromisoformat(min(x["due"], today)))
+                logs = db.logs_between(USER_ID, date.fromisoformat(x["written_on"]) + timedelta(days=1),
+                                       date.fromisoformat(x["due"]))  # 写信第二天到到期日，正好 days 天
                 item.update(text=x["text"], prototype=x["prototype"], logged_days=len(logs), span_days=x["days"],
                             done_days=None if x["habit_id"] is None else sum(
                                 g["items"].get(x["habit_id"], {}).get("status") in ("done", "floor") for g in logs))
@@ -843,6 +855,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     @app.post("/quarter", summary="存一次季度回顾：目标直接成为已确认的档案")
     def post_quarter(body: QuarterIn):
         day = logical_date(clock())
+        if crisis := screen(body, day):
+            return crisis
         extra = None if body.extra_area is None else body.extra_area.strip()
         if extra is not None and (not 2 <= len(extra) <= 8 or extra in AREAS):
             raise HTTPException(422, "加的一项要 2 到 8 个字，也不能和默认的重复")
@@ -858,8 +872,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         if not 1 <= len(goals) <= 3 or any(not g["text"] or not g["check"] or max(len(g["text"]), len(g["check"])) > 60
                                            for g in goals):
             raise HTTPException(422, "目标 1 到 3 条，「目标」和「每周看什么」都要写，各 60 字以内")
-        if crisis := screen(body, day):
-            return crisis
+        db.delete_profiles(USER_ID, "目标", "季度回顾")  # 上一季的目标退下去；原文还在 quarterly_reviews 里
         qid = db.add_quarter(USER_ID, day, body.scores, focus, start, stop, keep, goals)
         for g in goals:  # 用户自己写的目标，不用再确认一遍
             db.confirm_profile(USER_ID, db.propose_profile(
@@ -951,6 +964,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                        "source": p["source"], "goal_id": goal}
                 if crisis := change_settings(lambda form: form["habits"].append(new)):  # 排不下抛 422，提议保持 pending
                     return crisis
+                p["title"] = new["title"]  # 写信按名字找习惯：提议的名字跟着用户改后的走
             p["status"] = "accepted" if body.accept else "declined"
             db.upsert_deep_talk(USER_ID, rnd, 4, answers={**a4, "proposals": props})
         else:
