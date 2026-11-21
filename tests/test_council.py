@@ -474,10 +474,11 @@ def _lens_with(sees: str) -> str:
     return json.dumps({"versions": [{"sees": sees, "unknown": "x", "test": "y"}] * 3}, ensure_ascii=False)
 
 
-def test_versions_lens_quote_must_be_his_own_words():
+def test_versions_lens_fake_quotes_are_stripped_real_ones_kept():
     versions = ["做开发", "我想慢慢来，不着急", "开书店"]
-    fake = _lens_with("你说「必须立刻成功」")
-    assert run_versions_council(FakeModel([VERSIONS_LENS] + [fake] * 2), [A, C], versions, "") == ("failed", None)
-    real = _lens_with("你说「慢慢来」")
-    model = FakeModel([VERSIONS_LENS, real, json.dumps({"disagreement": ""})])
-    assert run_versions_council(model, [A, C], versions, "")[0] == "ok"
+    mixed = json.dumps({"versions": [{"sees": "你说「慢慢来」，不是「必须立刻成功」", "unknown": "x", "test": "y"}] * 3},
+                       ensure_ascii=False)
+    model = FakeModel([VERSIONS_LENS, mixed, json.dumps({"disagreement": ""})])
+    status, out = run_versions_council(model, [A, C], versions, "档案：每天写App 30分钟")
+    assert status == "ok"
+    assert {l["versions"][0]["sees"] for l in out["lenses"]} >= {"你说「慢慢来」，不是必须立刻成功"}

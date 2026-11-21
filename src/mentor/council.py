@@ -283,9 +283,12 @@ _VERSIONS_SYNTH = """\
 _QUOTED = re.compile("「([^」]*)」|'([^']*)'|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”")
 
 
-def _quotes_are_his(text: str, source: str) -> bool:
-    """引号在这个产品里是「他自己的原话」：引号里的每一段都必须真在他写的版本或给的情况里出现过。"""
-    return all(q in source for m in _QUOTED.finditer(text) for q in m.groups() if q)
+def _unquote_fakes(text: str, source: str) -> str:
+    """引号在这个产品里是「他自己的原话」：不在他写的版本或给的情况里出现过的引号段，只去掉引号、留下字。"""
+    def fix(m: re.Match) -> str:
+        inner = next(g for g in m.groups() if g is not None)
+        return m.group(0) if inner in source else inner
+    return _QUOTED.sub(fix, text)
 
 
 def _versions_fields(obj, source: str = "") -> tuple[list[dict]] | None:
@@ -293,8 +296,10 @@ def _versions_fields(obj, source: str = "") -> tuple[list[dict]] | None:
     vs = obj.get("versions") if isinstance(obj, dict) else None
     keys = ("sees", "unknown", "test")
     if isinstance(vs, list) and len(vs) == 3 and all(
-            isinstance(v, dict) and all(_ok(v.get(k), 120) and "用户" not in v[k] and _quotes_are_his(v[k], source) for k in keys) for v in vs):
-        return ([{k: v[k] for k in keys} for v in vs],)
+            isinstance(v, dict) and all(isinstance(v.get(k), str) and "用户" not in v[k] for k in keys) for v in vs):
+        fixed = [{k: _unquote_fakes(v[k], source) for k in keys} for v in vs]
+        if all(_ok(v[k], 120) for v in fixed for k in keys):
+            return (fixed,)
     return None
 
 
