@@ -66,11 +66,6 @@ class ConfirmIn(BaseModel):
     version: int
 
 
-class OnboardingIn(BaseModel):
-    answer: str | None = Field(None, description="对上一个问题的回答；不填 = 开始或接着问")
-
-
-class ProfileConfirmIn(BaseModel):
 class EditIn(BaseModel):
     version: int
     block_id: str
@@ -82,6 +77,11 @@ MIN_BLOCK = 10  # 手动改的块最短几分钟
 MAX_REMEMBER = 480  # 记住的时长不超过解析时允许的上限，不然下次说同一件事会被拦下
 
 
+class OnboardingIn(BaseModel):
+    answer: str | None = Field(None, description="对上一个问题的回答；不填 = 开始或接着问")
+
+
+class ProfileConfirmIn(BaseModel):
     id: int
     content: str | None = Field(None, description="确认前改过的字；不填 = 原样确认")
 
@@ -478,11 +478,6 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 status = "failed"
         return {**out(day, db.latest_plan(USER_ID, day)), "calendar": status}
 
-    def merge_log(day, result: dict, explicit: set[str]) -> dict:
-        """和今天已有的记录合并（只补这次说到的，explicit 里的字段可以清空），补上电量，存下，返回整条。"""
-        stored = today_plan(day)
-        said_energy = result["energy_after_class"]
-        if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
     def latest_for(day, version: int) -> dict:
         stored = db.latest_plan(USER_ID, day)
         if stored is None or stored["version"] != version:
@@ -589,6 +584,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.add_plan(USER_ID, day, {**plan, "blocks": blocks}, stored["energy_level"])
         return {**today_body(day), "before": tag_items(day, stored["plan"])["blocks"]}
 
+    def merge_log(day, result: dict, explicit: set[str]) -> dict:
+        """和今天已有的记录合并（只补这次说到的，explicit 里的字段可以清空），补上电量，存下，返回整条。"""
+        stored = today_plan(day)
+        said_energy = result["energy_after_class"]
+        if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
             old = earlier[0]
             result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
                       "items": {**old["items"], **result["items"]}}
