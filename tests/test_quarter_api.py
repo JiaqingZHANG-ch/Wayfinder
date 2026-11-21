@@ -167,6 +167,6 @@ def test_council_crisis_shows_only_fixed_message(setup):
     last = client.get("/quarter").json()["last"]
     assert last["council_status"] == "crisis" and last["council"] is None and "请现在联系能帮到你的人" in last["message"]
     assert db.crisis_count(1) == 1
-    calls = len(client.model.calls)  # 危机以后再 POST：不重开，同一份回顾不再交给模型
-    assert client.post("/quarter/council").json() == {"status": "crisis"}
-    assert len(client.model.calls) == calls
+    # 危机以后再点：和深度长谈一样可以重跑（本机模型偶尔把平常的话误判成危机）
+    assert client.post("/quarter/council").json()["status"] == "running"
+    client.app.state.quarter_thread.join()

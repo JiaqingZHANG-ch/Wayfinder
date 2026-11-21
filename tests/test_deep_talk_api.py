@@ -164,9 +164,10 @@ def test_council_crisis_shows_crisis_message(setup):
     c = client.get("/deep-talk").json()["council"]
     assert c["status"] == "crisis" and c["result"] is None and "请现在联系能帮到你的人" in c["message"]
     assert db.crisis_count(1) == 1
-    calls = len(model.calls)  # 危机以后再进这一屏：不重开，同一份材料不再交给模型
-    assert client.post("/deep-talk/council").json()["council"]["status"] == "crisis"
-    assert len(model.calls) == calls
+    # 危机以后他点了「继续」再进这一屏：像 failed 一样可以重跑（本机模型偶尔把平常的话误判成危机）
+    model.replies += [LENS, LENS, SYNTH]
+    assert client.post("/deep-talk/council").json()["council"]["status"] == "running"
+    client.app.state.deep_talk_thread.join()
 
 
 def test_accept_habit_when_full_is_409(setup):

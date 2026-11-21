@@ -871,7 +871,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if q is None:
                 raise HTTPException(409, "还没有做过季度回顾")
             live = council_threads.get(("quarter", q["id"]))
-            if q["council_status"] in ("done", "crisis") or (q["council_status"] == "running" and live and live.is_alive()):
+            if q["council_status"] == "done" or (q["council_status"] == "running" and live and live.is_alive()):
                 return {"status": q["council_status"]}
             db.set_quarter_council(q["id"], None, "running")
             record = (f"各项打分：{'、'.join(f'{k} {v}' for k, v in q['scores'].items())}\n重点：{q['focus']}\n"
@@ -939,7 +939,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(409, "三个版本都写完，才能请顾问们看")
         live = council_threads.get(("talk", USER_ID, rnd))
         # 刷新、连点都不重开；存着 running 却没有活着的线程（后端重启过）就重跑；危机时也不重开
-        if rows[4]["council_status"] in ("done", "crisis") or (rows[4]["council_status"] == "running" and live and live.is_alive()):
+        if rows[4]["council_status"] == "done" or (rows[4]["council_status"] == "running" and live and live.is_alive()):
             return talk_state()
         db.upsert_deep_talk(USER_ID, rnd, 4, council=None, council_status="running")
         state = talk_state()  # 先取状态再开线程：返回的一定是 running
