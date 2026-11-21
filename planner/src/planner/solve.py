@@ -19,6 +19,7 @@ EVENING = 18 * 60
 FLEX_WEIGHT = 5
 NEW_BLOCK_PENALTY = 50
 POMODORO_MIN = 30  # 一个番茄：25 分钟专注 + 5 分钟小歇
+MUST_STEP = 5  # 今天必做的块按 5 分钟取整：说 45 分钟就排 45 分钟（C28）
 FOCUS_MIN = 25
 ON_BUS_COST = 0.5  # 车上听的习惯只算一半精力
 FOCUS_KINDS = ("class", "exam", "meeting")
@@ -299,7 +300,10 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         decay = inp.energy.pomodoro_decay
         N = len(decay)  # 一块最多几个番茄
         lb_n = 2 if t.heavy and need_min(t) >= 2 * POMODORO_MIN else 1
-        if z - a < POMODORO_MIN * lb_n:
+        lb = POMODORO_MIN * lb_n  # 一块最短几分钟
+        if t.must_today:  # 说的事最短就是它自己（凑整到 5 分钟），不凑成番茄
+            lb = min(lb, -(-need_min(t) // MUST_STEP) * MUST_STEP)
+        if z - a < lb:
             if hard:
                 return None
             continue
@@ -313,19 +317,26 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         for k in range(nb):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
             d = m.NewIntVar(0, POMODORO_MIN * N, f"{t.id}-{k}-dur")
-            s = m.NewIntVar(a, z - POMODORO_MIN * lb_n, f"{t.id}-{k}-start")
+            s = m.NewIntVar(a, z - lb, f"{t.id}-{k}-start")
             e = m.NewIntVar(a, z, f"{t.id}-{k}-end")
             m.Add(e == s + d)
-            # 每块恰好落在一个时段、含 n 个番茄；不跨时段
-            y = {(j, n): m.NewBoolVar(f"{t.id}-{k}-y{j}-{n}") for j in range(len(periods)) for n in range(lb_n, N + 1)}
+            # 每块恰好落在一个时段、不跨时段：普通项目含 n 个番茄；今天必做的时长按 5 分钟走，只选时段
+            if t.must_today:
+                q = m.NewIntVar(0, POMODORO_MIN * N // MUST_STEP, f"{t.id}-{k}-q")
+                m.Add(d == MUST_STEP * q)
+                m.Add(d >= lb).OnlyEnforceIf(p)
+                m.Add(d == 0).OnlyEnforceIf(p.Not())
+                y = {(j, 0): m.NewBoolVar(f"{t.id}-{k}-y{j}") for j in range(len(periods))}
+            else:
+                y = {(j, n): m.NewBoolVar(f"{t.id}-{k}-y{j}-{n}") for j in range(len(periods)) for n in range(lb_n, N + 1)}
+                m.Add(d == POMODORO_MIN * sum(n * v for (j, n), v in y.items()))
             m.Add(sum(y.values()) == p)
-            m.Add(d == POMODORO_MIN * sum(n * v for (j, n), v in y.items()))
             for (j, n), v in y.items():
                 m.Add(s >= periods[j][0]).OnlyEnforceIf(v)
                 m.Add(e <= periods[j][1]).OnlyEnforceIf(v)
             if t.must_today:  # 用户说的分钟数就是要排的钟点时长，不按时段效率折算
                 progs.append(d)
-                lasts.append(POMODORO_MIN * p)
+                lasts.append(MUST_STEP * p)
             else:
                 progs.append(sum(block_progress(periods[j][2], n, decay) * v for (j, n), v in y.items()))
                 lasts.append(sum((block_progress(periods[j][2], n, decay) - block_progress(periods[j][2], n - 1, decay)) * v
@@ -445,8 +456,9 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
                 projects.append(b)
     for b, ys, must in fills:
         for eff, n, v in ys:
-            if solver.Value(v):
-                b.pomodoros, b.progress_min = n, n * POMODORO_MIN if must else block_progress(eff, n, inp.energy.pomodoro_decay)
+            if solver.Value(v):  # 今天必做的进度就是钟点分钟，番茄数向上取整只给显示用
+                b.pomodoros, b.progress_min = (-(-(b.end - b.start) // POMODORO_MIN), b.end - b.start) if must \
+                    else (n, block_progress(eff, n, inp.energy.pomodoro_decay))
     for i, b in enumerate(sorted(projects, key=lambda b: b.start)):
         b.slot = f"p{i + 1}"
     used = spent / 100 + sum((b.end - b.start) * (task_cost(inp, b.task_id) if b.kind == "proj" else cost.get(b.id, 0))
@@ -483,13 +495,14 @@ def _low_energy(inp: PlanInput, skip: set[str] = frozenset()) -> PlanInput:
     return replace(low, energy=replace(inp.energy, base_min=inp.energy.base_min - saved / inp.energy.load))
 
 
-def solve_day(inp: PlanInput) -> DayPlan:
+def solve_day(inp: PlanInput, soft_must: bool = False) -> DayPlan:
+    """soft_must：今天必做的排不完时不报错，能排多少排多少，差多少写进 warnings（App 里所有排今天的地方都这样用）。"""
     inp = _low_energy(inp)
     c = pick_commute(inp)
     conflict = _fixed_conflict(inp, c)
     if conflict:
         raise PlanInfeasible(conflict)
-    plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
+    plan, must_short = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex), []
     if plan is None and any(t.must_today for t in inp.tasks):  # 一整块放不下就允许拆开再排
         plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, whole=False)
     if plan is None and any(t.must_today for t in inp.tasks):
@@ -497,12 +510,14 @@ def solve_day(inp: PlanInput) -> DayPlan:
         soft = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, hard_must=False, whole=False)
         short = [f"{t.title}（还差 {n} 分钟）" for t in inp.tasks if t.must_today and soft
                  and (n := need_min(t) - sum(b.progress_min or 0 for b in soft.blocks if b.task_id == t.id)) > 0]
-        if short:
+        if short and not soft_must:
             raise PlanInfeasible("今天剩下的时间排不下：" + "、".join(short))
+        if short:
+            plan, must_short = soft, ["今天剩下的时间排不下：" + "、".join(short)]
     if plan is None:
         raise PlanInfeasible(_diagnose(inp, c))
     plan.blocks = sorted(plan.blocks + free_blocks(inp, plan.blocks), key=lambda b: b.start)
-    plan.warnings = _warnings(inp, day_capacity(inp, c)) + [
+    plan.warnings = must_short + _warnings(inp, day_capacity(inp, c)) + [
         f"{e.title}：路上时间按单程 {inp.rules.other_travel_min} 分钟估算，以实际为准"
         for e in inp.fixed if e.where == "other"]
     if plan.energy_cap - fixed_cost(inp, c) < POMODORO_MIN and not any(b.kind == "proj" for b in plan.blocks):
@@ -528,8 +543,10 @@ def _cutoff(inp: PlanInput, keep: list[Block], now: int) -> tuple[int, int | Non
     return cutoff, free_at if free_at > cutoff else None
 
 
-def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list[Block] | None = None) -> DayPlan:
+def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list[Block] | None = None,
+                soft_must: bool = False) -> DayPlan:
     """只重排今晚（C27）：now 之前开始的块原样保留，done_ids 里的事不再排，剩下的从 now 起重排。
+    soft_must 同 solve_day。
 
     before 是今天已经存着的计划（用户真看到、真做了的）；不给就按同一份输入重排出原计划
     （求解器固定随机种子、单线程，同样输入排出同样的计划）。改了设置时一定要给：按新设置假想出来的上午
@@ -552,10 +569,13 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     inp = _low_energy(inp, drop)  # 已经做过的习惯不算「省下」的精力
 
     progress: dict[str, int] = {}
+    clock: dict[str, int] = {}  # 今天必做的按钟点扣（已经过去和正在做的块）：手动拉长拉短过的块 progress_min 不准
     for b in keep:
         if b.kind == "proj":
             progress[b.task_id] = progress.get(b.task_id, 0) + (b.progress_min or 0)
-    tasks = [replace(x, remaining_min=max(0, x.remaining_min - math.ceil(progress.get(x.id, 0) / x.est_factor)))
+            clock[b.task_id] = clock.get(b.task_id, 0) + b.end - b.start
+    tasks = [replace(x, remaining_min=max(0, x.remaining_min - (clock.get(x.id, 0) if x.must_today
+                                                                 else math.ceil(progress.get(x.id, 0) / x.est_factor))))
              for x in inp.tasks if x.id not in drop]
 
     start = max(focus_free_at or cutoff, work_lo)  # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
@@ -590,7 +610,7 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=work_lo - cutoff), habits=habits, meals=meals,
                    flex=[f for f in inp.flex if f.id not in drop], tasks=tasks, energy=energy,
                    habit_block=[i for i in habit_block if i in ids], focus_free_at=focus_free_at)
-    after = solve_day(rest)
+    after = solve_day(rest, soft_must)
 
     # 过去的课和通勤照原计划留着；新排的只要现在（或正在做的那块结束）之后的
     cut = max([t] + [b.end for b in past])

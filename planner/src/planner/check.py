@@ -103,9 +103,11 @@ def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
         problems.append(f"自由时间不够：共 {sum(free)} 分钟（每段至少 {FREE_MIN_GAP}，总共至少 {e.min_free_min}）")
 
     edges = [end for end, _ in e.periods[:-1]]
+    must = {t.id for t in inp.tasks if t.must_today}
     for b in proj:
         d = b.end - b.start
-        if d % POMODORO_MIN or d > POMODORO_MIN * len(e.pomodoro_decay):
+        step = 5 if b.task_id in must else POMODORO_MIN  # 今天必做的按 5 分钟取整（C28）
+        if d % step or d > POMODORO_MIN * len(e.pomodoro_decay):
             problems.append(f"{b.title}（{to_hhmm(b.start)}）不是整数个番茄：{d} 分钟")
         if any(b.start < x < b.end for x in edges):
             problems.append(f"{b.title}（{to_hhmm(b.start)}–{to_hhmm(b.end)}）跨时段")

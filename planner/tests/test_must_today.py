@@ -1,4 +1,5 @@
 """must_today：用户说了今天要做的事，一定排进今天；精力只决定排在什么时候。"""
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -6,8 +7,8 @@ import pytest
 
 from planner.check import check_plan
 from planner.errors import PlanInfeasible
-from planner.model import FixedEvent, Task, load_input, to_min
-from planner.solve import solve_day
+from planner.model import FixedEvent, Task, load_input, to_hhmm, to_min
+from planner.solve import replan_from, solve_day
 
 STUDENT = Path(__file__).parent.parent / "examples" / "users" / "学生.json"
 
@@ -57,3 +58,30 @@ def test_one_block_when_it_fits():
     inp = student(title="健身", remaining_min=60, heavy=False)
     blocks = [b for b in solve_day(inp).blocks if b.task_id == "say-1"]
     assert len(blocks) == 1 and blocks[0].end - blocks[0].start == 60
+
+
+@pytest.mark.parametrize("said", [45, 5, 47])
+def test_said_minutes_not_rounded_up_to_pomodoros(said):
+    # 说 45 分钟就排 45 分钟：按 5 分钟取整，不凑成 30 的倍数（普通项目照旧按番茄）
+    inp = student(title="健身", remaining_min=said, heavy=False)
+    plan = solve_day(inp)
+    blocks = [b for b in plan.blocks if b.task_id == "say-1"]
+    assert len(blocks) == 1 and blocks[0].end - blocks[0].start == -(-said // 5) * 5 == progress(plan)
+    assert all((b.end - b.start) % 30 == 0 for b in plan.blocks if b.kind == "proj" and b.task_id != "say-1")
+    assert check_plan(inp, plan) == []
+
+
+def test_soft_must_schedules_what_fits_and_warns():
+    plan = solve_day(student(remaining_min=1200), soft_must=True)
+    assert progress(plan) > 0
+    assert any(re.fullmatch(r"今天剩下的时间排不下：写报告（还差 \d+ 分钟）", w) for w in plan.warnings)
+
+
+def test_replan_deducts_clock_minutes_of_started_must_blocks():
+    # 已经开始的块被手动拉短过（progress_min 还是旧的）：按钟点扣，剩下的照排
+    inp = student(remaining_min=120, heavy=False)
+    plan = solve_day(inp)
+    b = next(x for x in plan.blocks if x.task_id == "say-1")
+    b.end = b.start + 30  # 拉短成 30 分钟，progress_min 还写着原来的
+    rest = replan_from(inp, to_hhmm(b.start + 10), before=plan.blocks)
+    assert sum(x.end - x.start for x in rest.blocks if x.task_id == "say-1") == 120
