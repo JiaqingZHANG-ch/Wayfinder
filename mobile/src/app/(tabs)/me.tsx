@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { DeepTalkState, getDeepTalk, getLetters, getProfile, getSettings, getToday, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
+import { DeepTalkState, getDeepTalk, getLetters, getProfile, getQuarter, getSettings, getToday, pendingCount, Profile, Quarter, restartDeepTalk, Settings } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure } from "@/components/clay";
 import { enter, Skeleton } from "@/components/motion";
@@ -23,10 +23,12 @@ export default function MeScreen() {
   const [level, setLevel] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [hasLetters, setHasLetters] = useState(false);
+  const [quarter, setQuarter] = useState<{ available: boolean; last: Quarter | null } | null>(null);
   const load = useCallback(() => {
     setFailed(false);
     getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就和今天页一样微笑
     getLetters().then((r) => setHasLetters(r.letters.length > 0), () => {}); // 拿不到就不显示这一行
+    getQuarter().then(setQuarter, () => {}); // 拿不到就不显示入口
     getSettings().then(setS, () => setFailed(true));
     Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => setFailed(true));
   }, []);
@@ -88,6 +90,7 @@ export default function MeScreen() {
           {mission ? <Text style={[type.title, { lineHeight: 29, color: c.text }]}>「{mission.content}」</Text>
             : <Text style={[type.body, { color: c.muted }]}>聊完几次，这里会写下你想去的方向</Text>}
           {goals.map((g) => <Small key={g.id}>{g.content}</Small>)}
+          {quarter?.last && <Small>{`这一季的重点：${quarter.last.focus}`}</Small>}
         </Animated.View>
       )}
 
@@ -101,6 +104,12 @@ export default function MeScreen() {
             ))}
           </View>
           <Button label={next.label} variant={"quiet" in next ? "neutral" : "primary"} onPress={next.go} />
+        </Card>
+      )}
+
+      {quarter?.available && (
+        <Card i={3} style={{ paddingVertical: space.xs }}>
+          <ListRow icon="flag-outline" title="可以做一次季度回顾了" onPress={() => router.push("/quarter")} last />
         </Card>
       )}
 
