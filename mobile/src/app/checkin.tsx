@@ -27,6 +27,13 @@ const isFloor = (t: string) => t.endsWith("（保底）");
 const VS_LOOK: Record<VsPlan, IconName> = { less: "remove-circle-outline", same: "reorder-two-outline", more: "add-circle-outline" };
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
+// 长谈邀请卡：每一步一个动词开头的标题，下面一句说清聊什么
+const INVITE: Record<number, [string, string]> = {
+  1: ["聊聊现状", "四个打分，两个问题。"],
+  2: ["想想方向", "两个问题，说说你想往哪走。"],
+  3: ["找找能量", "哪些事越做越有劲。聊完明天的安排会跟着变。"],
+  4: ["写三个版本", "写三个五年后的你，几位顾问各说几句。"],
+};
 
 /**
  * 晚间对账：全屏，一屏一问。每件事一屏（点完自动到下一屏），项目再问一句和预想比，
@@ -199,15 +206,17 @@ export default function Checkin() {
           <Animated.View exiting={FadeOut.duration(motion.base)}>
             <Card style={{ gap: space.xs }}>
               <Text style={[type.eyebrow, { color: c.muted }]}>{`第 ${invite.step} 次长谈 · 约 10 分钟`}</Text>
-              <Title>{invite.steps.find((s) => s.step === invite.step)?.name}</Title>
+              <Title>{INVITE[invite.step ?? 0]?.[0] ?? invite.steps.find((s) => s.step === invite.step)?.name}</Title>
+              {!!INVITE[invite.step ?? 0] && <Small muted>{INVITE[invite.step ?? 0][1]}</Small>}
               <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
-                <View style={{ flex: 1 }}><Button label="现在聊" onPress={() => router.replace("/deep-talk")} /></View>
+                {/* 夜里这一屏不放实心渐变按钮（docs/design.md） */}
+                <View style={{ flex: 1 }}><Button label="现在聊" variant="secondary" onPress={() => router.replace("/deep-talk")} /></View>
                 <View style={{ flex: 1 }}><Button label="明天再说" variant="neutral" onPress={() => { snoozeDeepTalk().finally(() => setInvite(null)); }} /></View>
               </View>
             </Card>
           </Animated.View>
         )}
-        <Button label="晚安" icon="moon-outline" variant="secondary" onPress={leave} />
+        <Button label="晚安" icon="moon-outline" variant={invite ? "neutral" : "secondary"} onPress={leave} />
         <Button label="再改一下" variant="neutral" onPress={() => { setDone(null); go(0); }} />
       </>,
     );

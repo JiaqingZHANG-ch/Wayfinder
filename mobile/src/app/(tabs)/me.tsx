@@ -28,9 +28,13 @@ export default function MeScreen() {
   const doneN = dir?.talk.steps.filter((x) => x.status === "done").length ?? 0;
   const c4 = dir?.talk.answers["4"]?.choose;
   const needChoose = dir?.talk.steps.some((x) => x.step === 4 && x.status === "done") && (c4 === null || c4 === undefined);
+  // 「重新聊一次」会开新的一轮、卡上的目标跟着换：第一下只问一句，第二下才真的开
+  const [sure, setSure] = useState(false);
   const next = needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
     : doneN < 4 ? { label: `接着聊 · 长谈 ${doneN}/4`, go: () => router.push("/deep-talk") }
-    : { label: "重新聊一次", go: () => restartDeepTalk().then(() => router.push("/deep-talk"), () => {}) };
+    : sure ? { label: "从第 1 次重新开始，旧的会留着 · 再点一次确定", quiet: true,
+      go: () => restartDeepTalk().then(() => { setSure(false); router.push("/deep-talk"); }, () => {}) }
+    : { label: "重新聊一次", quiet: true, go: () => setSure(true) };
 
   const classes = new Set((s?.timetable ?? []).map((x) => x.title)).size;
   const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : "",
@@ -51,10 +55,10 @@ export default function MeScreen() {
         <Animated.View entering={enter(1)}>
           <Card style={{ gap: space.xs }}>
             <Small muted>我的方向</Small>
-            {mission ? <Body>{mission.content}</Body> : <Body muted>聊完几次，这里会写下你想去的方向</Body>}
+            {mission ? <Text style={[type.title, { color: c.text }]}>{mission.content}</Text> : <Body muted>聊完几次，这里会写下你想去的方向</Body>}
             {goals.map((g) => <Small key={g.id}>{`· ${g.content}`}</Small>)}
             <Pressy onPress={next.go} accessibilityRole="button" accessibilityLabel={next.label} style={{ paddingTop: space.sm }}>
-              <Text style={[type.small, { color: c.primary, fontWeight: "500" }]}>{next.label}</Text>
+              <Text style={[type.small, { color: "quiet" in next ? c.muted : c.primary, fontWeight: "500" }]}>{next.label}</Text>
             </Pressy>
           </Card>
         </Animated.View>

@@ -155,11 +155,12 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
           {quiet ? `${b.title.split("：")[0]}${live ? "" : ` · ${span(b)}`}` : b.title}
         </Text>
         {(!quiet || live) && (
-          <Small color={live && !quiet ? c.onSoft : c.muted} lines={goal ? 1 : undefined}>
-            {(live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · "))
-              + (goal ? ` · 为了：${goal}` : "")}
+          <Small color={live && !quiet ? c.onSoft : c.muted}>
+            {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
           </Small>
         )}
+        {/* 长谈定下的「为了」单独一行，不被前面那串挤成省略号 */}
+        {goal && (!quiet || live) && <Small color={live && !quiet ? c.onSoft : c.muted} lines={1}>{`为了：${goal}`}</Small>}
       </View>
     </View>
   );
