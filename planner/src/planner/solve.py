@@ -487,7 +487,8 @@ def _cutoff(inp: PlanInput, keep: list[Block], now: int) -> tuple[int, int | Non
     """重排从哪一分钟开始（现在，或正在做的那块结束），以及新的专注最早几点开始（刚做完的专注块放松完）。"""
     rest = inp.energy.rest_after_focus_min
     cutoff = max([now] + [b.end for b in keep])
-    free_at = max([cutoff] + [b.end + rest for b in keep if _block_cost(inp, b) > 0])
+    # 和排整天时一样：必做习惯都算专注，项目要花精力才算；健身、吃饭不算
+    free_at = max([cutoff] + [b.end + rest for b in keep if b.kind == "must" or (b.kind == "proj" and _block_cost(inp, b) > 0)])
     return cutoff, free_at if free_at > cutoff else None
 
 
