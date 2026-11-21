@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,36 +53,62 @@ export default function DeepTalk() {
   // 只有存着「先不选」时才回来选；别的情况照常从没答的那一屏走
   const choosing = rechoose && st?.answers[4]?.choose === null;
   const onCouncil = !choosing && !said && summary === null && st?.step === 4 && st.screen === "council";
+  // 智囊团开不起来或连着查不到：给「再试一次」，kick 加一就再 POST 一次
+  const [councilErr, setCouncilErr] = useState<string | null>(null);
+  const [kick, setKick] = useState(0);
   // 每次进智囊团这一屏都先 POST 一次：后端重启过时 GET 会一直是 running，只有 POST 能重跑；进行中或看完了的不会重开
   useEffect(() => {
-    if (onCouncil) startCouncil().then(setSt, (e) => setMessage(say(e)));
-  }, [onCouncil]);
+    if (!onCouncil) return;
+    let cancelled = false;
+    startCouncil().then((res) => {
+      if (cancelled) return;
+      setSt(res);
+      if (!res.council) setCouncilErr("顾问们没开始看，再试一次。"); // POST 完了还是 null：不算在看，不能一直转圈
+    }, (e) => { if (!cancelled) setCouncilErr(say(e)); });
+    return () => { cancelled = true; };
+  }, [onCouncil, kick]);
   const running = st?.council?.status === "running";
   useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => { getDeepTalk().then(setSt, () => {}); }, 3000);
-    return () => clearInterval(t);
-  }, [running]);
+    if (!running || councilErr) return;
+    let cancelled = false;
+    let misses = 0;
+    const t = setInterval(() => {
+      getDeepTalk().then((res) => { if (!cancelled) { misses = 0; setSt(res); } }, () => {
+        if (cancelled || ++misses < 3) return;
+        clearInterval(t);
+        setCouncilErr(OFFLINE);
+      });
+    }, 3000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [running, councilErr]);
+  const busyRef = useRef(false); // 同一帧里连点两下，busy 状态还没生效，靠它挡住第二下
 
   /** 发一个请求：危机就停在危机卡片；409（不是这一屏）重新取状态；其余错误原样说给他。 */
-  async function call(req: Promise<DeepTalkState | Crisis>, then?: (s: DeepTalkState) => void) {
+  async function call(req: () => Promise<DeepTalkState | Crisis>, then?: (s: DeepTalkState) => void) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setMessage(null);
     try {
-      const res = await req;
+      const res = await req();
       if (isCrisis(res)) return setCrisis(res.message);
       setSt(res);
       then?.(res);
     } catch (e) {
       setMessage(say(e));
-      if (e instanceof ApiError && e.status === 409) getDeepTalk().then(setSt, () => {});
+      if (e instanceof ApiError && e.status === 409) { // 服务器那边已经往前走了：本地停着的回应和小结也作废
+        setSaid(null);
+        setSummary(null);
+        getDeepTalk().then(setSt, () => {});
+      }
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   function answer(step: number, screen: string, value: unknown) {
-    call(answerDeepTalk(step, screen, value), (res) => {
+    call(() => answerDeepTalk(step, screen, value), (res) => {
       haptic.select();
       setRechoose(false);
       if (res.reply) setSaid({ step, screen, reply: res.reply });
@@ -90,7 +116,7 @@ export default function DeepTalk() {
     });
   }
 
-  const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(confirmDeepTalk(what, accept, content));
+  const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(() => confirmDeepTalk(what, accept, content));
 
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -334,11 +360,16 @@ export default function DeepTalk() {
     bottom = <Button label="写好了" disabled={!text[s.id]?.trim()} busyLabel={busy ? "正在存……" : undefined}
       onPress={() => answer(step, s.id, text[s.id].trim())} />;
   } else if (s.kind === "council") {
-    const status = st.council?.status ?? "running";
+    const status = councilErr ? "error" : st.council?.status ?? "running"; // 还没 POST 完时是 null，先当在看
     body = (
       <>
         {eyebrow(step)}
-        {status === "running" ? (
+        {status === "error" ? (
+          <>
+            <Display>几位顾问在看你写的三个版本</Display>
+            <Notice tone="error">{councilErr}</Notice>
+          </>
+        ) : status === "running" ? (
           <>
             <Display>几位顾问在看你写的三个版本</Display>
             <Body muted>大概一两分钟。也可以先关掉，下次打开接着看。</Body>
@@ -357,7 +388,8 @@ export default function DeepTalk() {
     // 第 4 次可以分两晚：写完三个版本、看完点评就可以先关掉
     bottom = (
       <>
-        {status !== "running" && <Button label="接着打分" busyLabel={busy ? "正在存……" : undefined} onPress={() => answer(step, s.id, true)} />}
+        {status === "error" && <Button label="再试一次" icon="refresh" onPress={() => { setCouncilErr(null); setKick(kick + 1); }} />}
+        {(status === "done" || status === "failed") && <Button label="接着打分" busyLabel={busy ? "正在存……" : undefined} onPress={() => answer(step, s.id, true)} />}
         <Button label="今晚先到这" variant="secondary" onPress={leave} />
       </>
     );
