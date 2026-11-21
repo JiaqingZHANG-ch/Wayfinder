@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, StrictInt, ValidationError
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
 from mentor.council import CARDS_DIR, Card, load_cards, run_quarter_council, run_versions_council
-from mentor.day_parse import parse_day
+from mentor.day_parse import HHMM, memory_key, parse_day
 from mentor.deep_talk import STEPS, invest_suggestions, next_screen, propose, should_invite
 from mentor.deep_talk import reply as talk_reply
 from mentor.mentor import MAX_INPUT, logical_date
@@ -71,6 +71,17 @@ class OnboardingIn(BaseModel):
 
 
 class ProfileConfirmIn(BaseModel):
+class EditIn(BaseModel):
+    version: int
+    block_id: str
+    start: str = Field(pattern=HHMM)
+    end: str = Field(pattern=HHMM)
+
+
+MIN_BLOCK = 10  # 手动改的块最短几分钟
+MAX_REMEMBER = 480  # 记住的时长不超过解析时允许的上限，不然下次说同一件事会被拦下
+
+
     id: int
     content: str | None = Field(None, description="确认前改过的字；不填 = 原样确认")
 
@@ -472,6 +483,112 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         stored = today_plan(day)
         said_energy = result["energy_after_class"]
         if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
+    def latest_for(day, version: int) -> dict:
+        stored = db.latest_plan(USER_ID, day)
+        if stored is None or stored["version"] != version:
+            raise HTTPException(409, "这不是今天最新的计划，刷新后再改")
+        return stored
+
+    def find_block(stored: dict, block_id: str) -> dict:
+        b = next((x for x in stored["plan"]["blocks"] if x["id"] == block_id), None)
+        if b is None:
+            raise HTTPException(404, "计划里没有这一块")
+        return b
+
+    def item_of(day, b: dict) -> dict | None:
+        """块来自哪件当天事项（和 tag_items 同一个规则：fixed 块看 id，task 块看 task_id）。"""
+        return next((i for i in db.day_items(USER_ID, day) if i["id"] in (b["id"], b.get("task_id"))), None)
+
+    def minutes(b: dict) -> int:
+        return to_min(b["end"]) - to_min(b["start"])
+
+    @app.post("/plan/edit", summary="手动改一块的起止 → 钉住 → 存成新版本（未确认），不重排；撞了不拦，overlaps 是撞上的块")
+    def post_plan_edit(body: EditIn):
+        day = logical_date(clock())
+        stored = latest_for(day, body.version)
+        b = find_block(stored, body.block_id)
+        if b["kind"] in ("class", "life"):
+            raise HTTPException(422, "课、吃饭和路上的块不能改时间")
+        s, e = to_min(body.start), to_min(body.end)
+        inp = plan_input(day)
+        if s >= e:
+            raise HTTPException(422, "开始要早于结束")
+        if not (inp.wake <= s and e <= inp.sleep):
+            raise HTTPException(422, f"要在起床（{to_hhmm(inp.wake)}）到上床（{to_hhmm(inp.sleep)}）之间")
+        if e - s < MIN_BLOCK:
+            raise HTTPException(422, f"一块至少 {MIN_BLOCK} 分钟")
+        new = {**b, "start": body.start, "end": body.end, "pinned": True}
+        blocks = sorted((new if x is b else x for x in stored["plan"]["blocks"]), key=lambda x: to_min(x["start"]))
+        if (item := item_of(day, b)) and e - s != minutes(b):
+            # 一件事可能拆成了几块：记这件事今天一共排了多久
+            total = sum(minutes(x) for x in blocks if item["id"] in (x["id"], x.get("task_id")))
+            db.remember_duration(USER_ID, memory_key(item["title"]), min(total, MAX_REMEMBER))
+        db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"])
+        hit = [x["id"] for x in blocks if x is not new and not x["id"].startswith("free-")
+               and to_min(x["start"]) < e and s < to_min(x["end"])]
+        return {**today_body(day), "overlaps": hit}
+
+    @app.delete("/plan/block/{block_id}", summary="从最新版删掉一块，存成新版本；来自当天事项的连事项一起去掉，重排时不再冒出来")
+    def delete_plan_block(block_id: str, version: int):
+        day = logical_date(clock())
+        stored = latest_for(day, version)
+        b = find_block(stored, block_id)
+        item = item_of(day, b)
+        if item:
+            db.set_day_items(USER_ID, day, [i for i in db.day_items(USER_ID, day) if i["id"] != item["id"]])
+        # 事项没了，它拆出来的别的块也一起删
+        blocks = [x for x in stored["plan"]["blocks"]
+                  if x["id"] != block_id and not (item and item["id"] in (x["id"], x.get("task_id")))]
+        db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"])
+        return today_body(day)
+
+    @app.post("/plan/reflow", summary="钉住的块和已经开始的块不动，其余按精力重排 → 新版本（未确认）；before 是重排前的块")
+    def post_reflow(body: ConfirmIn):
+        t = clock()
+        day = logical_date(t)
+        stored = latest_for(day, body.version)
+        if t.date() != day:
+            raise HTTPException(409, "今天已经过完了，早上再看新的计划")
+        now_min = t.hour * 60 + t.minute
+        before = stored["plan"]["blocks"]
+        # 已经开始的钉住块 replan_from 会原样留下，这里只管还没开始的
+        pins = {b["id"]: b for b in before if b.get("pinned") and to_min(b["start"]) >= now_min}
+        took: dict[str, int] = {}
+        for b in pins.values():
+            if b.get("task_id"):
+                took[b["task_id"]] = took.get(b["task_id"], 0) + minutes(b)
+        d = day_input(db.plan_input(USER_ID), day)
+        d["fixed"] = [*(x for x in d.get("fixed", []) if x["id"] not in pins),
+                      *({"id": b["id"], "title": b["title"], "start": b["start"], "end": b["end"],
+                         "where": "home", "kind": "meeting"} for b in pins.values())]
+        for k in ("habits", "flex"):  # 钉住的习惯、可选项已经有位置了，别再排一遍
+            d[k] = [x for x in d.get(k, []) if x["id"] not in pins]
+        d["habit_block"] = [i for i in d.get("habit_block", []) if i not in pins]
+        # 钉住的任务块已经占的分钟从还要做的里扣掉，免得同一件事排两遍
+        d["tasks"] = [{**x, "remaining_min": x["remaining_min"] - took.get(x["id"], 0)}
+                      for x in d.get("tasks", []) if x["remaining_min"] > took.get(x["id"], 0)]
+        if stored["energy_level"]:
+            d["energy_level"] = stored["energy_level"]
+        try:
+            inp = input_from_dict(d)
+        except InputError as e:
+            raise HTTPException(422, str(e)) from None
+        plan = solved(lambda: replan_after(inp, before, now_min))
+        # 求解器把 fixed 一律输出成 class：钉住的块按 id 换回原来的样子（kind、pinned、task_id）；
+        # 新排的块和钉住的撞了 id（同一个任务拆出来的 x-0）就改名
+        ids = {b["id"] for b in plan["blocks"]}
+        blocks = []
+        for b in plan["blocks"]:
+            if b["id"] in pins and b["kind"] == "class":
+                b = pins[b["id"]]
+            elif b["id"] in pins:
+                while b["id"] in ids:
+                    b = {**b, "id": b["id"] + "-r"}
+                ids.add(b["id"])
+            blocks.append(b)
+        db.add_plan(USER_ID, day, {**plan, "blocks": blocks}, stored["energy_level"])
+        return {**today_body(day), "before": tag_items(day, stored["plan"])["blocks"]}
+
             old = earlier[0]
             result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
                       "items": {**old["items"], **result["items"]}}
