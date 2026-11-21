@@ -298,7 +298,7 @@ export default function DeepTalk() {
             </View>
           )}
           {step < 4 && <Body muted>下次对完账，我们接着聊第 {step + 1} 次。</Body>}
-          {step === 4 && st.habits_full && <Body muted>习惯已经满 3 个了。哪天想换掉一个，看书、运动、早点睡这类事，花得少、回报长。</Body>}
+          {step === 4 && st.habits_full && <Body muted>习惯已经满 3 个了。想加新的，先在设置里换掉一个。</Body>}
           {step === 4 && a.choose === null && <Body muted>想好了，可以从「我」页回来选一个版本。</Body>}
         </>
       );
