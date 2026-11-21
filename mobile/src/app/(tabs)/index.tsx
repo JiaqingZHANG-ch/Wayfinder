@@ -4,10 +4,10 @@ import { AppState, RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ApiError, Block, getMe, getToday, Me, Plan } from "@/api";
+import { ApiError, Block, confirmPlan, getMe, getToday, isCrisis, Me, Plan, postEnergy, say } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { Battery, Bubble, EventIcon, Figure, Stage } from "@/components/clay";
-import { enter, Skeleton } from "@/components/motion";
+import { enter, haptic, Skeleton } from "@/components/motion";
 import { fromMin, toMin, useNow } from "@/components/plan-view";
 import { Button, ErrorState, Notice, Screen } from "@/components/ui";
 import { Change, planDiff } from "@/diff";
@@ -58,6 +58,9 @@ export default function Today() {
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [open, setOpen] = useState(false); // 电量阶梯开着
+  const [live, setLive] = useState<number | null>(null); // 正在选的格数：小人跟着换表情，报上以后清掉
+  const [said, setSaid] = useState<string | null>(null); // 报电量的结果说明（没报上、日历没写进去）
   const now = useNow();
   const c = useColors();
   const dark = useDark();
@@ -95,6 +98,30 @@ export default function Today() {
     return () => clearTimeout(t);
   }, [error, plan]);
 
+  function openLadder(on: boolean) {
+    setOpen(on);
+    setLive(on ? (l) => l ?? plan?.energy_level ?? 3 : null);
+  }
+
+  /** 报电量：和 energy.tsx 点「就这样」一样，正式报一次再确认这一版；重新拿计划后被改的行就变色。 */
+  async function report(n: number) {
+    setOpen(false);
+    setLive(n);
+    setSaid(null);
+    try {
+      const saved = await postEnergy(n);
+      if (isCrisis(saved)) return; // 只报格数不带字，不会是危机话术
+      const res = await confirmPlan(saved.version);
+      haptic.success();
+      if (res.calendar === "reconnect") setSaid("Google 日历的授权失效了，要在电脑上重新连一次。");
+      else if (res.calendar === "failed") setSaid("这次没写进日历。");
+      await load();
+    } catch (e) {
+      setSaid(say(e));
+    }
+    setLive(null);
+  }
+
   async function refresh() {
     setRefreshing(true);
     await load();
@@ -121,6 +148,7 @@ export default function Today() {
   // 白天提前对过账：照样显示现在和接下来，到晚上或今天走完才算「收好了」
   const phase: Phase = plan.checked_in && (!canReport || now >= EVENING) ? "done" : !canReport ? "over"
     : now >= EVENING ? "evening" : level ? "reported" : "day";
+  const daytime = phase === "day" || phase === "reported";
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now);
   const ready = classOver || !plan.blocks.some((b) => b.kind === "class"); // 下课了（或今天没课）才问电量
 
@@ -142,13 +170,14 @@ export default function Today() {
       {/* 舞台顶满：抵掉 Screen 的内边距，状态栏叠在场景上 */}
       <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg }}>
         <Stage night={dark} stones={todo}>
-          <Bubble text={saying(phase, level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} />
-          <Figure level={level} night={dark} />
-          {(phase === "day" || phase === "reported") && <Battery level={level} onPress={() => router.push("/energy")} />}
+          <Bubble text={saying(phase, live ?? level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} hide={open} />
+          <Figure level={live ?? level} night={dark} />
+          {daytime && <Battery level={level} live={live} open={open} onOpen={openLadder} onLive={setLive} onPick={report} />}
         </Stage>
       </View>
 
       {error && <Notice>没连上，显示的是刚才的计划。</Notice>}
+      {said && <Notice>{said}</Notice>}
 
       <Animated.View entering={enter(1)} accessible
         accessibilityLabel={next ? `${cur ? "现在" : "下一件"}，${shortTitle(next)}，${cur ? "还剩" : "还有"} ${left} 分钟` : "今天走完了"}
@@ -173,6 +202,8 @@ export default function Today() {
         </Animated.View>
       )}
 
+      {daytime && (open ? <Button label="就这样" onPress={() => report(live ?? 3)} />
+        : <Button label={level ? "再报一次" : "报个电量"} variant={level ? "secondary" : "primary"} onPress={() => openLadder(true)} />)}
       {(phase === "evening" || phase === "over") && <Button label="对个账" onPress={() => router.push("/checkin")} />}
     </Screen>
   );

@@ -6,13 +6,17 @@
 import { Image, ImageSource } from "expo-image";
 import { ReactNode, useEffect } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 import type { ClayIcon } from "@/clay-icon";
+import { haptic } from "@/components/motion";
 import { MAX_WIDTH } from "@/components/ui";
+import { BATTERY_HINT } from "@/labels";
 import { skyTone, type, useColors } from "@/theme";
 
 const W = 390;
@@ -162,50 +166,155 @@ export function Figure({ level, night, left = 18, top = 106 }: { level?: number 
 }
 const SOFT = { damping: 12, stiffness: 180 };
 
-/** 导师的一句话：从小人头顶冒出来的实底气泡，字不压在场景上。top 是画布坐标（让出状态栏用）。 */
-export function Bubble({ text, top = 54 }: { text: string; top?: number }) {
+/** 导师的一句话：从小人头顶冒出来的实底气泡，字不压在场景上。top 是画布坐标（让出状态栏用）；hide：报电量开着阶梯时收起，不和阶梯叠在一起。 */
+export function Bubble({ text, top = 54, hide }: { text: string; top?: number; hide?: boolean }) {
   const c = useColors();
+  const a = useAnimatedStyle(() => ({ opacity: withTiming(hide ? 0 : 1, { duration: 200 }) }), [hide]);
   return (
-    <View aria-live="polite" style={{ position: "absolute", left: 16, top, maxWidth: 300, paddingTop: 8, paddingBottom: 9,
-      paddingHorizontal: 13, borderRadius: 14, backgroundColor: c.surface, zIndex: 6 }}>
+    <Animated.View aria-live="polite" pointerEvents={hide ? "none" : "auto"} style={[a, { position: "absolute", left: 16, top, maxWidth: 300, paddingTop: 8, paddingBottom: 9,
+      paddingHorizontal: 13, borderRadius: 14, backgroundColor: c.surface, zIndex: 6 }]}>
       <View style={{ position: "absolute", left: 52, bottom: -7, width: 16, height: 16, borderRadius: 3,
         backgroundColor: c.surface, transform: [{ rotate: "45deg" }] }} />
       <Text style={[type.body, { fontSize: 16, lineHeight: 22, fontWeight: "800", color: c.text }]}>{text}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
-// 电池壳是一张 120×240 的图：上 34、左右 14、下 14 是不能拉的边（2x），中间只拉中段
-const BAT = { w: 46, h: 232, top: 17, side: 7, bottom: 7 };
+// 电池壳是一张 120×240 的图（2x）：上 34、左右 14、下 14 是不能拉的边，九宫格只拉中段；显示成 46×232，放在舞台右下
+const SRC_X = [0, 14, 106, 120], DST_X = [0, 7, 39, 46];
+const SRC_Y = [0, 34, 226, 240], DST_Y = [0, 17, 225, 232];
+const BAT = { left: 321, top: 48, w: 46, h: 232 };
+// 电池每档 = 阶梯每档 = 44（v4 的 H(L)）：第 L 档的「电」高 fillOf(L)，阶梯第 L 级的顶在 280 - 56 - (L-1)·44
+const fillOf = (L: number) => (L ? 32 + (L - 1) * 44 : 0);
+const levelOf = (h: number) => {
+  "worklet";
+  return Math.max(1, Math.min(5, Math.round((h - 32) / 44) + 1));
+};
+const FULL = fillOf(5);
+const SPRING = { stiffness: 320, damping: 13 };
 
 /**
- * 黏土电池（舞台右侧）。这一步是静态占位：显示报了几格，点一下打开报电量面板。拖动选档在任务 3 接。
- * shortcut: 三段拼出来的九宫格只拉竖向，横向整张压窄；任务 3 换成能拖的电池时一起做真九宫格。
+ * 黏土电池（舞台右侧）和它的 5 级阶梯。
+ * 点一下（动不到 8px）只开 / 关阶梯；按住上下拖按档吸附，每过一档震一下，小人跟着换表情（onLive）；
+ * 松手或点阶梯的一级才算报了（onPick）。开着阶梯时舞台蒙一层，点蒙层收起，不报。
+ * level：报过的格数；live：正在选的格数（阶梯开着或刚松手时）。
  */
-export function Battery({ level, onPress }: { level?: number | null; onPress: () => void }) {
+export function Battery({ level, live, open, onOpen, onLive, onPick }: {
+  level: number | null; live: number | null; open: boolean;
+  onOpen: (open: boolean) => void; onLive: (n: number) => void; onPick: (n: number) => void;
+}) {
   const c = useColors();
-  const mid = BAT.h - BAT.top - BAT.bottom;
-  const piece = (h: number, imgH: number, imgTop: number) => (
-    <View style={{ height: h, overflow: "hidden" }}>
-      <Image source={IMG.battery} style={{ position: "absolute", left: 0, top: imgTop, width: BAT.w, height: imgH }} contentFit="fill" />
-    </View>
-  );
-  const sy = mid / (240 - 34 - 14); // 中段源图 192px 拉到 mid
+  const reduced = useReducedMotion();
+  const shown = live ?? level ?? 0;
+  const fill = useSharedValue(fillOf(shown));
+  const start = useSharedValue(0);
+  const cur = useSharedValue(0);
+  const dragging = useSharedValue(false);
+
+  useEffect(() => {
+    if (!dragging.value) fill.set(reduced ? fillOf(shown) : withSpring(fillOf(shown), SPRING));
+  }, [shown, reduced, fill, dragging]);
+
+  const step = (n: number) => { haptic.select(); onLive(n); };
+  const cancel = () => { fill.set(fillOf(level ?? 0)); onOpen(false); };
+  const pan = usePanGesture({
+    activeOffsetY: [-8, 8],
+    onActivate: () => {
+      dragging.set(true);
+      start.set(Math.max(fill.value, fillOf(1)));
+      cur.set(levelOf(start.value));
+      scheduleOnRN(onOpen, true);
+      scheduleOnRN(step, cur.value);
+    },
+    onUpdate: (e) => {
+      let h = start.value - e.translationY;
+      if (h > FULL) h = FULL + (h - FULL) * 0.3; // 拉过头：橡皮筋阻尼
+      if (h < fillOf(1)) h = fillOf(1) - (fillOf(1) - h) * 0.3;
+      fill.set(h);
+      const n = levelOf(h);
+      if (n !== cur.value) {
+        cur.set(n);
+        scheduleOnRN(step, n);
+      }
+    },
+    onDeactivate: (e) => {
+      dragging.set(false);
+      if (e.canceled) { scheduleOnRN(cancel); return; } // 被系统打断（来电、手势被抢）不算报了
+      const n = levelOf(fill.value);
+      fill.set(reduced ? fillOf(n) : withSpring(fillOf(n), SPRING));
+      scheduleOnRN(onPick, n);
+    },
+  });
+  const tap = useTapGesture({ maxDistance: 8, onActivate: () => { scheduleOnRN(onOpen, !open); } });
+  const gesture = useCompetingGestures(pan, tap);
+
+  const core = useAnimatedStyle(() => ({ height: Math.max(0, fill.value) }));
+  const veil = useAnimatedStyle(() => ({ opacity: withTiming(open ? 0.8 : 0, { duration: reduced ? 0 : 250 }) }), [open, reduced]);
+
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={level ? `电量 ${level} 格，点一下重新报` : "报个电量"}
-      style={{ position: "absolute", left: 344 - BAT.w / 2, top: 280 - BAT.h, width: BAT.w, height: BAT.h, zIndex: 7 }}>
-      {piece(BAT.top, 120, 0)}
-      {piece(mid, 240 * sy, -34 * sy)}
-      {piece(BAT.bottom, 120, BAT.bottom - 120)}
-      <View pointerEvents="none" style={{ position: "absolute", left: BAT.side, right: BAT.side, top: BAT.top, bottom: BAT.bottom }}>
-        {!!level && <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: (mid * level) / 5, borderRadius: 4,
-          backgroundColor: c.primary }} />}
-        {[1, 2, 3, 4].map((k) => (
-          <View key={k} style={{ position: "absolute", left: "12%", right: "12%", top: (mid * k) / 5 - 1.5, height: 3, borderRadius: 2,
-            backgroundColor: "rgba(255, 236, 200, 0.45)" }} />
-        ))}
-      </View>
-    </Pressable>
+    <>
+      <Animated.View pointerEvents={open ? "auto" : "none"} style={[FILL, { zIndex: 4, backgroundColor: c.bg }, veil]}>
+        <Pressable onPress={cancel} accessibilityRole="button" accessibilityLabel="先不报" style={FILL} />
+      </Animated.View>
+      {[5, 4, 3, 2, 1].map((n) => (
+        <Rung key={n} n={n} on={shown === n} open={open} reduced={reduced} onPress={() => { step(n); onPick(n); }} />
+      ))}
+      <GestureDetector gesture={gesture}>
+        <View accessible accessibilityRole="adjustable" accessibilityLabel="电量，点一下选，或按住上下拉"
+          accessibilityValue={{ text: shown ? `${shown} 格，${BATTERY_HINT[shown]}` : "还没报" }}
+          accessibilityActions={[{ name: "activate" }, { name: "increment" }, { name: "decrement" }]}
+          onAccessibilityAction={({ nativeEvent: { actionName } }) => {
+            if (actionName === "activate") onOpen(!open);
+            else onPick(Math.max(1, Math.min(5, (shown || 2) + (actionName === "increment" ? 1 : -1))));
+          }}
+          style={{ position: "absolute", left: BAT.left, top: BAT.top, width: BAT.w, height: BAT.h, zIndex: 7, cursor: "grab" }}>
+          {[0, 1, 2].flatMap((r) => [0, 1, 2].map((k) => {
+            const sx = (DST_X[k + 1] - DST_X[k]) / (SRC_X[k + 1] - SRC_X[k]);
+            const sy = (DST_Y[r + 1] - DST_Y[r]) / (SRC_Y[r + 1] - SRC_Y[r]);
+            return (
+              <View key={`${r}${k}`} style={{ position: "absolute", left: DST_X[k], top: DST_Y[r], overflow: "hidden",
+                width: DST_X[k + 1] - DST_X[k], height: DST_Y[r + 1] - DST_Y[r] }}>
+                <Image source={IMG.battery} contentFit="fill" style={{ position: "absolute", left: -SRC_X[k] * sx, top: -SRC_Y[r] * sy,
+                  width: 120 * sx, height: 240 * sy }} />
+              </View>
+            );
+          }))}
+          <View pointerEvents="none" style={{ position: "absolute", left: DST_X[1], right: DST_X[1], top: DST_Y[1], bottom: DST_X[1] }}>
+            <Animated.View style={[{ position: "absolute", left: 0, right: 0, bottom: 0, borderRadius: 4, overflow: "hidden",
+              backgroundColor: c.primary, opacity: shown ? 0.92 : 0 }, core]}>
+              {!!shown && <Text style={[type.num, { fontFamily: type.hero.fontFamily, fontSize: 22, lineHeight: 30, textAlign: "center",
+                color: c.onPrimary }]}>{shown}</Text>}
+            </Animated.View>
+            {/* 刻痕：空电池也看得出能装 5 格 */}
+            {[1, 2, 3, 4].map((k) => (
+              <View key={k} style={{ position: "absolute", left: "12%", right: "12%", bottom: fillOf(k) - 1, height: 3, borderRadius: 2,
+                backgroundColor: "rgba(255, 236, 200, 0.45)" }} />
+            ))}
+          </View>
+        </View>
+      </GestureDetector>
+    </>
+  );
+}
+
+/** 阶梯的一级：「3 正常」，对着电池里第 3 档的顶；选中的是主色底。收着时淡出、往右让 14。 */
+function Rung({ n, on, open, reduced, onPress }: { n: number; on: boolean; open: boolean; reduced: boolean; onPress: () => void }) {
+  const c = useColors();
+  const a = useAnimatedStyle(() => ({
+    opacity: withTiming(open ? 1 : 0, { duration: reduced ? 0 : 200 }),
+    transform: [{ translateX: reduced ? 0 : withSpring(open ? 0 : 14, SPRING) }],
+  }), [open, reduced]);
+  return (
+    <Animated.View pointerEvents={open ? "auto" : "none"} style={[{ position: "absolute", right: 78, top: 224 - (n - 1) * 44, height: 44,
+      justifyContent: "center", zIndex: 6 }, a]}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
+        accessibilityLabel={`${n} 格，${BATTERY_HINT[n]}`} accessibilityElementsHidden={!open}
+        style={{ flexDirection: "row", alignItems: "center", gap: 7, height: 32, paddingHorizontal: 12, borderRadius: 16,
+          backgroundColor: on ? c.primary : c.surface, boxShadow: `0 4px 0 ${on ? c.primaryEdge : c.cardEdge}` }}>
+        <Text style={[type.num, { fontFamily: type.hero.fontFamily, fontSize: 16, color: on ? c.onPrimary : c.primaryInk }]}>{n}</Text>
+        <Text style={[type.body, { fontSize: 15, lineHeight: 20, fontWeight: "800", color: on ? c.onPrimary : c.text }]}>{BATTERY_HINT[n]}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
