@@ -97,16 +97,16 @@ def _ask(model: ModelPort, system: str, user: str, parse) -> tuple[Literal["ok",
     return "ok", None
 
 
-def _text(v, limit: int) -> str:
-    """非空字符串且没命中禁用说法，截到 limit；否则 ValueError（让 _ask 重试）。"""
-    if not isinstance(v, str) or not v.strip() or banned_hits(v):
+def _text(v, limit: int, bad: tuple = ()) -> str:
+    """非空字符串且没命中禁用说法（或 bad 里的字），截到 limit；否则 ValueError（让 _ask 重试）。"""
+    if not isinstance(v, str) or not v.strip() or banned_hits(v) or any(b in v for b in bad):
         raise ValueError
     return v.strip()[:limit]
 
 
 def reply(model: ModelPort, question: str, answer: str) -> tuple[Literal["ok", "crisis"], str]:
-    system = _system("只用一句话回应他的回答，不提新问题，不给建议。", '{"reply": "……"}')
-    status, out = _ask(model, system, f"问题「{question}」，他答：{answer}", lambda o: _text(o["reply"], 200))
+    system = _system("只用一句话回应他的回答，不提新问题，不给建议。只说一句，不提问，不给建议，用『你』称呼他。", '{"reply": "……"}')
+    status, out = _ask(model, system, f"问题「{question}」，他答：{answer}", lambda o: _text(o["reply"], 200, ("？", "?")))
     return ("crisis", "") if status == "crisis" else ("ok", out or FALLBACK)
 
 
@@ -116,10 +116,13 @@ def _dump(answers: dict, step: int) -> str:
 
 
 def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "crisis"], dict]:
-    rule = "只用他说过的内容，不加新东西；不建议退学、辞职、换专业、换工作。"
+    def _you(v, limit):
+        return _text(v, limit, ("用户",))
+
+    rule = "用『你』称呼他，不要写『用户』。只用他说过的内容，不加新东西；不建议退学、辞职、换专业、换工作。"
     if step == 1:
         system = _system(f"用一句话（60 字以内）写下你从他的回答里看到的一点现状。{rule}", '{"observation": "……"}')
-        parse, fallback = (lambda o: {"observation": _text(o["observation"], 60)}), {"observation": None}
+        parse, fallback = (lambda o: {"observation": _you(o["observation"], 60)}), {"observation": None}
     elif step == 2:
         system = _system(f"用一句话（{MAX_DIRECTION} 字以内）写出他自己说的方向；"
                          f"再判断他说的「为了什么」和「怎样算没白过」是否对不上。{rule}",
@@ -127,11 +130,11 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
         worth = str(answers.get(2, {}).get("worth", ""))[:MAX_DIRECTION]
 
         def parse(o):
-            return {"direction": _text(o["direction"], MAX_DIRECTION), "mismatch": o["mismatch"] is True}
+            return {"direction": _you(o["direction"], MAX_DIRECTION), "mismatch": o["mismatch"] is True}
         fallback = {"direction": worth, "mismatch": False}
     elif step == 3:
         system = _system(f"用一句话（40 字以内）写出什么情形下他最有劲。{rule}", '{"formula": "……"}')
-        parse, fallback = (lambda o: {"formula": _text(o["formula"], 40)}), {"formula": None}
+        parse, fallback = (lambda o: {"formula": _you(o["formula"], 40)}), {"formula": None}
     else:
         system = _system(
             f"他选了一个版本，据此写：使命一句（{MAX_DIRECTION} 字以内）；目标最多 3 条（每条 30 字以内）；"
@@ -142,15 +145,15 @@ def propose(model: ModelPort, step: int, answers: dict) -> tuple[Literal["ok", "
         def parse(o):
             if not isinstance(o["goals"], list):
                 raise ValueError
-            goals = [_text(g, 30) for g in o["goals"][:3]]
+            goals = [_you(g, 30) for g in o["goals"][:3]]
             p, proto = o.get("prototype"), None
             if isinstance(p, dict):
                 minutes = min(max(int(p["minutes"]), 5), 180)
-                proto = {"title": _text(p["title"], 20), "minutes": minutes,
+                proto = {"title": _you(p["title"], 20), "minutes": minutes,
                          "floor_min": min(max(int(p["floor_min"]), 1), minutes)}
             tomorrow = o.get("tomorrow")
-            return {"mission": _text(o["mission"], MAX_DIRECTION), "goals": goals, "prototype": proto,
-                    "tomorrow": _text(tomorrow, 60) if tomorrow else None}
+            return {"mission": _you(o["mission"], MAX_DIRECTION), "goals": goals, "prototype": proto,
+                    "tomorrow": _you(tomorrow, 60) if tomorrow else None}
         a4 = answers.get(4, {})
         choose = a4.get("choose")
         picked = a4.get(f"v{choose + 1}", "") if type(choose) is int and 0 <= choose <= 2 else ""

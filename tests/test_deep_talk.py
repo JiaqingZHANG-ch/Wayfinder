@@ -51,6 +51,22 @@ def test_reply_ok_and_falls_back_on_banned_phrase_twice():
     assert reply(FakeModel([]), "q", "a") == ("ok", FALLBACK)  # 模型连不上
 
 
+def test_reply_rejects_questions():
+    q = json.dumps({"reply": "最近熬夜是经常的吗？"})
+    good = json.dumps({"reply": "熬夜让你有点累。"})
+    assert reply(FakeModel([q, q]), "q", "a") == ("ok", FALLBACK)
+    assert reply(FakeModel([q, good]), "q", "a") == ("ok", "熬夜让你有点累。")
+
+
+def test_propose_rejects_third_person_user():
+    bad = json.dumps({"observation": "用户提到最近熬夜"})
+    assert propose(FakeModel([bad, bad]), 1, {}) == ("ok", {"observation": None})
+    worth = "做出一个自己用得上的东西"
+    bad2 = json.dumps({"direction": "用户想做东西", "mismatch": False})
+    out = propose(FakeModel([bad2, bad2]), 2, {2: {"worth": worth}})
+    assert out == ("ok", {"direction": worth, "mismatch": False})
+
+
 def test_model_crisis_output_is_reported():
     assert reply(FakeModel(['{"crisis": true}']), "q", "a")[0] == "crisis"
     assert propose(FakeModel(['{"crisis": true}']), 1, {})[0] == "crisis"
