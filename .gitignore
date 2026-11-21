@@ -4,3 +4,4 @@ var/
 .pytest_cache/
 __pycache__/
 .superpowers/
+evals/results/
