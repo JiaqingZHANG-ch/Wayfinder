@@ -3,8 +3,14 @@ from datetime import date
 
 import pytest
 
-from mentor.deep_talk import FALLBACK, invest_suggestions, next_screen, propose, reply, should_invite
+from mentor.deep_talk import FALLBACK, STEPS, invest_suggestions, next_screen, propose, reply, should_invite
 from mentor.model import FakeModel
+from mentor.tone import banned_hits
+
+
+@pytest.mark.parametrize("text", [s[k] for step in STEPS.values() for s in step["screens"] for k in ("question", "hint") if k in s])
+def test_screen_texts_have_no_banned_phrases(text):
+    assert banned_hits(text) == []
 
 
 def test_next_screen_walks_in_order():

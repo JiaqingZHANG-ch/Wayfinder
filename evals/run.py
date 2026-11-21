@@ -56,19 +56,23 @@ def run_case(model, case: dict) -> tuple[list[str], str | None]:
         return fails, None
     if kind == "talk":
         status, text = reply(model, case["question"], case["answer"])
+        if status == "crisis":  # 用例里都没有危机内容，模型回危机就是误报
+            return ["误报危机"], None
         fails = _tone_fails(text)
         fails += ["提问了"] * (("？" in text) or ("?" in text))
         fails += ["写了「用户」"] * ("用户" in text)
         fails += ["用了兜底句（模型没答好）"] * (text == FALLBACK)
-        return fails, text
+        return fails, None if text == FALLBACK else text  # 兜底句不是模型写的，不送评委
     stats = week_stats(_logs(case["logs"]), HABITS, TASKS)
     status, rv = write_review(model, stats, HABITS)
+    if status == "crisis":
+        return ["误报危机"], None
     text = rv["summary"] if rv else ""
     fails = _tone_fails(text)
     stray = numbers_in(text) - allowed_numbers(stats)
     fails += [f"数字不在统计里：{sorted(stray)}"] * bool(stray)
     fails += ["用了拼接兜底句（模型没写好）"] * (text == fallback_summary(stats))
-    return fails, text
+    return fails, None if text == fallback_summary(stats) else text
 
 
 def judge(model, rubric: str, text: str) -> int | None:

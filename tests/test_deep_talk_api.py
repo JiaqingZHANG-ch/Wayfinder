@@ -164,9 +164,9 @@ def test_council_crisis_shows_crisis_message(setup):
     c = client.get("/deep-talk").json()["council"]
     assert c["status"] == "crisis" and c["result"] is None and "请现在联系能帮到你的人" in c["message"]
     assert db.crisis_count(1) == 1
-    model.replies += [LENS, LENS, SYNTH]  # 危机以后再进这一屏：像 failed 一样可以重跑
-    assert client.post("/deep-talk/council").json()["council"]["status"] == "running"
-    client.app.state.deep_talk_thread.join()
+    calls = len(model.calls)  # 危机以后再进这一屏：不重开，同一份材料不再交给模型
+    assert client.post("/deep-talk/council").json()["council"]["status"] == "crisis"
+    assert len(model.calls) == calls
 
 
 def test_accept_habit_when_full_is_409(setup):
@@ -255,6 +255,17 @@ def test_choose_later_after_not_choosing(setup):
     s = walk(client, [(4, "choose", 0)])  # 回来选一个版本：改的是同一轮第 4 次
     assert any(p["level"] == "使命" for p in s["proposals"]["profiles"])
     assert [h["key"] for h in s["proposals"]["habits"]][-1] == "prototype"
+
+
+def test_choose_later_for_old_data_without_floor_key(setup):
+    # 升级前用「先不选」做完的老数据：第 4 步的回答里没有 floor 这个键
+    client, db, model = setup
+    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", ""), (4, "choose", None)])
+    row = next(r for r in db.deep_talk_rows(1, 1) if r["step"] == 4)
+    db.upsert_deep_talk(1, 1, 4, answers={k: v for k, v in row["answers"].items() if k != "floor"})
+    model.replies.append(STEP4)
+    s = walk(client, [(4, "choose", 0)])
+    assert any(p["level"] == "使命" for p in s["proposals"]["profiles"])
 
 
 def test_restart_keeps_old_round(setup):

@@ -239,8 +239,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     db.ensure_user(USER_ID)
     model = RecordingModel(model, lambda call: db.add_model_call(USER_ID, call))
     settings_lock = threading.Lock()
-    # (用户, 轮) → 正在跑的智囊团线程。shortcut: 只在一个进程里有效；后端开多个进程时要换成数据库里的心跳
-    council_threads: dict[tuple[int, int], threading.Thread] = {}
+    # ("talk", 用户, 轮) 或 ("quarter", 回顾 id) → 正在跑的智囊团线程。shortcut: 只在一个进程里有效；后端开多个进程时要换成数据库里的心跳
+    council_threads: dict[tuple[str | int, ...], threading.Thread] = {}
     council_lock = threading.Lock()
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
@@ -471,8 +471,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
     def review_view(review: dict) -> dict:
         earlier = db.reviews(USER_ID, limit=2)[1:]
-        profile = next((p for p in db.profiles(USER_ID, confirmed=True) if p["id"] == review["still_right"]), None)
-        goals = [p["content"] for p in db.profiles(USER_ID, confirmed=True)
+        confirmed = db.profiles(USER_ID, confirmed=True)
+        profile = next((p for p in confirmed if p["id"] == review["still_right"]), None)
+        goals = [p["content"] for p in confirmed
                  if p["level"] == "目标" and p["source"] == "季度回顾"]  # 只列出来让他对照，不进模型
         return {"crisis": False, **review, "quarter_goals": goals,
                 "last_question": earlier[0]["question"] if earlier else None,  # 上周带进来的问题，导师不回答
@@ -747,6 +748,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             mine["council_seen"] = True
         else:
             mine[body.screen] = body.value
+        if rechoose:  # 升级前就用「先不选」做完的老数据没有 floor 这个键，不补的话 next_screen 永远不是 None
+            mine.setdefault("floor", "")
         said, tomorrow_change = None, None
         if s["kind"] == "open":
             outcome, said = talk_reply(model, s["question"], body.value)
@@ -867,8 +870,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             q = db.last_quarter(USER_ID)
             if q is None:
                 raise HTTPException(409, "还没有做过季度回顾")
-            live = council_threads.get((USER_ID, -q["id"]))  # 负数：和深度长谈的轮次分开
-            if q["council_status"] == "done" or (q["council_status"] == "running" and live and live.is_alive()):
+            live = council_threads.get(("quarter", q["id"]))
+            if q["council_status"] in ("done", "crisis") or (q["council_status"] == "running" and live and live.is_alive()):
                 return {"status": q["council_status"]}
             db.set_quarter_council(q["id"], None, "running")
             record = (f"各项打分：{'、'.join(f'{k} {v}' for k, v in q['scores'].items())}\n重点：{q['focus']}\n"
@@ -887,7 +890,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                     db.log_crisis(USER_ID, day, "（智囊团看季度回顾的模型输出）")
                 db.set_quarter_council(q["id"], result, {"ok": "done", "crisis": "crisis"}.get(outcome, "failed"))
 
-            thread = council_threads[(USER_ID, -q["id"])] = app.state.quarter_thread = threading.Thread(target=run, daemon=True)
+            thread = council_threads[("quarter", q["id"])] = app.state.quarter_thread = threading.Thread(target=run, daemon=True)
             thread.start()
             return {"status": "running"}
 
@@ -934,9 +937,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         a4 = answers.get(4, {})
         if not all(k in a4 for k in ("v1", "v2", "v3")):
             raise HTTPException(409, "三个版本都写完，才能请顾问们看")
-        live = council_threads.get((USER_ID, rnd))
-        # 刷新、连点都不重开；存着 running 却没有活着的线程（后端重启过）就重跑
-        if rows[4]["council_status"] == "done" or (rows[4]["council_status"] == "running" and live and live.is_alive()):
+        live = council_threads.get(("talk", USER_ID, rnd))
+        # 刷新、连点都不重开；存着 running 却没有活着的线程（后端重启过）就重跑；危机时也不重开
+        if rows[4]["council_status"] in ("done", "crisis") or (rows[4]["council_status"] == "running" and live and live.is_alive()):
             return talk_state()
         db.upsert_deep_talk(USER_ID, rnd, 4, council=None, council_status="running")
         state = talk_state()  # 先取状态再开线程：返回的一定是 running
@@ -955,7 +958,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             db.upsert_deep_talk(USER_ID, rnd, 4, council=result, council_status={"ok": "done", "crisis": "crisis"}.get(outcome, "failed"))
 
         # 测试靠这个引用等线程跑完；Db 每次调用各开连接，后台线程里用是安全的
-        thread = council_threads[(USER_ID, rnd)] = app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
+        thread = council_threads[("talk", USER_ID, rnd)] = app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
         thread.start()
         return state
 

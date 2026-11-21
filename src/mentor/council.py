@@ -17,6 +17,7 @@ from mentor.model import ModelError, ModelPort
 from mentor.prompts import context_block
 from mentor.safety import is_crisis, model_output_is_crisis
 from mentor.store import Council, Opinion, Store
+from mentor.tone import banned_hits
 
 _log = logging.getLogger(__name__)
 
@@ -298,7 +299,7 @@ def _versions_fields(obj, source: str = "") -> tuple[list[dict]] | None:
     if isinstance(vs, list) and len(vs) == 3 and all(
             isinstance(v, dict) and all(isinstance(v.get(k), str) and "用户" not in v[k] for k in keys) for v in vs):
         fixed = [{k: _unquote_fakes(v[k], source) for k in keys} for v in vs]
-        if all(_ok(v[k], 120) for v in fixed for k in keys):
+        if all(_ok(v[k], 120) and not banned_hits(v[k]) for v in fixed for k in keys):
             return (fixed,)
     return None
 
@@ -309,8 +310,12 @@ def _versions_lens(model: ModelPort, card: Card, case: str, source: str = "") ->
     return None if got is None else {"title": card.title, "versions": got[0]}
 
 
-def _disagreement_fields(obj) -> tuple[str] | None:
-    return (obj["disagreement"],) if isinstance(obj, dict) and _ok(obj.get("disagreement"), 400, allow_empty=True) else None
+def _disagreement_fields(obj, source: str = "") -> tuple[str] | None:
+    if isinstance(obj, dict) and isinstance(obj.get("disagreement"), str):
+        text = _unquote_fakes(obj["disagreement"], source)
+        if _ok(text, 400, allow_empty=True) and not banned_hits(text):
+            return (text,)
+    return None
 
 
 def run_versions_council(model: ModelPort, cards: list[Card], versions: list[str],
@@ -335,7 +340,7 @@ def run_versions_council(model: ModelPort, cards: list[Card], versions: list[str
             for x in lenses)
         got = _ask(model, [{"role": "system", "content": _VERSIONS_SYNTH},
                            {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}],
-                   _disagreement_fields, "合成", think=False)
+                   lambda o: _disagreement_fields(o, source), "合成", think=False)
     except _CrisisFlag:
         return "crisis", None
     # 合成没出来不算失败：各视角的点评已经够看，分歧留空
@@ -388,7 +393,7 @@ def _quarter_fields(obj, source: str = "") -> tuple[dict] | None:
     keys = ("sees", "unknown", "test")
     if isinstance(obj, dict) and all(isinstance(obj.get(k), str) and "用户" not in obj[k] for k in keys):
         fixed = {k: _unquote_fakes(obj[k], source) for k in keys}
-        if all(_ok(fixed[k], 120) for k in keys):  # 同 _versions_fields：提示 60 字，这里放宽到 120
+        if all(_ok(fixed[k], 120) and not banned_hits(fixed[k]) for k in keys):  # 同 _versions_fields：提示 60 字，这里放宽到 120
             return (fixed,)
     return None
 
@@ -410,14 +415,15 @@ def run_quarter_council(model: ModelPort, cards: list[Card], record: str,
     if len(cards) < MIN_OPINIONS:
         return "failed", None
     try:
+        source = context + "\n" + record
         lenses = _opinions(model, pick_cards(cards, model, case), case,
-                           lambda m, c, k: _quarter_lens(m, c, k, context + "\n" + record))
+                           lambda m, c, k: _quarter_lens(m, c, k, source))
         if len(lenses) < MIN_OPINIONS:
             return "failed", None
         said = "\n\n".join(f"{x['title']}\n看到 {x['sees']}；未知 {x['unknown']}；试验 {x['test']}" for x in lenses)
         got = _ask(model, [{"role": "system", "content": _QUARTER_SYNTH},
                            {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}],
-                   _disagreement_fields, "合成", think=False)
+                   lambda o: _disagreement_fields(o, source), "合成", think=False)
     except _CrisisFlag:
         return "crisis", None
     return "ok", {"lenses": lenses, "disagreement": got[0] if got else ""}

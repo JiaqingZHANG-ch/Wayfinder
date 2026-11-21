@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, pick_cards, run_council, run_versions_council
+from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, pick_cards, run_council, run_quarter_council, run_versions_council
 from mentor.model import FakeModel, ModelError
 from mentor.store import Council, Opinion, Store
 
@@ -482,3 +482,24 @@ def test_versions_lens_fake_quotes_are_stripped_real_ones_kept():
     status, out = run_versions_council(model, [A, C], versions, "档案：每天写App 30分钟")
     assert status == "ok"
     assert {l["versions"][0]["sees"] for l in out["lenses"]} >= {"你说「慢慢来」，不是必须立刻成功"}
+
+
+QUARTER_LENS = json.dumps({"sees": "看到", "unknown": "未知", "test": "试验"}, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("run, lens", [
+    (lambda model: run_versions_council(model, [A, C], ["做开发", "做数据", "开书店"], "档案：方向"), VERSIONS_LENS),
+    (lambda model: run_quarter_council(model, [A, C], "重点：健康", "档案：方向"), QUARTER_LENS),
+], ids=["versions", "quarter"])
+def test_synth_disagreement_fake_quotes_stripped_and_banned_phrases_dropped(run, lens):
+    fake = json.dumps({"disagreement": "你说的「想躺平」和「方向」不一样"}, ensure_ascii=False)
+    status, out = run(FakeModel([lens, lens, fake]))
+    assert status == "ok" and out["disagreement"] == "你说的想躺平和「方向」不一样"  # 「方向」在档案里出现过，保留
+    banned = json.dumps({"disagreement": "你真的很棒，但视角不同"}, ensure_ascii=False)
+    status, out = run(FakeModel([lens, lens, banned, banned]))
+    assert status == "ok" and out["disagreement"] == ""  # 合成没过检查：分歧留空，各视角的点评照常给
+
+
+def test_quarter_lens_with_banned_phrase_is_invalid():
+    bad = json.dumps({"sees": "你已经做得很好了", "unknown": "x", "test": "y"}, ensure_ascii=False)
+    assert run_quarter_council(FakeModel([QUARTER_LENS] + [bad] * 2), [A, C], "重点：健康", "") == ("failed", None)
