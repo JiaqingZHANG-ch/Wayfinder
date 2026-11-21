@@ -121,6 +121,33 @@ def test_items_survive_energy_report(setup):
     assert any(b.get("item_id") == meeting["id"] for b in pre["blocks"])
 
 
+def test_said_tasks_scheduled_even_over_energy(tmp_path):
+    # 默认学生模板（精力不加大）：课和必做就把精力用完了，说了的事也要排上（实测出的问题 1）
+    tpl = json.loads(DEFAULT_TEMPLATE.read_text(encoding="utf-8"))
+    model = FakeModel()
+    client = TestClient(create_app(Db(tmp_path / "a.db"), model, template=tpl,
+                                   now=lambda tz: datetime(2026, 11, 20, 8, 0, tzinfo=tz)))
+    model.replies.append(reply(item("开组会", "fixed", "17:00", "17:45"), item("写报告", minutes=120, effort="heavy"),
+                               item("健身", minutes=60)))
+    r = say(client).json()
+    _, report, gym = r["items"]
+    assert any(b.get("task_id") == report["id"] for b in r["blocks"])
+    assert any(b.get("task_id") == gym["id"] for b in r["blocks"])
+    assert not any("截止日" in w or "晚上不排项目" in w for w in r["warnings"])
+
+
+def test_said_fixed_wins_over_clashing_class(setup):
+    client, db, model = setup
+    model.replies.append(reply(item("开组会", "fixed", "14:00", "15:00")))
+    r = say(client)
+    assert r.status_code == 200  # 以前撞上大学物理就 422「时间冲突」
+    ids = {b["id"] for b in r.json()["blocks"]}
+    assert "physics" not in ids and "math" in ids
+    note = "『大学物理』和『开组会』撞了，今天先按你说的排"
+    assert note in r.json()["warnings"] and note in client.get("/today").json()["warnings"]
+    assert any(e["id"] == "physics" for e in db.plan_input(1)["fixed"])  # 设置不动，只是今天去掉
+
+
 def test_items_survive_settings_change(setup):
     client, _, model = setup
     model.replies.append(reply(MEETING, REPORT))

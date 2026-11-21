@@ -276,16 +276,23 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return d
 
     def day_input(raw: dict, day) -> dict:
-        """day_raw 再并进用户今天说的事项：fixed 的进 fixed（meeting），task 的进 tasks（截止写成当天）。
-        所有排今天的地方都走这里，重排时当天事项才不会丢。"""
+        """day_raw 再并进用户今天说的事项：fixed 的进 fixed（meeting），task 的进 tasks（截止写成当天、今天必做）。
+        说的固定事项和设置里的课、固定事项撞了，以说的为准：今天去掉设置里那一项，提示放进 _warnings
+        （求解器不读下划线开头的键，tag_items 拿去给前端）。所有排今天的地方都走这里，重排时当天事项才不会丢。"""
         d = day_raw(raw, day)
         items = db.day_items(USER_ID, day)
         cost = {**d.get("energy", {}).get("cost", {}), **{i["id"]: EFFORT_COST[i["effort"]] for i in items if i["kind"] == "task"}}
-        d["fixed"] = [*d.get("fixed", []), *({"id": i["id"], "title": i["title"], "start": i["start"], "end": i["end"],
-                                              "where": "home", "kind": "meeting"} for i in items if i["kind"] == "fixed")]
+        said = [i for i in items if i["kind"] == "fixed"]
+        clash = [(e, i) for e in d.get("fixed", []) for i in said
+                 if to_min(e["start"]) < to_min(i["end"]) and to_min(i["start"]) < to_min(e["end"])]
+        d["_warnings"] = [f"『{e['title']}』和『{i['title']}』撞了，今天先按你说的排" for e, i in clash]
+        d["fixed"] = [*(e for e in d.get("fixed", []) if all(e is not x for x, _ in clash)),
+                      *({"id": i["id"], "title": i["title"], "start": i["start"], "end": i["end"],
+                         "where": "home", "kind": "meeting"} for i in said)]
         d["tasks"] = [*d.get("tasks", []), *({"id": i["id"], "project": i["title"], "title": i["title"],
                                               "remaining_min": i["minutes"], "deadline": day.isoformat(),
-                                              "heavy": i["effort"] == "heavy"} for i in items if i["kind"] == "task")]
+                                              "heavy": i["effort"] == "heavy", "must_today": True}
+                                             for i in items if i["kind"] == "task")]
         if items:
             d["energy"] = {**d.get("energy", {}), "cost": cost}
         return d
@@ -340,9 +347,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(422, str(e)) from None
 
     def tag_items(day, plan: dict) -> dict:
-        """来自当天事项的块带上 item_id：fixed 块的 id、task 块的 task_id 就是事项 id。"""
+        """来自当天事项的块带上 item_id：fixed 块的 id、task 块的 task_id 就是事项 id；说的事和设置撞了的提示放在最前。"""
         ids = {i["id"] for i in db.day_items(USER_ID, day)}
-        return {**plan, "blocks": [{**b, "item_id": k} if (k := next((x for x in (b["id"], b.get("task_id")) if x in ids), None))
+        notes = day_input(db.plan_input(USER_ID) or {}, day)["_warnings"]
+        return {**plan, "warnings": notes + plan.get("warnings", []), "blocks": [{**b, "item_id": k} if (k := next((x for x in (b["id"], b.get("task_id")) if x in ids), None))
                                    else b for b in plan["blocks"]]}
 
     def out(day, stored: dict) -> dict:
