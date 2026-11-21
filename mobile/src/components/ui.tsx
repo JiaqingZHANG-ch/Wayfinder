@@ -3,7 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { ReactNode, useState } from "react";
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
 import { router } from "expo-router";
-import { Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { Linking, Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -255,12 +255,27 @@ export function Notice({ children, tone = "info" }: { children: ReactNode; tone?
 }
 
 /** 危机提示：用平静的卡片，不用红色。文字由后端按国家给出（热线）。 */
+/** 危机提示：一段平静的话，里面的热线号码各给一个能直接拨的按钮（号码来自后端核实过的那段话）。 */
 export function CrisisCard({ message }: { message: string }) {
   const c = useColors();
+  const numbers = [...new Set(message.match(/(?<=拨打? ?)\d{3,5}|(?<=或 ?)\d{3}/g) ?? [])];
   return (
     <Card>
       <Icon name="heart" size={22} color={c.primary} />
       <Body>{message}</Body>
+      {numbers.length > 0 && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+          {numbers.map((n) => (
+            <Pressy key={n} onPress={() => { Linking.openURL(`tel:${n}`).catch(() => {}); }} accessibilityRole="link"
+              accessibilityLabel={`拨打 ${n}`} scaleTo={0.94}
+              style={{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.pill, flexDirection: "row",
+                alignItems: "center", gap: space.xs, backgroundColor: c.soft }}>
+              <Icon name="call-outline" size={16} color={c.onSoft} />
+              <Text style={[type.label, type.num, { color: c.onSoft }]}>{n}</Text>
+            </Pressy>
+          ))}
+        </View>
+      )}
     </Card>
   );
 }

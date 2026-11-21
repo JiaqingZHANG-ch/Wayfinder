@@ -89,7 +89,7 @@ export default function Today() {
     <Screen safeTop bottom={TAB_SPACE}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}>
       <Animated.View entering={enter(0)} style={{ gap: 2 }}>
-        <Text style={[type.small, type.num, { color: c.muted }]}>{dayLabel(plan.day)}</Text>
+        <Text style={[type.small, type.num, { color: c.muted }]}>{dayLabel(plan.day)}{now >= 24 * 60 ? " · 凌晨 4 点前还算这一天" : ""}</Text>
         <Title>{greeting(Math.floor(now / 60) % 24)}</Title>
       </Animated.View>
 

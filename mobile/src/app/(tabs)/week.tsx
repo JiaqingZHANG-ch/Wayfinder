@@ -65,6 +65,13 @@ export default function WeekScreen() {
         )}
       </Animated.View>
 
+      {week.habits.length === 0 && (
+        <Card i={2} onPress={() => router.push("/settings?part=routine")} label="去加一个习惯" style={{ gap: 2 }}>
+          <Text style={[type.label, { color: c.muted }]}>习惯</Text>
+          <Text style={[type.label, { color: c.text }]}>还没有要坚持的习惯</Text>
+          <Small muted>加一个，这里会按天画出哪天做了。</Small>
+        </Card>
+      )}
       {week.habits.length > 0 && (
         <Card i={2} style={{ gap: space.md }}>
           <Text style={[type.label, { color: c.muted }]}>习惯</Text>

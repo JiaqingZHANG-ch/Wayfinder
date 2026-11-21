@@ -27,9 +27,12 @@ type PressyProps = Omit<PressableProps, "style"> & { style?: StyleProp<ViewStyle
 export function Pressy({ style, scaleTo = 0.97, fadeTo = 1, onPressIn, onPressOut, ...rest }: PressyProps) {
   const s = useSharedValue(1);
   const o = useSharedValue(1);
-  const a = useAnimatedStyle(() => (fadeTo < 1 ? { transform: [{ scale: s.value }], opacity: o.value } : { transform: [{ scale: s.value }] }));
+  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }], opacity: o.value }));
   return (
     <AnimatedPressable {...rest} style={[style, a]}
+      // 网页上鼠标移上去淡一点，看得出能点；原生没有悬停
+      onHoverIn={native ? undefined : () => o.set(withTiming(0.82, { duration: 120 }))}
+      onHoverOut={native ? undefined : () => o.set(withTiming(1, { duration: 160 }))}
       onPressIn={(e) => { s.set(withSpring(scaleTo, motion.press)); o.set(withTiming(fadeTo, { duration: 80 })); onPressIn?.(e); }}
       onPressOut={(e) => { s.set(withSpring(1, motion.press)); o.set(withTiming(1, { duration: 160 })); onPressOut?.(e); }} />
   );
