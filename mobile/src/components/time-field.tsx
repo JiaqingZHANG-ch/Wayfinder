@@ -48,7 +48,7 @@ export function PickField({ label, value, mode, onChange, onClear, initial, styl
 
   const clear = onClear && !!value && (
     <Pressy onPress={onClear} accessibilityRole="button" accessibilityLabel={`清除${label}`} hitSlop={8}>
-      <Text style={[type.label, { color: c.primary }]}>清除</Text>
+      <Text style={[type.label, { color: c.primaryInk }]}>清除</Text>
     </Pressy>
   );
 

@@ -134,10 +134,10 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
       </Text>
       <View style={{ alignItems: "center", width: 36 }}>
         {quiet ? (
-          <View style={live ? { width: 10, height: 10, borderRadius: radius.pill, marginTop: 14, backgroundColor: c.primary, boxShadow: `0 0 10px ${c.primary}` }
+          <View style={live ? { width: 10, height: 10, borderRadius: radius.pill, marginTop: 14, backgroundColor: c.primaryEdge }
             : { width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
         ) : (
-          // 记号坐进一个这类事颜色的圆里；正在做的那件，圆是陶土色
+          // 记号坐进一个这类事颜色的圆里；正在做的那件，圆是主色黄
           <View style={{ width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
             backgroundColor: live ? c.primary : `${tint}29`, opacity: past ? 0.6 : 1 }}>
             <Glyph name={b.title} star={b.task_id === "one-thing"} color={live ? c.onPrimary : tint}
@@ -145,7 +145,7 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
           </View>
         )}
         {!last && <View style={{ flex: 1, width: 2, marginVertical: 4, borderRadius: 1,
-          backgroundColor: past ? c.primary : c.line, opacity: past ? 0.5 : 1 }} />}
+          backgroundColor: past ? c.primaryEdge : c.line, opacity: past ? 0.5 : 1 }} />}
       </View>
       <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2, paddingTop: quiet ? 0 : 4 },
         live && { backgroundColor: quiet ? c.sunken : c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
@@ -172,13 +172,13 @@ function NowLine({ now }: { now: number }) {
   return (
     <View accessible accessibilityLabel={`现在 ${fromMin(now)}`}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
-      <Text style={[type.small, type.num, { width: 44, color: c.primary }]}>
+      <Text style={[type.small, type.num, { width: 44, color: c.primaryInk }]}>
         {fromMin(now)}
       </Text>
       <View style={{ width: 36, alignItems: "center" }}>
-        <View style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: c.primary, boxShadow: `0 0 10px ${c.primary}` }} />
+        <View style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: c.primaryEdge }} />
       </View>
-      <View style={{ flex: 1, height: 1.5, borderRadius: radius.pill, backgroundColor: c.primary, opacity: 0.7 }} />
+      <View style={{ flex: 1, height: 1.5, borderRadius: radius.pill, backgroundColor: c.primaryEdge, opacity: 0.7 }} />
     </View>
   );
 }

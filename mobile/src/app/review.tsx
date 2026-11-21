@@ -211,7 +211,7 @@ export default function ReviewScreen() {
           ? <IconButton name="chevron-back" label="上一步" onPress={() => go(idx - 1)} />
           : <IconButton name="close" label="关闭" onPress={leave} />}
         {/* 只有两屏时，一上来就是一半的进度条没意思，不画 */}
-        <View style={{ flex: 1 }}>{steps.length > 2 && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} duration={300} />}</View>
+        <View style={{ flex: 1 }}>{steps.length > 2 && <Bar value={(idx + 1) / steps.length} color={c.primaryEdge} height={6} duration={300} />}</View>
         {idx > 0 && <IconButton name="close" label="关闭" onPress={leave} />}
       </View>
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">

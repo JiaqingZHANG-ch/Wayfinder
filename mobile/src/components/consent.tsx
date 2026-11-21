@@ -62,7 +62,7 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
         accessibilityState={{ checked: adult }} scaleTo={0.98}
         style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 44 }}>
         <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center",
-          borderColor: adult ? c.primary : c.muted, backgroundColor: adult ? c.primary : "transparent" }}>
+          borderColor: adult ? c.primaryEdge : c.muted, backgroundColor: adult ? c.primary : "transparent" }}>
           {adult && <Icon name="checkmark" size={16} color={c.onPrimary} />}
         </View>
         <Text style={[type.body, { color: c.text }]}>我已经年满 18 岁</Text>

@@ -109,7 +109,7 @@ export default function Onboarding() {
       <View style={{ flex: 1, width: "100%", maxWidth: 560, alignSelf: "center" }}>
         {progress !== undefined && (
           <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.xs }}>
-            <Bar value={progress} color={c.primary} height={6} />
+            <Bar value={progress} color={c.primaryEdge} height={6} />
             {step === "chat" && <Small muted>两个问题</Small>}
           </View>
         )}
@@ -134,7 +134,7 @@ export default function Onboarding() {
   if (step === "welcome") {
     return shell(
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.md }}>
-        <Icon name="compass-outline" size={48} color={c.primary} />
+        <Icon name="compass-outline" size={48} color={c.primaryEdge} />
         <Text style={{ fontFamily: type.big.fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "300", color: c.text }}>Wayfinder</Text>
         <Body muted center>每天帮你排一张做得完的计划。累了就说，它只改今晚。</Body>
       </View>,

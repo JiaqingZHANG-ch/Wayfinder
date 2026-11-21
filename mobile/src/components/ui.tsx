@@ -1,16 +1,14 @@
 /** 公共组件：页面、卡片、文字、按钮、选项、输入框、提示、图标、列表行。页面只拼这些，不自己写样式数值。 */
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ReactNode, useState } from "react";
-import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { Linking, Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { Linking, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Sky } from "@/components/art";
 import { enter, haptic, Pressy } from "@/components/motion";
-import { radius, space, type, useColors, useDark } from "@/theme";
+import { radius, space, type, useColors } from "@/theme";
 
 const MAX_WIDTH = 560; // 网页上内容不铺满，像一张纸
 const TOUCH = 44; // 可点区域至少 44pt（Apple HIG）
@@ -22,18 +20,20 @@ export function Icon({ name, size = 20, color }: { name: IconName; size?: number
   return <Ionicons name={name} size={size} color={color ?? c.text} />;
 }
 
-// iOS 26 起用系统的液态玻璃；其余（老 iOS、安卓、网页）用半透明底加发丝边，网页再加背景模糊
-const liquid = Platform.OS === "ios" && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
-
-/** 玻璃只给控制层用：底部标签栏、底部面板。内容卡片不用。 */
+/** 浮在内容上的控制条（标签栏、保存栏）：名字沿用以前的玻璃，现在是平色块 + 卡片底边，和 Card 同一套。 */
 export function Glass({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const c = useColors();
-  const dark = useDark(); // 夜里强制深色时系统可能还是浅色，玻璃要跟着 App 走
-  if (liquid) return <GlassView glassEffectStyle="regular" colorScheme={dark ? "dark" : "light"} style={[{ overflow: "hidden" }, style]}>{children}</GlassView>;
-  return (
-    <View style={[{ backgroundColor: c.glass, borderWidth: 1, borderColor: c.glassEdge, boxShadow: c.glassShadow },
-      Platform.OS === "web" && ({ backdropFilter: "blur(22px) saturate(160%)" } as ViewStyle), style]}>{children}</View>
-  );
+  return <View style={[{ backgroundColor: c.surface, boxShadow: c.clay }, style]}>{children}</View>;
+}
+
+/** 按下沉底：底边收到 0、整体下移 4px（v4 的 :active）。给 Pressy 用，Pressy 自己的缩放要关掉（scaleTo={1}）。 */
+function useSink(edge: string | undefined) {
+  const [down, setDown] = useState(false);
+  return {
+    onPressIn: () => setDown(true),
+    onPressOut: () => setDown(false),
+    sink: { boxShadow: down ? undefined : edge, top: down && edge ? 4 : 0 } as ViewStyle,
+  };
 }
 
 /**
@@ -62,18 +62,17 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
   );
 }
 
-/** 卡片：不描边，微透的底加顶边一道高光（浅色再加柔和投影）。给 onPress 就整张可点（按下缩一点）。i 是入场顺序。 */
+/** 卡片：平色块，不描边；卡片内一道高光 + 4px 实色底边（c.clay）。给 onPress 就整张可点（按下沉底）。i 是入场顺序。 */
 export function Card({ children, style, onPress, label, i }: {
   children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string; i?: number;
 }) {
   const c = useColors();
-  const look: ViewStyle = { borderRadius: radius.lg, padding: space.lg, gap: space.md, boxShadow: c.shadow, overflow: "hidden" };
-  // 表面是一层自上而下极淡的渐变，不是平涂
-  const face = <LinearGradient colors={c.surfaceGrad} style={{ position: "absolute", inset: 0 }} pointerEvents="none" />;
+  const { sink, ...press } = useSink(c.clay);
+  const look: ViewStyle = { borderRadius: radius.card, padding: space.lg, gap: space.md, backgroundColor: c.surface, boxShadow: c.clay };
   const body = onPress ? (
-    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={[look, style]}>{face}{children}</Pressy>
+    <Pressy onPress={onPress} {...press} scaleTo={1} accessibilityRole="button" accessibilityLabel={label} style={[look, style, sink]}>{children}</Pressy>
   ) : (
-    <View style={[look, style]}>{face}{children}</View>
+    <View style={[look, style]}>{children}</View>
   );
   return i === undefined ? body : <Animated.View entering={enter(i)}>{body}</Animated.View>;
 }
@@ -155,7 +154,8 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 type ButtonProps = {
   label: string;
   onPress: () => void;
-  // quiet：透明底陶土字；neutral：透明底灰字（次要入口，不抢主按钮）；quietDanger：透明底红字（删除这类）
+  // primary：主色黄 + 主色底边；secondary：卡片色 + 卡片底边；quiet：透明底主色字；
+  // neutral：透明底灰字（次要入口，不抢主按钮）；quietDanger：透明底红字（删除这类）
   variant?: "primary" | "secondary" | "quiet" | "neutral" | "quietDanger" | "danger";
   disabled?: boolean;
   busyLabel?: string; // 有它就表示正在忙：显示它并且不能再点
@@ -168,19 +168,19 @@ export function Button({ label, onPress, variant = "primary", disabled, busyLabe
   const c = useColors();
   const off = disabled || !!busyLabel;
   const flat = variant === "quiet" || variant === "neutral" || variant === "quietDanger";
-  // 不能点的实心按钮换成凹陷底灰字，不用半透明（深色里半透明的陶土色发脏）
-  const bg = off && !flat ? c.sunken
-    : { primary: c.primary, secondary: c.soft, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
-  const lit = variant === "primary" && !off; // 主按钮：两段渐变、顶边高光、同色投影
+  // 不能点的实心按钮换成次级面灰字、没有底边，不用半透明
+  const bg = off && !flat ? c.surface2
+    : { primary: c.primary, secondary: c.surface, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
+  const edge = off || flat ? undefined : variant === "primary" ? c.clayBtn : variant === "secondary" ? c.clay : undefined;
+  const { sink, ...press } = useSink(edge);
   const fg = off ? c.muted
-    : { primary: c.onPrimary, secondary: c.onSoft, quiet: c.primary, neutral: c.muted, quietDanger: c.danger, danger: c.onPrimary }[variant];
+    : { primary: c.onPrimary, secondary: c.text, quiet: c.primaryInk, neutral: c.muted, quietDanger: c.danger, danger: c.bg }[variant];
   return (
-    <Pressy onPress={onPress} disabled={off} fadeTo={flat ? 0.6 : 1} accessibilityRole="button" accessibilityLabel={busyLabel ?? label}
-      accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
-      style={{ minHeight: TOUCH + 8, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
+    <Pressy onPress={onPress} {...press} disabled={off} scaleTo={flat ? 0.97 : 1} fadeTo={flat ? 0.6 : 1} accessibilityRole="button"
+      accessibilityLabel={busyLabel ?? label} accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
+      style={[{ minHeight: TOUCH + 8, borderRadius: radius.btn, backgroundColor: bg, flexDirection: "row", gap: space.sm,
         paddingHorizontal: hug ? space.xxl : space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1,
-        ...(hug && { alignSelf: "center" }), ...(lit && { overflow: "hidden", boxShadow: c.primaryShadow }) }}>
-      {lit && <LinearGradient colors={c.primaryGrad} style={{ position: "absolute", inset: 0 }} pointerEvents="none" />}
+        ...(hug && { alignSelf: "center" }) }, sink]}>
       {icon && !busyLabel && <Icon name={icon} size={18} color={fg} />}
       <Text style={[flat ? type.label : type.body, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
     </Pressy>
@@ -199,17 +199,17 @@ export function IconButton({ name, label, onPress, color }: { name: IconName; la
   );
 }
 
-/** 一个可选的圆角小块：选中是柔和的陶土底加一个勾。role：单选用 radio，多选 / 开关用 checkbox。 */
+/** 一个可选的小块：平色块 + 底边；选中换浅主色底、主色底边（底边色 vs 底 ≥ 3:1，不只靠底色）。role：单选 radio，多选 / 开关 checkbox。 */
 export function Chip({ label, on, onPress, role = "radio" }: {
   label: string; on: boolean; onPress: () => void; role?: "radio" | "checkbox";
 }) {
   const c = useColors();
+  const { sink, ...press } = useSink(`0 4px 0 ${on ? c.primaryEdge : c.cardEdge}`);
   return (
-    <Pressy onPress={() => { haptic.select(); onPress(); }} accessibilityRole={role} accessibilityLabel={label}
-      accessibilityState={{ checked: on }} scaleTo={0.94}
-      style={{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.pill, flexDirection: "row",
-        alignItems: "center", gap: space.xs, backgroundColor: on ? c.soft : c.sunken, borderWidth: 1.5,
-        borderColor: on ? c.primary : "transparent" }}>
+    <Pressy onPress={() => { haptic.select(); onPress(); }} {...press} accessibilityRole={role} accessibilityLabel={label}
+      accessibilityState={{ checked: on }} scaleTo={1}
+      style={[{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.btn, flexDirection: "row",
+        alignItems: "center", gap: space.xs, backgroundColor: on ? c.tint : c.surface }, sink]}>
       {/* 单选不加勾（加了会变宽、整排跳）；多选给勾留固定位置 */}
       {role === "checkbox" && <Icon name="checkmark" size={16} color={on ? c.onSoft : "transparent"} />}
       <Text style={[type.label, { color: on ? c.onSoft : c.text }]}>{label}</Text>
@@ -221,16 +221,16 @@ export function Row({ children }: { children: ReactNode }) {
   return <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, alignItems: "flex-end" }}>{children}</View>;
 }
 
-/** 设置式的一行：左边图标块，中间标题和说明，右边箭头。放在 Card 里，多行之间有分隔线。 */
+/** 设置式的一行：左边平色图标块，中间标题和说明，右边箭头。放在 Card 里（厚度归卡片），多行之间有分隔线，按下淡一点。 */
 export function ListRow({ icon, title, sub, onPress, last }: {
   icon: IconName; title: string; sub?: string; onPress: () => void; last?: boolean;
 }) {
   const c = useColors();
   return (
-    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={0.98}
+    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={1} fadeTo={0.8}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm,
         borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
-      <View style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: c.sunken,
+      <View style={{ width: 36, height: 36, borderRadius: radius.in, backgroundColor: c.surface2,
         alignItems: "center", justifyContent: "center" }}>
         <Icon name={icon} size={18} color={c.muted} />
       </View>
@@ -243,7 +243,7 @@ export function ListRow({ icon, title, sub, onPress, last }: {
   );
 }
 
-/** 带标题的输入框；error 显示在下面。获得焦点时边框变成陶土色（网页上替掉浏览器默认的描边）。 */
+/** 带标题的输入框；error 显示在下面。获得焦点时边框变成主色底边色（网页上替掉浏览器默认的描边）。 */
 export function Field({ label, error, style, ...input }: TextInputProps & { label?: string; error?: string }) {
   const c = useColors();
   const [focus, setFocus] = useState(false);
@@ -252,9 +252,9 @@ export function Field({ label, error, style, ...input }: TextInputProps & { labe
       {label && <Text style={[type.small, { color: c.muted }]}>{label}</Text>}
       <TextInput accessibilityLabel={label ?? input.placeholder} placeholderTextColor={c.muted} {...input}
         onFocus={(e) => { setFocus(true); input.onFocus?.(e); }} onBlur={(e) => { setFocus(false); input.onBlur?.(e); }}
-        style={[type.body, { minHeight: TOUCH + 4, backgroundColor: c.sunken, color: c.text, borderRadius: radius.md,
+        style={[type.body, { minHeight: TOUCH + 4, backgroundColor: c.surface2, color: c.text, borderRadius: radius.in,
           paddingHorizontal: space.lg, paddingVertical: space.md, borderWidth: 1.5,
-          outlineWidth: 0, borderColor: error ? c.danger : focus ? c.primary : "transparent" }, input.multiline && { minHeight: 96, textAlignVertical: "top" }]} />
+          outlineWidth: 0, borderColor: error ? c.danger : focus ? c.primaryEdge : "transparent" }, input.multiline && { minHeight: 96, textAlignVertical: "top" }]} />
       {error && <Text style={[type.small, { color: c.danger }]}>{error}</Text>}
     </View>
   );
@@ -282,7 +282,7 @@ export function CrisisCard({ message }: { message: string }) {
   const numbers = [...new Set(message.match(/(?<=拨打? ?)\d{3,5}|(?<=或 ?)\d{3}/g) ?? [])];
   return (
     <Card>
-      <Icon name="heart" size={22} color={c.primary} />
+      <Icon name="heart" size={22} color={c.primaryEdge} />
       <Body>{message}</Body>
       {numbers.length > 0 && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>

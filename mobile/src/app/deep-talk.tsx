@@ -162,7 +162,7 @@ export default function DeepTalk() {
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingBottom: space.md }}>
       {/* 已答的屏都存了，关掉不用问 */}
       <IconButton name="close" label="关闭" onPress={leave} />
-      <View style={{ flex: 1 }}><Bar value={progress} color={c.primary} height={6} duration={300} /></View>
+      <View style={{ flex: 1 }}><Bar value={progress} color={c.primaryEdge} height={6} duration={300} /></View>
     </View>
   );
 
@@ -370,14 +370,14 @@ export default function DeepTalk() {
         {eyebrow(step)}
         <Title>{s.question}</Title>
         {said ? (
-          // 答完了：他的原话照抄，下面左边一道陶土色竖线是导师的一句
+          // 答完了：他的原话照抄，下面左边一道主色竖线是导师的一句
           <View style={{ gap: space.xl }}>
             <View style={{ gap: space.xs }}>
               <Text style={[type.eyebrow, { color: c.muted }]}>你说的</Text>
               <Body>{`「${text[s.id]?.trim() ?? ""}」`}</Body>
             </View>
             <Animated.View entering={FadeIn.duration(motion.slow)}
-              style={{ borderLeftWidth: 2, borderLeftColor: c.primary, paddingLeft: space.md, gap: space.xs }}>
+              style={{ borderLeftWidth: 2, borderLeftColor: c.primaryEdge, paddingLeft: space.md, gap: space.xs }}>
               <Text style={[type.eyebrow, { color: c.muted }]}>导师</Text>
               <Body>{said.reply}</Body>
             </Animated.View>
@@ -533,7 +533,7 @@ export default function DeepTalk() {
             <Pressy key={j} onPress={() => { haptic.select(); setPick(j); }} accessibilityRole="radio"
               accessibilityState={{ checked: pick === j }} accessibilityLabel={`${name}，${titles[j]}`} scaleTo={0.97}
               style={{ gap: space.xs, padding: space.lg, borderRadius: radius.lg, borderWidth: 1.5,
-                backgroundColor: pick === j ? c.soft : c.surface, borderColor: pick === j ? c.primary : "transparent",
+                backgroundColor: pick === j ? c.soft : c.surface, borderColor: pick === j ? c.primaryEdge : "transparent",
                 boxShadow: pick === j ? undefined : c.shadow }}>
               <Text style={[type.eyebrow, { color: pick === j ? c.onSoft : c.muted }]}>{`${name} · ${titles[j]}`}</Text>
               <Text numberOfLines={2} style={[type.body, { color: pick === j ? c.onSoft : c.text }]}>{versions[j]}</Text>
@@ -572,8 +572,8 @@ function Dots({ label, from, to, value, onChange, ends }: {
               accessibilityState={{ checked: value === n }} accessibilityLabel={`${label} ${n} 分`} scaleTo={0.85}
               style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
               <View style={{ width: value === n ? 20 : 14, height: value === n ? 20 : 14, borderRadius: radius.pill,
-                backgroundColor: lit ? c.primary : "transparent", borderWidth: lit ? 0 : 1.5,
-                borderColor: n === 0 && value === 0 ? c.primary : c.kind.life }} />
+                backgroundColor: lit ? c.primaryEdge : "transparent", borderWidth: lit ? 0 : 1.5,
+                borderColor: n === 0 && value === 0 ? c.primaryEdge : c.kind.life }} />
             </Pressy>
           );
         })}

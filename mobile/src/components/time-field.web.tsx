@@ -30,13 +30,13 @@ export function PickField({ label, value, mode, onChange, onClear, style }: Pick
           onFocus: () => setFocus(true), onBlur: () => setFocus(false),
           // 和 Field 一样的字号；minWidth 0 让两个并排的框能缩，不然浏览器按内容撑宽、两框挤在一起
           style: { flex: 1, minWidth: 0, width: "100%", minHeight: 52, boxSizing: "border-box", backgroundColor: c.sunken, color: c.text,
-            borderRadius: radius.md, padding: `0 ${space.lg}px`, border: `1.5px solid ${focus ? c.primary : "transparent"}`,
+            borderRadius: radius.md, padding: `0 ${space.lg}px`, border: `1.5px solid ${focus ? c.primaryEdge : "transparent"}`,
             outline: "none", fontFamily: type.num.fontFamily, fontSize: type.body.fontSize,
             fontVariantNumeric: "tabular-nums", colorScheme: dark ? "dark" : "light" },
         })}
         {onClear && !!value && (
           <Pressy onPress={onClear} accessibilityRole="button" accessibilityLabel={`清除${label}`} hitSlop={8}>
-            <Text style={[type.label, { color: c.primary }]}>清除</Text>
+            <Text style={[type.label, { color: c.primaryInk }]}>清除</Text>
           </Pressy>
         )}
       </View>

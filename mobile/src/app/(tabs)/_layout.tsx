@@ -27,7 +27,7 @@ export default function TabsLayout() {
   );
 }
 
-/** 浮在底部的玻璃标签栏：后面垫一层渐隐（内容滑到下面不会透出半截字），选中的那块底在标签之间滑动。 */
+/** 浮在底部的标签栏（平色块 + 卡片底边）：后面垫一层渐隐（内容滑到下面不会透出半截字），选中的那块浅主色底（带主色底边）在标签之间滑动。 */
 function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
   const c = useColors();
   const bottom = Math.max(useSafeAreaInsets().bottom, space.md);
@@ -44,12 +44,12 @@ function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
         <View style={{ flex: 5, backgroundColor: c.bg }} />
       </View>
       <View pointerEvents="box-none" style={{ paddingBottom: bottom, paddingHorizontal: space.lg, alignItems: "center" }}>
-        <Glass style={{ width: "100%", maxWidth: 420, borderRadius: radius.pill }}>
+        <Glass style={{ width: "100%", maxWidth: 420, borderRadius: radius.xl }}>
           <View accessibilityRole="tablist" onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
             style={{ flexDirection: "row", padding: PAD }}>
             {step > 0 && (
               <Animated.View pointerEvents="none" style={[{ position: "absolute", top: PAD, bottom: PAD, left: PAD, width: step,
-                borderRadius: radius.pill, backgroundColor: c.hair }, pill]} />
+                borderRadius: 16, backgroundColor: c.tint, boxShadow: c.clayBtn }, pill]} />
             )}
             {routes.map((route, i) => {
               const t = TABS[route.name];

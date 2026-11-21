@@ -200,7 +200,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
       {!done && !hit && p.t > 0 && p.t < 1 && (
         <G>
           <Circle cx={p.x} cy={p.y} r={22} fill={`url(#n${id})`} />
-          <Circle cx={p.x} cy={p.y} r={6} fill={c.primary} />
+          <Circle cx={p.x} cy={p.y} r={6} fill={c.primaryEdge} />
           <Circle cx={p.x} cy={p.y} r={2.5} fill={c.bg} />
         </G>
       )}

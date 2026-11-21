@@ -304,7 +304,7 @@ export default function SettingsScreen() {
               paddingLeft: space.lg, paddingRight: space.sm }}>
               <Text numberOfLines={1} style={[type.label, { color: c.text, flexShrink: 1 }]}>{`删掉了「${removed.name}」`}</Text>
               <Pressy onPress={undo} accessibilityRole="button" accessibilityLabel="撤销" style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: space.md }}>
-                <Text style={[type.label, { color: c.primary, fontWeight: "600" }]}>撤销</Text>
+                <Text style={[type.label, { color: c.primaryInk, fontWeight: "600" }]}>撤销</Text>
               </Pressy>
             </View>
           </Glass>
@@ -367,7 +367,7 @@ function Weekdays({ value, onChange }: { value: number; onChange: (v: number) =>
           <Pressy key={d} onPress={() => { haptic.select(); onChange(wd); }} accessibilityRole="radio" accessibilityLabel={`星期${d}`}
             accessibilityState={{ checked: on }} scaleTo={0.92} hitSlop={4}
             style={{ flex: 1, maxWidth: 40, aspectRatio: 1, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
-              backgroundColor: on ? c.soft : c.sunken, borderWidth: 1.5, borderColor: on ? c.primary : "transparent" }}>
+              backgroundColor: on ? c.soft : c.sunken, borderWidth: 1.5, borderColor: on ? c.primaryEdge : "transparent" }}>
             <Text style={[type.label, { color: on ? c.onSoft : c.text }]}>{d}</Text>
           </Pressy>
         );

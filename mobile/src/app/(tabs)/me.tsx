@@ -60,7 +60,7 @@ export default function MeScreen() {
             {mission ? <Text style={[type.title, { color: c.text }]}>{mission.content}</Text> : <Body muted>聊完几次，这里会写下你想去的方向</Body>}
             {goals.map((g) => <Small key={g.id}>{`· ${g.content}`}</Small>)}
             <Pressy onPress={next.go} accessibilityRole="button" accessibilityLabel={next.label} style={{ paddingTop: space.sm }}>
-              <Text style={[type.small, { color: "quiet" in next ? c.muted : c.primary, fontWeight: "500" }]}>{next.label}</Text>
+              <Text style={[type.small, { color: "quiet" in next ? c.muted : c.primaryInk, fontWeight: "500" }]}>{next.label}</Text>
             </Pressy>
           </Card>
         </Animated.View>

@@ -123,7 +123,7 @@ export default function Today() {
 
   return (
     <Screen safeTop bottom={TAB_SPACE} sky={now}
-      refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}>
+      refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
       <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
         <Text style={[type.eyebrow, type.num, { color: c.muted, letterSpacing: 0.5 }]}>
           {dayLabel(plan.day)} · {greeting(Math.floor(now / 60) % 24)}{now >= 24 * 60 ? " · 凌晨 4 点前还算这一天" : ""}
@@ -277,7 +277,7 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
           <BigNumber parts={parts} />
         </View>
       </View>
-      <Text style={[type.eyebrow, type.num, { color: c.primary, marginTop: space.sm }]}>
+      <Text style={[type.eyebrow, type.num, { color: c.primaryInk, marginTop: space.sm }]}>
         {cur ? `现在 · 到 ${b.end}` : `接下来 · ${b.start} 开始`}{pomo}
       </Text>
       {/* 吃饭、路上这类生活块不当主角：小一号、淡一点（生活块画得更淡更小） */}
@@ -303,7 +303,7 @@ function OverCard({ blocks, now, onCheckin }: { blocks: Block[]; now: number; on
   return (
     <View style={[HERO, { gap: space.md }]}>
       <HeroArc blocks={blocks} now={now} />
-      <Text style={[type.eyebrow, { color: c.primary }]}>今天走完了</Text>
+      <Text style={[type.eyebrow, { color: c.primaryInk }]}>今天走完了</Text>
       <Title>花一两分钟对个账，就可以休息了。</Title>
       <Button hug label="对个账" icon="moon-outline" onPress={onCheckin} />
     </View>
@@ -324,7 +324,7 @@ function DoneCard({ blocks, now, tomorrow, checkin, nights }: {
         <HeroArc blocks={blocks} now={now} done fills={fills} />
         {/* 弧里写这 7 天记了几晚；拿不到就画月亮 */}
         <View style={{ position: "absolute", left: 0, right: 0, bottom: nights === undefined ? 22 : 10, alignItems: "center" }}>
-          {nights === undefined ? <Icon name="moon" size={40} color={c.primary} /> : <BigNumber parts={[[nights, "/ 7 晚"]]} />}
+          {nights === undefined ? <Icon name="moon" size={40} color={c.primaryEdge} /> : <BigNumber parts={[[nights, "/ 7 晚"]]} />}
         </View>
       </View>
       {tomorrow ? (

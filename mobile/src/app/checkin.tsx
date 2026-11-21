@@ -177,7 +177,7 @@ export default function Checkin() {
           <Animated.View entering={FadeIn.duration(360)}>
             <Animated.View entering={start(ZoomIn.duration(360).easing(EASE), { transform: [{ scale: 0.9 }] })}
               style={{ width: 112, height: 112, borderRadius: radius.pill, backgroundColor: c.soft, alignItems: "center", justifyContent: "center" }}>
-              <Icon name="moon" size={40} color={c.primary} />
+              <Icon name="moon" size={40} color={c.primaryEdge} />
             </Animated.View>
           </Animated.View>
         )}
@@ -230,7 +230,7 @@ export default function Checkin() {
           ? <IconButton name="chevron-back" label="回到逐项对账" onPress={() => { setMessage(null); setSentenceMode(false); }} />
           : <IconButton name="close" label="关闭" onPress={leave} />}
       <View style={{ flex: 1 }}>
-        {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} duration={300} />}
+        {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primaryEdge} height={6} duration={300} />}
       </View>
       {/* 和复盘一样：第一屏右边是「一句话说完」，往后右边是关闭 */}
       {idx > 0 && !sentenceMode && <IconButton name="close" label="关闭" onPress={leave} />}
@@ -384,7 +384,7 @@ function ItemHead({ item, title }: { item: CheckinItem; title?: boolean }) {
 }
 
 /**
- * 一屏一问里的大选项：左边图标，中间字，选中时陶土色边框和一个勾。
+ * 一屏一问里的大选项：左边图标，中间字，选中时主色边框和一个勾。
  * mark：用这件事自己的记号代替图标（实心 = 做了，半满 = 保底，空心 = 没做，和本周页一样）。
  */
 function Option({ icon, title, sub, on, onPress, mark }: {
@@ -397,17 +397,17 @@ function Option({ icon, title, sub, on, onPress, mark }: {
       accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={0.97}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 72, padding: space.lg,
         borderRadius: radius.lg, backgroundColor: on ? c.soft : c.surface, borderWidth: 1.5,
-        borderColor: on ? c.primary : "transparent", boxShadow: on ? undefined : c.shadow }}>
+        borderColor: on ? c.primaryEdge : "transparent", boxShadow: on ? undefined : c.shadow }}>
       <View style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
         backgroundColor: on ? c.card : c.sunken }}>
         {mark ? <View style={{ opacity: on ? 1 : 0.6 }}><Glyph name={mark.name} star={mark.star} fill={mark.fill} size={22} color={mark.color} /></View>
-          : <Icon name={icon} size={24} color={on ? c.primary : c.muted} />}
+          : <Icon name={icon} size={24} color={on ? c.primaryEdge : c.muted} />}
       </View>
       <View style={{ flex: 1 }}>
         <Title color={on ? c.onSoft : c.text}>{title}</Title>
         {sub && <Small color={on ? c.onSoft : c.muted}>{sub}</Small>}
       </View>
-      {on && <Animated.View entering={ZoomIn.duration(motion.fast)}><Icon name="checkmark-circle" size={24} color={c.primary} /></Animated.View>}
+      {on && <Animated.View entering={ZoomIn.duration(motion.fast)}><Icon name="checkmark-circle" size={24} color={c.primaryEdge} /></Animated.View>}
     </Pressy>
   );
 }

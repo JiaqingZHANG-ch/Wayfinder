@@ -78,7 +78,7 @@ export default function WeekScreen() {
               <View style={{ flexDirection: "row" }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
                 {week.logged.map((_, i) => (
                   <Text key={i} style={[type.eyebrow, { flex: 1, textAlign: "center",
-                    color: i === week.logged.length - 1 ? c.primary : c.muted }]}>{wd(week.start, i)}</Text>
+                    color: i === week.logged.length - 1 ? c.primaryInk : c.muted }]}>{wd(week.start, i)}</Text>
                 ))}
               </View>
               {week.habits.map((h) => <HabitRow key={h.id} h={h} start={week.start} />)}

@@ -1,5 +1,4 @@
-import { Geist_300Light, Geist_400Regular, Geist_500Medium, useFonts } from "@expo-google-fonts/geist";
-import { InstrumentSerif_400Regular } from "@expo-google-fonts/instrument-serif";
+import { Nunito_700Bold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from "@expo-google-fonts/nunito";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -17,12 +16,12 @@ import { NightProvider, type, useColors, useDark, useNightClock } from "@/theme"
  */
 SplashScreen.preventAutoHideAsync().catch(() => {}); // 字体加载完再收起启动画面，不闪白屏
 
-// 网页版：藏掉浏览器默认滚动条（像 App 一样），用键盘时给能点的东西一圈陶土色焦点框
+// 网页版：藏掉浏览器默认滚动条（像 App 一样），用键盘时给能点的东西一圈主色焦点框
 if (Platform.OS === "web" && typeof document !== "undefined") {
   const css = document.createElement("style");
   css.textContent = "*{scrollbar-width:none}*::-webkit-scrollbar{display:none}"
     + "[role=button]:focus-visible,[role=tab]:focus-visible,[role=radio]:focus-visible,[role=checkbox]:focus-visible"
-    + "{outline:2px solid var(--focus,#B4573A);outline-offset:2px}";
+    + "{outline:2px solid var(--focus,#8A4B0B);outline-offset:2px}";
   document.head.appendChild(css);
 }
 
@@ -32,7 +31,7 @@ export const unstable_settings = { initialRouteName: "(tabs)" };
 export default function RootLayout() {
   useNotificationRouting();
   const night = useNightClock();
-  const [fonts, fontError] = useFonts({ Geist_300Light, Geist_400Regular, Geist_500Medium, InstrumentSerif_400Regular });
+  const [fonts, fontError] = useFonts({ Nunito_700Bold, Nunito_800ExtraBold, Nunito_900Black });
   const ready = fonts || !!fontError;
   useEffect(() => { if (ready) SplashScreen.hideAsync().catch(() => {}); }, [ready]);
   if (!ready) return null; // 字体没加载完先不画，免得数字闪一下换字体；加载失败就用系统字体
@@ -43,14 +42,14 @@ function Root() {
   const c = useColors();
   const dark = useDark();
   // 网页焦点框跟着日夜换色
-  useEffect(() => { if (Platform.OS === "web") document.documentElement.style.setProperty("--focus", c.primary); }, [c.primary]);
+  useEffect(() => { if (Platform.OS === "web") document.documentElement.style.setProperty("--focus", c.primaryInk); }, [c.primaryInk]);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style={dark ? "light" : "dark"} />
       <Stack screenOptions={{
         headerStyle: { backgroundColor: c.bg },
         headerShadowVisible: false,
-        headerTintColor: c.primary,
+        headerTintColor: c.primaryInk,
         headerTitleStyle: { ...type.label, color: c.text },
         headerBackButtonDisplayMode: "minimal",
         contentStyle: { backgroundColor: c.bg },
