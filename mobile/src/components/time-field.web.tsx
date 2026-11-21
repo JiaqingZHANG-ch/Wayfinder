@@ -25,7 +25,8 @@ export function PickField({ label, value, mode, onChange, onClear, style }: Pick
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
         {createElement("input", {
           type: mode, value, "aria-label": label,
-          onChange: (e: { target: { value: string } }) => onChange(e.target.value),
+          // 用浏览器自带的 × 清空时不存空串：能清就走 onClear，不能清就不动
+          onChange: (e: { target: { value: string } }) => (e.target.value ? onChange(e.target.value) : onClear?.()),
           onFocus: () => setFocus(true), onBlur: () => setFocus(false),
           // 和 Field 一样的字号；minWidth 0 让两个并排的框能缩，不然浏览器按内容撑宽、两框挤在一起
           style: { flex: 1, minWidth: 0, width: "100%", minHeight: 52, boxSizing: "border-box", backgroundColor: c.sunken, color: c.text,

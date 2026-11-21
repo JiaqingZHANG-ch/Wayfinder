@@ -78,8 +78,9 @@ export default function Today() {
 
   const canReport = plan.blocks.some((b) => toMin(b.end) > now); // 今天还有没过去的安排
   const level = plan.energy_level;
-  const phase: Phase = plan.checked_in ? "done" : !canReport ? "over" : now >= EVENING ? "evening"
-    : level ? "reported" : "day";
+  // 白天提前对过账：照样显示此刻和时间线，到晚上或今天走完才算「收好了」
+  const phase: Phase = plan.checked_in && (!canReport || now >= EVENING) ? "done" : !canReport ? "over"
+    : now >= EVENING ? "evening" : level ? "reported" : "day";
   const energy = () => router.push("/energy");
   const checkin = () => router.push("/checkin");
   const done = phase === "done";
@@ -107,7 +108,7 @@ export default function Today() {
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
           {phase === "day" && <Button label="下课了，报个电量" icon="battery-half-outline" onPress={energy} />}
           {phase === "evening" && <Button label="对个账" icon="moon-outline" onPress={checkin} />}
-          {phase === "day" && <Button label="提前对账" variant="neutral" onPress={checkin} />}
+          {phase === "day" && <Button label={plan.checked_in ? "改一下今天的对账" : "提前对账"} variant="neutral" onPress={checkin} />}
           {(phase === "reported" || phase === "evening") && (
             <Button label={level ? "电量变了，再报一次" : "报一下电量"} variant="neutral" onPress={energy} />
           )}
@@ -121,7 +122,7 @@ export default function Today() {
         {week && <Stat label="晚间记录" value={week.logged_days} unit="/ 7 天" />}
       </Animated.View>}
 
-      {!done && week?.review === "due" && (
+      {week?.review === "due" && (
         <Card i={4} onPress={() => router.push("/review")} label="打开这周的复盘"
           style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
           <Icon name="reader-outline" size={22} color={c.muted} />
@@ -164,7 +165,8 @@ function BigNumber({ parts }: { parts: [number, string][] }) {
 function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
   const c = useColors();
   const cur = blocks.find((b) => toMin(b.start) <= now && now < toMin(b.end));
-  const next = blocks.find((b) => toMin(b.start) > now && b.kind !== "life");
+  const later = blocks.filter((b) => toMin(b.start) > now);
+  const next = later.find((b) => b.kind !== "life") ?? later[0]; // 后面只剩吃饭、自由时间，也说一声
   const b = cur ?? next;
   if (!b) return null;
   const parts = cur ? spanParts(toMin(cur.end) - now, "后结束") : spanParts(toMin(b.start) - now, "后开始");

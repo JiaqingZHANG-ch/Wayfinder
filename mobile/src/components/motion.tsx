@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { useEffect } from "react";
 import { DimensionValue, Platform, Pressable, PressableProps, StyleProp, View, ViewStyle } from "react-native";
 import Animated, {
-  Easing, FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming,
+  Easing, FadeInDown, FadeInLeft, FadeInRight, useAnimatedStyle, useSharedValue, withRepeat, withSpring, withTiming,
 } from "react-native-reanimated";
 
 import { motion, radius, useColors } from "@/theme";
@@ -42,6 +42,10 @@ export function Pressy({ style, scaleTo = 0.97, onPressIn, onPressOut, ...rest }
 export function from<T extends { withInitialValues: (v: never) => T }>(b: T, values: object): T {
   return native ? b.withInitialValues(values as never) : b;
 }
+
+/** 一屏一问的翻页：往前新的一屏从右边进，往回从左边进，220ms、位移 16。对账和复盘共用。 */
+export const ahead = (side: "left" | "right") => from((side === "right" ? FadeInRight : FadeInLeft).duration(220).easing(EASE),
+  { opacity: 0, transform: [{ translateX: side === "right" ? 16 : -16 }] });
 
 /** 列表里第 i 个东西的入场：从下面 12 淡入，一个接一个（每个晚 30ms，最多错开 5 个），整屏 450ms 内落定。 */
 export const enter = (i = 0) =>

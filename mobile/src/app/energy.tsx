@@ -172,11 +172,11 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
     haptic.select();
     setHover(n);
   };
-  const release = () => {
+  const release = (commit: boolean) => {
     const n = last.current;
     last.current = null;
     setHover(null);
-    if (n !== null) onPick(n);
+    if (commit && n !== null) onPick(n);
   };
   const slide = usePanGesture({
     enabled: !disabled,
@@ -185,7 +185,7 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
     onUpdate: (e) => {
       if (width.value > 0) scheduleOnRN(point, Math.max(1, Math.min(5, Math.ceil((e.x / width.value) * 5))));
     },
-    onDeactivate: () => { scheduleOnRN(release); },
+    onDeactivate: (e) => { scheduleOnRN(release, !e.canceled); }, // 被系统打断（来电、手势被抢）不算选了
   });
 
   return (

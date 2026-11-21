@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, { FadeIn, SlideInDown, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,9 +37,11 @@ export default function SettingsScreen() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { part } = useLocalSearchParams<{ part?: string }>();
+  const raw = useLocalSearchParams<{ part?: string }>().part;
+  const part = raw === "routine" || raw === "classes" || raw === "reminders" ? raw : undefined; // 认不出的值就显示整页
   const show = (p: Part) => !part || part === p;
-  const title = TITLES[(part as Part) in TITLES ? (part as Part) : "all"];
+  const title = TITLES[part ?? "all"];
+  const leaving = useRef(false); // 已经决定离开（存好了或不要了），返回时不再拦
 
   const [s, setS] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(""); // 上次存下的样子，和现在比就知道有没有改动
@@ -65,6 +67,7 @@ export default function SettingsScreen() {
     // expo-router 的类型里没列 beforeRemove，这里手动标一下
     type Leaving = { preventDefault: () => void; data: { action: Parameters<typeof navigation.dispatch>[0] } };
     return navigation.addListener("beforeRemove" as never, ((e: Leaving) => {
+      if (leaving.current) return;
       e.preventDefault();
       setAsk({ action: e.data.action });
     }) as never);
@@ -119,6 +122,11 @@ export default function SettingsScreen() {
     if (!removed) return;
     const { key, index, item } = removed;
     const list = [...((s![key] ?? []) as unknown[])];
+    if (key === "habits" && list.length >= MAX_HABITS) { // 删了又加满了：放不回去
+      setRemoved(null);
+      setMessage({ text: `习惯最多 ${MAX_HABITS} 个，先删一个再撤销。`, tone: "info" });
+      return;
+    }
     list.splice(index, 0, item);
     setS({ ...s!, [key]: list });
     setRemoved(null);
@@ -147,6 +155,7 @@ export default function SettingsScreen() {
 
   const leave = (action?: Parameters<typeof navigation.dispatch>[0]) => {
     setAsk(null);
+    leaving.current = true;
     if (action) navigation.dispatch(action);
     else if (router.canGoBack()) router.back();
     else router.replace("/");

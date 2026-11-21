@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
-import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeOut, ZoomIn } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ApiError, CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, postCheckin } from "@/api";
-import { Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
+import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, OFFLINE, postCheckin, say } from "@/api";
+import { ahead, Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
 import { Body, Button, Card, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, radius, space, type, useColors } from "@/theme";
@@ -21,11 +21,6 @@ const STATUS_LOOK: Record<Status, { icon: IconName; sub: string }> = {
 const VS_LOOK: Record<VsPlan, IconName> = { less: "remove-circle-outline", same: "ellipse-outline", more: "add-circle-outline" };
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
-const OFFLINE = "没连上，网络好了再试一次。";
-/** 后端说的话（比如「请点按钮补上」）原样给人看；断网这类原始错误只说没连上。 */
-const say = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE);
-const ahead = (side: "left" | "right") => start((side === "right" ? FadeInRight : FadeInLeft).duration(220).easing(EASE),
-  { opacity: 0, transform: [{ translateX: side === "right" ? 16 : -16 }] });
 
 /**
  * 晚间对账：全屏，一屏一问。每件事一屏（点完自动到下一屏），项目再问一句和预想比，

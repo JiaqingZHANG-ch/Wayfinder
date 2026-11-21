@@ -116,6 +116,10 @@ export class ApiError extends Error {
   }
 }
 
+export const OFFLINE = "没连上，网络好了再试一次。";
+/** 给用户看的出错说明：后端说的人话原样给；断网这类原始错误（英文、系统的）只说没连上。 */
+export const say = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE);
+
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(API_URL + path, {
     method,

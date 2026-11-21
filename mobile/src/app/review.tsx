@@ -47,7 +47,7 @@ export default function ReviewScreen() {
 
   const steps: Step[] = [{ t: "stats" }];
   review?.adjustments.forEach((_, i) => steps.push({ t: "adj", i }));
-  if (review && (review.last_question || (review.still_right && stillRight !== "done"))) steps.push({ t: "last" });
+  if (review && (review.last_question || review.still_right)) steps.push({ t: "last" });
   steps.push({ t: "next" });
   const step = steps[Math.min(idx, steps.length - 1)];
   const go = (i: number) => { setMessage(null); setIdx(i); };
@@ -68,13 +68,16 @@ export default function ReviewScreen() {
   }
 
   async function reconfirm(content?: string) {
-    if (!review?.still_right) return;
+    if (!review?.still_right || busy) return;
+    setBusy(true);
     try {
       const res = await confirmProfile(review.still_right.id, content);
       if (isCrisis(res)) setCrisis(res.message);
       else setStillRight("done");
     } catch {
       setMessage("没记上，再点一次。");
+    } finally {
+      setBusy(false);
     }
   }
 
