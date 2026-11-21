@@ -118,7 +118,7 @@ export function skyTone(min: number, darkMode: boolean): SkyTone {
   const slot = h >= 5 && h < 11 ? 0 : h >= 11 && h < 17 ? 1 : h >= 17 && h < 20 ? 2 : 3;
   const darkSky = [
     { top: "#17303A", mid: "#1E2A2C", glow: "#7FB8C8" }, // 清晨：淡青
-    { top: "#243656", mid: "#232830", glow: "#E8B860" }, // 白天：雾蓝的天、金色的太阳（天和界面的陶土色要有色相差）
+    { top: "#243656", mid: "#232830", glow: "#9DBCEB" }, // 白天：雾蓝的天、同色相的亮蓝光（金叠在蓝上会变卡其色）
     { top: "#3B2233", mid: "#33201C", glow: "#E3906F" }, // 傍晚：梅紫到陶土
     { top: "#1D1B33", mid: "#191726", glow: "#8C84D6" }, // 夜里：靛紫
   ];

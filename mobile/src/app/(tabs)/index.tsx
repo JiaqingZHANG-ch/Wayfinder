@@ -5,7 +5,7 @@ import Animated, { FadeIn, FadeInUp, FadeOutUp } from "react-native-reanimated";
 
 import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api";
 import { Arc } from "@/components/art";
-import { enter, Skeleton } from "@/components/motion";
+import { enter, Pressy, Skeleton } from "@/components/motion";
 import { dayLabel, PlanView, toMin, useNow } from "@/components/plan-view";
 import { Button, Card, ErrorState, Icon, Notice, Screen, Small, Stat, Title } from "@/components/ui";
 import { BATTERY_HINT } from "@/labels";
@@ -123,7 +123,7 @@ export default function Today() {
     <Screen safeTop bottom={TAB_SPACE} sky={now}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}>
       <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
-        <Text style={[type.eyebrow, type.num, { color: c.muted }]}>
+        <Text style={[type.eyebrow, type.num, { color: c.muted, letterSpacing: 0.5 }]}>
           {dayLabel(plan.day)} · {greeting(Math.floor(now / 60) % 24)}{now >= 24 * 60 ? " · 凌晨 4 点前还算这一天" : ""}
         </Text>
         <Title>{summary}</Title>
@@ -144,7 +144,6 @@ export default function Today() {
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
           {phase === "day" && <Button hug label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
           {phase === "evening" && <Button hug label="对个账" icon="moon-outline" onPress={checkin} />}
-          {done && <Button label="再改一下今晚的对账" variant="neutral" onPress={checkin} />}
         </Animated.View>
       )}
 
@@ -171,6 +170,13 @@ export default function Today() {
 
       {night && review}
 
+      {done && (
+        <Pressy onPress={checkin} accessibilityRole="button" accessibilityLabel="再改一下今晚的对账"
+          style={{ minHeight: 44, alignItems: "center", justifyContent: "center" }}>
+          <Text style={[type.small, { fontSize: 13, fontWeight: "400", color: c.muted }]}>再改一下今晚的对账</Text>
+        </Pressy>
+      )}
+
       {!done && (
         <Animated.View entering={enter(5)}>
           <PlanView plan={plan} now={now} showEnergy={false} fold title={canReport ? "接下来" : "今天"}
@@ -188,7 +194,7 @@ export default function Today() {
 function Cells({ n, lit, marks, color, round, tall }: { n: number; lit: number; marks?: boolean[]; color: string; round?: boolean; tall?: boolean }) {
   const c = useColors();
   return (
-    <View style={{ flexDirection: "row", gap: tall ? 3 : 4, marginTop: tall ? space.xs : space.sm }}
+    <View style={{ flexDirection: "row", gap: tall ? 3 : 4, marginTop: tall ? space.xs : "auto", paddingTop: tall ? 0 : space.sm }}
       importantForAccessibility="no-hide-descendants">
       {Array.from({ length: n }, (_, i) => {
         const on = marks ? marks[i] : i < lit;

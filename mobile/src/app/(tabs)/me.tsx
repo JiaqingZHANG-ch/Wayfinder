@@ -26,7 +26,7 @@ export default function MeScreen() {
   return (
     <Screen safeTop bottom={TAB_SPACE} sky={now}>
       <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
-        <Text style={[type.eyebrow, type.num, { color: c.muted, minHeight: 16 }]}>{summary || " "}</Text>
+        <Text style={[type.eyebrow, type.num, { color: c.muted, minHeight: 16, letterSpacing: 0.5 }]}>{summary || " "}</Text>
         <Display>我</Display>
       </Animated.View>
 

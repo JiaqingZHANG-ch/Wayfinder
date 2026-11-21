@@ -134,7 +134,8 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
       </Text>
       <View style={{ alignItems: "center", width: 36 }}>
         {quiet ? (
-          <View style={{ width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
+          <View style={live ? { width: 10, height: 10, borderRadius: radius.pill, marginTop: 14, backgroundColor: c.primary, boxShadow: `0 0 10px ${c.primary}` }
+            : { width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
         ) : (
           // 记号坐进一个这类事颜色的圆里；正在做的那件，圆是陶土色
           <View style={{ width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
@@ -147,14 +148,14 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
           backgroundColor: past ? c.primary : c.line, opacity: past ? 0.5 : 1 }} />}
       </View>
       <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2, paddingTop: quiet ? 0 : 4 },
-        live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
+        live && { backgroundColor: quiet ? c.sunken : c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
         {/* 吃饭、路上、自由时间只占一行：冒号前那段加时长，细节留给读屏 */}
         <Text numberOfLines={quiet ? 1 : undefined} style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }]
-          : [type.body, { fontWeight: "500", color: live ? c.onSoft : past ? c.muted : c.text }]}>
+          : [type.body, { fontWeight: "500", color: live && !quiet ? c.onSoft : past ? c.muted : c.text }]}>
           {quiet ? `${b.title.split("：")[0]}${live ? "" : ` · ${span(b)}`}` : b.title}
         </Text>
         {(!quiet || live) && (
-          <Small color={live ? c.onSoft : c.muted}>
+          <Small color={live && !quiet ? c.onSoft : c.muted}>
             {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
           </Small>
         )}
