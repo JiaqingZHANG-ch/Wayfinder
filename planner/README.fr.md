@@ -34,7 +34,7 @@ Il prend le bus de 17h51 et non celui de 17h35, trop proche de la fin du TP ; co
 .\run.ps1 examples\2026-11-16.json -o out.json
 ```
 
-Tests : `uv run pytest` (84 tests)
+Tests : `uv run pytest`
 
 Le format d'entrée est décrit dans `src/planner/model.py`, la liste des règles et leur origine dans `docs/constraints.md`.
 

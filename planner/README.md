@@ -34,7 +34,7 @@
 .\run.ps1 examples\2026-11-16.json -o out.json
 ```
 
-测试：`uv run pytest`（84 项）
+测试：`uv run pytest`
 
 输入格式见 `src/planner/model.py`，规则清单和来历见 `docs/constraints.md`。
 
