@@ -170,3 +170,21 @@ $env:OLLAMA_MODEL = 'qwen3:14b'   # 可不设，默认就是它
 - ④ 列一张表：Ollama 连不上、超时、格式错、命中禁用词、危机词、Google 日历授权失效，各走哪条路，每一行对上一个测试的名字。
 
 跑全部测试：`uv run pytest -q`（要先运行过 `加载AI工作空间.ps1`，缓存才落在 U 盘）。
+
+## 第 9 周：深度长谈（分支 `deep-talk`，2026-11-21）
+
+设计在 `docs/superpowers/specs/2026-11-21-deep-talk-design.md`，计划在 `docs/superpowers/plans/2026-11-21-deep-talk.md`。
+
+- 第一天照旧 3 分钟建档出计划；之后每晚对完账，对账完成页邀请一次长谈，一共 4 次：现状、方向、能量、三个五年版本加智囊团。一晚最多一次，电量 ≤ 2 不邀请，连着「明天再说」3 次就不再邀请（「我」页还能进）。
+- 逻辑在 `src/mentor/deep_talk.py`（每一屏问什么、邀请规则、导师的一句回应、每一步的提议、「投资自己」候选）；智囊团看三个版本在 `src/mentor/council.py` 的 `run_versions_council`，旧的 `run_council` 没动。
+- 存在 `deep_talks` 表（每一轮每一步一行），Supabase 那边是 `supabase/migrations/20261121000000_deep_talks.sql`。导出、删除都覆盖。
+- 接口：
+  - `GET /deep-talk`：第几次、哪一屏、今晚邀不邀请、已答的、待确认的提议、智囊团状态。
+  - `POST /deep-talk/answer`：答一屏；屏不对回 409，危机字眼回危机提示、不存。
+  - `POST /deep-talk/snooze`：「明天再说」。
+  - `POST /deep-talk/council`：三个版本写完后开智囊团，后台跑；App 进这一屏就调一次，每 3 秒查 `GET`。
+  - `POST /deep-talk/confirm`：确认或不要一条提议。习惯走设置保存（满 3 个回 409），明天的一件事并进今晚的对账（没对账回 409）。
+  - `POST /deep-talk/restart`：重新聊一次，旧的一轮保留。
+- 习惯多了 `source`（自己加 / 长谈 / 投资自己）和 `goal_id`，存在计划输入的 `habit_meta`；`GET /today` 多了 `goals`，时间线上写「为了：…」。
+- 导师和智囊团只提议，写进档案、习惯、明天的计划都要你点「对 / 好」。
+- 试用：`MODEL=ollama` 时第 4 次的智囊团本机跑约一分钟；不开模型时每一步都用兜底走完，智囊团显示「这次顾问们没能看完」。
