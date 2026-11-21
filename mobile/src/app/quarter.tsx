@@ -134,6 +134,7 @@ export default function QuarterScreen() {
     const rows = [["开始做", "start"], ["停下", "stop"], ["继续", "keep"]] as const;
     return shell(
       <>
+        <Display>下一季，想开始、停下、继续什么？</Display>
         {rows.map(([name, k]) => (
           <Field key={k} label={name} value={text[k]} multiline onChangeText={(v) => setText({ ...text, [k]: v })} />
         ))}
@@ -145,6 +146,7 @@ export default function QuarterScreen() {
   const set = (i: number, k: keyof QuarterGoal, v: string) => setGoals(goals.map((g, j) => (j === i ? { ...g, [k]: v } : g)));
   return shell(
     <>
+      <Display>下一季想做到的事，最多 3 条</Display>
       {goals.map((g, i) => (
         <Card key={i}>
           <Field label="目标" value={g.text} maxLength={60} onChangeText={(v) => set(i, "text", v)} />
