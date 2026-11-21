@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -251,6 +252,7 @@ _VERSIONS_LENS = """\
 - 每句不超过 60 字。具体，引用他写的原话，对他说话用「你」。
 - 只用他写的三个版本和上面给的情况，不编他没说过的经历、年数、数字。
 - 用『你』称呼他，不要写『用户』。
+- 引号里只能放他原话里有的字；不是原话就不要加引号。
 - 不排名，不说该选哪个版本，不替他做决定。
 - 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
 - 不建议退学、辞职、换专业、换工作这类难回头的决定；试验是一个月内能做完、随时能停的小事。
@@ -278,19 +280,27 @@ _VERSIONS_SYNTH = """\
 """
 
 
-def _versions_fields(obj) -> tuple[list[dict]] | None:
+_QUOTED = re.compile("「([^」]*)」|'([^']*)'|\"([^\"]*)\"|‘([^’]*)’|“([^”]*)”")
+
+
+def _quotes_are_his(text: str, source: str) -> bool:
+    """引号在这个产品里是「他自己的原话」：引号里的每一段都必须真在他写的版本或给的情况里出现过。"""
+    return all(q in source for m in _QUOTED.finditer(text) for q in m.groups() if q)
+
+
+def _versions_fields(obj, source: str = "") -> tuple[list[dict]] | None:
     # 提示里说 60 字，这里放宽到 120（同 _lens_fields 的做法），免得多几个字就丢掉一个视角
     vs = obj.get("versions") if isinstance(obj, dict) else None
     keys = ("sees", "unknown", "test")
     if isinstance(vs, list) and len(vs) == 3 and all(
-            isinstance(v, dict) and all(_ok(v.get(k), 120) and "用户" not in v[k] for k in keys) for v in vs):
+            isinstance(v, dict) and all(_ok(v.get(k), 120) and "用户" not in v[k] and _quotes_are_his(v[k], source) for k in keys) for v in vs):
         return ([{k: v[k] for k in keys} for v in vs],)
     return None
 
 
-def _versions_lens(model: ModelPort, card: Card, case: str) -> dict | None:
+def _versions_lens(model: ModelPort, card: Card, case: str, source: str = "") -> dict | None:
     got = _ask(model, [{"role": "system", "content": _VERSIONS_LENS.format(card=card.text)},
-                       {"role": "user", "content": case}], _versions_fields, card.title, think=True)
+                       {"role": "user", "content": case}], lambda o: _versions_fields(o, source), card.title, think=True)
     return None if got is None else {"title": card.title, "versions": got[0]}
 
 
@@ -310,7 +320,9 @@ def run_versions_council(model: ModelPort, cards: list[Card], versions: list[str
     if len(cards) < MIN_OPINIONS:
         return "failed", None
     try:
-        lenses = _opinions(model, pick_cards(cards, model, case), case, _versions_lens)
+        source = context + "\n" + "\n".join(versions)
+        lenses = _opinions(model, pick_cards(cards, model, case), case,
+                           lambda m, c, k: _versions_lens(m, c, k, source))
         if len(lenses) < MIN_OPINIONS:
             return "failed", None
         said = "\n\n".join(f"{x['title']}\n" + "\n".join(

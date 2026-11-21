@@ -468,3 +468,16 @@ def test_versions_council_crisis_and_too_few():
 def test_versions_lens_saying_user_in_third_person_is_invalid():
     bad = json.dumps({"versions": [{"sees": "用户没有经验", "unknown": "x", "test": "y"}] * 3}, ensure_ascii=False)
     assert run_versions_council(FakeModel([VERSIONS_LENS] + [bad] * 2), [A, C], ["a", "b", "c"], "") == ("failed", None)
+
+
+def _lens_with(sees: str) -> str:
+    return json.dumps({"versions": [{"sees": sees, "unknown": "x", "test": "y"}] * 3}, ensure_ascii=False)
+
+
+def test_versions_lens_quote_must_be_his_own_words():
+    versions = ["做开发", "我想慢慢来，不着急", "开书店"]
+    fake = _lens_with("你说「必须立刻成功」")
+    assert run_versions_council(FakeModel([VERSIONS_LENS] + [fake] * 2), [A, C], versions, "") == ("failed", None)
+    real = _lens_with("你说「慢慢来」")
+    model = FakeModel([VERSIONS_LENS, real, json.dumps({"disagreement": ""})])
+    assert run_versions_council(model, [A, C], versions, "")[0] == "ok"
