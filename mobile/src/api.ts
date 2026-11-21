@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 import type { Status, VsPlan } from "./labels";
 
 // 和后端（growth-mentor 的 serve.ps1，默认 http://127.0.0.1:8000）说话的地方。接口说明见后端的 /docs 页。
@@ -170,6 +172,13 @@ export const confirmProfile = (id: number, content?: string) =>
 export const postEnergy = (level: number, preview = false) => send<Plan | Crisis>("POST", "/energy", { level, preview });
 /** 说一句今天要做什么：替换当天全部事项，返回还没确认的新一版计划。听不懂是 422。 */
 export const sayDay = (text: string) => send<Plan | Crisis>("POST", "/day/say", { text });
+/** 把录好的音频送去转写，返回文字。没装转写是 501，detail 是人话。 */
+export async function transcribe(uri: string): Promise<string> {
+  const form = new FormData();
+  if (Platform.OS === "web") form.append("audio", await (await fetch(uri)).blob(), "say.webm");
+  else form.append("audio", { uri, name: "say.m4a", type: "audio/m4a" } as unknown as Blob);
+  return (await send<{ text: string }>("POST", "/transcribe", form)).text;
+}
 /** 手动改一块的时间。overlaps：撞在一起的块 id。409 = 版本过期（别处改过），要重新拿 /today。 */
 export const editBlock = (version: number, block_id: string, start: string, end: string) =>
   send<Plan & { overlaps: string[] }>("POST", "/plan/edit", { version, block_id, start, end });

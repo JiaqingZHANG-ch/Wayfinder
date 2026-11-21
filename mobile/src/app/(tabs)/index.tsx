@@ -1,10 +1,11 @@
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, RefreshControl, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Platform, RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ApiError, Block, confirmPlan, deleteBlock, editBlock, getMe, getToday, isCrisis, Me, Plan, reflow, say, sayDay } from "@/api";
+import { ApiError, Block, confirmPlan, deleteBlock, editBlock, getMe, getToday, isCrisis, Me, Plan, reflow, say, sayDay, transcribe } from "@/api";
 import { Changes } from "@/components/changes";
 import { planDiff } from "@/diff";
 import { enter, haptic, Pressy, Skeleton } from "@/components/motion";
@@ -17,6 +18,8 @@ import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 const EVENING = 19 * 60; // 这之后主按钮是「对个账」
 const EXAMPLE = "9 点到 11 点上课，下午写报告，晚上健身一小时";
 const TOUCH = 44;
+const MAX_REC = 60; // 最长录这么多秒，到了自动停
+const NO_MIC = "录不了音，用键盘上的话筒说也行。";
 
 /** 「2026-11-21」所在那一周（星期一到星期日）：每天的星期几和几号。 */
 function weekOf(day: string) {
@@ -45,6 +48,9 @@ export default function Today() {
   const [ask, setAsk] = useState(false); // 手动改过：问要不要把其余的重排
   const [reflowing, setReflowing] = useState(false);
   const [moved, setMoved] = useState<Block[] | null>(null); // 重排前的块；有它就列出改了几处
+  const [mic, setMic] = useState<"rec" | "send" | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const secs = Math.floor(useAudioRecorderState(recorder).durationMillis / 1000);
   const last = useRef<string | null>(null);
   const now = useNow();
   const c = useColors();
@@ -99,6 +105,42 @@ export default function Today() {
     }
     setBusy(null);
   }
+
+  /** 点话筒：没在录就请权限、开始录；在录就停下、送去转写，文字追加进输入框（不自动排）。 */
+  async function toggleMic() {
+    if (mic === "send") return;
+    setSaid(null);
+    if (mic === "rec") {
+      setMic("send");
+      try {
+        await recorder.stop();
+        await setAudioModeAsync({ allowsRecording: false });
+        const t = (await transcribe(recorder.uri!)).trim();
+        if (t) setText((x) => (x.trim() ? x.trimEnd() + " " : "") + t);
+        else setSaid("没听清，再说一次，或者直接打字。");
+      } catch (e) {
+        setSaid(e instanceof ApiError ? e.message : NO_MIC);
+      }
+      setMic(null);
+      return;
+    }
+    try {
+      if (Platform.OS === "web" && !window.isSecureContext) throw new Error("insecure");
+      if (!(await requestRecordingPermissionsAsync()).granted) throw new Error("denied");
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setMic("rec");
+    } catch {
+      setSaid(NO_MIC);
+    }
+  }
+  // 录满 60 秒自动停（走和点停止一样的路）
+  useEffect(() => {
+    if (mic !== "rec") return;
+    const t = setTimeout(toggleMic, MAX_REC * 1000);
+    return () => clearTimeout(t);
+  }, [mic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function confirm(version: number) {
     setBusy("confirm");
@@ -242,12 +284,14 @@ export default function Today() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
           <Field style={{ flex: 1 }} placeholder="说说今天要做什么" accessibilityLabel="说说今天要做什么" value={text}
             onChangeText={setText} returnKeyType="done" onSubmitEditing={() => { if (canSay) arrange(); }} />
-          {/* 录音是下一步：先占好位置 */}
-          <View accessible accessibilityRole="button" accessibilityLabel="说话输入，还没做好" accessibilityState={{ disabled: true }}
-            style={{ width: TOUCH, height: TOUCH, borderRadius: radius.pill, backgroundColor: c.surface2, opacity: 0.5,
-              alignItems: "center", justifyContent: "center" }}>
-            <Icon name="mic-outline" size={20} color={c.muted} />
-          </View>
+          {mic === "rec" && <Text accessibilityElementsHidden style={[type.label, type.num, { color: c.muted }]}>{secs} 秒</Text>}
+          <Pressy onPress={toggleMic} disabled={mic === "send"} accessibilityRole="button"
+            accessibilityLabel={mic === "rec" ? "停止录音" : "开始说话"} accessibilityState={{ busy: mic === "send" }} scaleTo={0.9}
+            style={{ width: TOUCH, height: TOUCH, borderRadius: radius.pill, backgroundColor: mic === "rec" ? c.primary : c.surface2,
+              opacity: mic === "send" ? 0.5 : 1, alignItems: "center", justifyContent: "center" }}>
+            {mic === "send" ? <ActivityIndicator size="small" color={c.muted} />
+              : <Icon name={mic === "rec" ? "stop" : "mic-outline"} size={20} color={mic === "rec" ? c.onPrimary : c.text} />}
+          </Pressy>
         </View>
         <Button label="排一下" busyLabel={busy === "say" ? "正在排……" : undefined} disabled={!canSay} onPress={arrange} />
         {empty && (
