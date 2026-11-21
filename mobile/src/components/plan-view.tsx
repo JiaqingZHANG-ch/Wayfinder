@@ -5,16 +5,12 @@ import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 import { Block, Plan } from "@/api";
 import { Glyph } from "@/components/art";
 import { EASE, Pressy } from "@/components/motion";
-import { Card, Icon, IconName, Notice, Small } from "@/components/ui";
+import { Card, Icon, Notice, Small } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const KIND_NAME: Record<Block["kind"], string> = { class: "课", must: "习惯", proj: "项目", flex: "可选", life: "" };
-const KIND_ICON: Record<Block["kind"], IconName> = {
-  class: "school-outline", must: "repeat", proj: "layers-outline", flex: "sparkles-outline", life: "cafe-outline",
-};
 
 export const kindName = (b: Block) => (b.task_id === "one-thing" ? "昨晚定的" : KIND_NAME[b.kind]);
-export const kindIcon = (b: Block): IconName => (b.task_id === "one-thing" ? "star-outline" : KIND_ICON[b.kind]);
 
 /** 「2026-11-20」→「11 月 20 日 · 星期五」 */
 export function dayLabel(day: string): string {
@@ -122,36 +118,40 @@ function BlockRow({ b, title, last, state }: { b: Block; title: string; last: bo
   const quiet = b.kind === "life";
   const live = state === "now";
   const past = state === "past";
+  const minutes = toMin(b.end) - toMin(b.start);
+  // 行高跟着时长走：45 分钟和 2 小时一眼看得出区别（Structured 的做法）
+  const h = quiet ? 36 : Math.min(96, Math.max(56, 56 + (minutes - 30) * 0.4));
+  const tint = c.kind[b.kind];
   return (
-    <View style={{ flexDirection: "row", gap: space.md, minHeight: 48 }}
+    <View style={{ flexDirection: "row", gap: space.md, minHeight: h }}
       accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${live ? "，正在进行" : ""}`}>
-      <Text style={[type.small, type.num, { width: 44, color: live ? c.primary : c.muted,
-        paddingTop: live ? space.sm + 2 : 2 }]}>
+      <Text style={[type.small, type.num, { width: 44, color: live ? c.primary : c.muted, paddingTop: quiet ? 2 : 7 }]}>
         {b.start}
       </Text>
-      <View style={{ alignItems: "center", width: 16 }}>
+      <View style={{ alignItems: "center", width: 36 }}>
         {quiet ? (
           <View style={{ width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
         ) : (
-          <View style={{ marginTop: live ? space.sm + 4 : 3 }}>
-            <Glyph name={b.title} star={b.task_id === "one-thing"} color={c.kind[b.kind]} dim={past}
+          // 记号坐进一个这类事颜色的圆里；正在做的那件，圆是陶土色
+          <View style={{ width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
+            backgroundColor: live ? c.primary : `${tint}29`, opacity: past ? 0.6 : 1 }}>
+            <Glyph name={b.title} star={b.task_id === "one-thing"} color={live ? c.onPrimary : tint}
               fill={past || live ? "full" : "empty"} />
           </View>
         )}
-        {!last && <View style={{ flex: 1, width: 1.5, backgroundColor: c.line, marginVertical: 4, borderRadius: 1 }} />}
+        {!last && <View style={{ flex: 1, width: 2, marginVertical: 4, borderRadius: 1,
+          backgroundColor: past ? c.primary : c.line, opacity: past ? 0.5 : 1 }} />}
       </View>
-      <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2 },
+      <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2, paddingTop: quiet ? 0 : 4 },
         live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
-        <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }] : [type.label, { color: live ? c.onSoft : past ? c.muted : c.text }]}>
+        <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }]
+          : [type.body, { fontWeight: "500", color: live ? c.onSoft : past ? c.muted : c.text }]}>
           {title}
         </Text>
         {(!quiet || live) && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-            <Icon name={kindIcon(b)} size={13} color={live ? c.onSoft : c.muted} />
-            <Small color={live ? c.onSoft : c.muted}>
-              {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
-            </Small>
-          </View>
+          <Small color={live ? c.onSoft : c.muted}>
+            {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
+          </Small>
         )}
       </View>
     </View>
@@ -167,7 +167,7 @@ function NowLine({ now }: { now: number }) {
       <Text style={[type.small, type.num, { width: 44, color: c.primary }]}>
         {fromMin(now)}
       </Text>
-      <View style={{ width: 16, alignItems: "center" }}>
+      <View style={{ width: 36, alignItems: "center" }}>
         <View style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: c.primary, boxShadow: `0 0 10px ${c.primary}` }} />
       </View>
       <View style={{ flex: 1, height: 1.5, borderRadius: radius.pill, backgroundColor: c.primary, opacity: 0.7 }} />

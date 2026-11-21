@@ -11,6 +11,9 @@ const light = {
   bg: "#FAF6F0", // 暖纸色页面底
   card: "#FFFDF9", // 实色：底部面板、保存栏这类盖在别的东西上面的
   surface: "rgba(255, 253, 249, 0.82)", // 内容卡片：微透，底下的天色透一点上来
+  surfaceGrad: ["rgba(255, 253, 249, 0.92)", "rgba(255, 253, 249, 0.74)"] as [string, string], // 卡片表面：上亮下淡
+  primaryGrad: ["#C06445", "#A94F34"] as [string, string], // 主按钮的两段渐变
+  primaryShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 24px rgba(180, 87, 58, 0.22)", // 主按钮：顶边高光 + 同色投影
   sunken: "#F3ECE2", // 输入框、未选中的块
   line: "#E8DFD3",
   edge: "rgba(46, 42, 38, 0.08)", // 卡片的发丝边
@@ -39,6 +42,9 @@ const dark: typeof light = {
   bg: "#141211",
   card: "#221E1B",
   surface: "rgba(255, 240, 225, 0.055)",
+  surfaceGrad: ["rgba(255, 240, 225, 0.085)", "rgba(255, 240, 225, 0.03)"],
+  primaryGrad: ["#ECA487", "#DA8463"],
+  primaryShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 24px rgba(227, 144, 111, 0.22)",
   sunken: "rgba(255, 240, 225, 0.08)",
   line: "#3D3631",
   edge: "rgba(255, 240, 225, 0.08)",
@@ -93,8 +99,8 @@ export const type = {
   hero: { fontFamily: serif, fontSize: 80, lineHeight: 84, letterSpacing: -1 },
   big: { fontFamily: serif, fontSize: 48, lineHeight: 52, letterSpacing: -0.5 },
   stat: { fontFamily: serif, fontSize: 34, lineHeight: 38 }, // 瓷砖里的数字
-  display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "600" },
-  title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "600" },
+  display: { fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "500" }, // 中文标题靠字号和留白分层，不靠加粗
+  title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "500" },
   body: { fontFamily, fontSize: 16, lineHeight: 26, fontWeight: "400" },
   label: { fontFamily, fontSize: 14, lineHeight: 22, fontWeight: "500" },
   small: { fontFamily, fontSize: 13, lineHeight: 19, fontWeight: "400" }, // 中文 12 号在手机上偏小，说明文字最小 13
@@ -106,21 +112,21 @@ export const type = {
  * 天色：页面顶上那片渐变跟着时段走。清晨淡青、白天沙金、傍晚陶土粉、夜里靛紫。
  * top 是渐变最上面的颜色，glow 是右上角那团柔光。min 是这一天的第几分钟（凌晨可以超过 24:00）。
  */
-export type SkyTone = { top: string; glow: string };
+export type SkyTone = { top: string; mid: string; glow: string };
 export function skyTone(min: number, darkMode: boolean): SkyTone {
   const h = (Math.floor(min / 60) % 24);
   const slot = h >= 5 && h < 11 ? 0 : h >= 11 && h < 17 ? 1 : h >= 17 && h < 20 ? 2 : 3;
   const darkSky = [
-    { top: "#1A2A30", glow: "#7FB8C8" }, // 清晨
-    { top: "#2D2416", glow: "#E8B860" }, // 白天
-    { top: "#3A201C", glow: "#E3906F" }, // 傍晚
-    { top: "#1D1B33", glow: "#8C84D6" }, // 夜里
+    { top: "#17303A", mid: "#1E2A2C", glow: "#7FB8C8" }, // 清晨：淡青
+    { top: "#22304A", mid: "#2A2623", glow: "#E8B860" }, // 白天：雾蓝的天、金色的太阳（天和界面的陶土色要有色相差）
+    { top: "#3B2233", mid: "#33201C", glow: "#E3906F" }, // 傍晚：梅紫到陶土
+    { top: "#1D1B33", mid: "#191726", glow: "#8C84D6" }, // 夜里：靛紫
   ];
   const lightSky = [
-    { top: "#DCEBEE", glow: "#9CCAD6" },
-    { top: "#F5E6C6", glow: "#F0C36A" },
-    { top: "#F5D8CA", glow: "#E8987A" },
-    { top: "#DEDBF0", glow: "#9F98DE" },
+    { top: "#DCEBEE", mid: "#EBF1EF", glow: "#9CCAD6" },
+    { top: "#F5E6C6", mid: "#F8EEDC", glow: "#F0C36A" },
+    { top: "#F5D8CA", mid: "#F8E7DD", glow: "#E8987A" },
+    { top: "#DEDBF0", mid: "#ECE8F0", glow: "#9F98DE" },
   ];
   return (darkMode ? darkSky : lightSky)[slot];
 }

@@ -198,9 +198,13 @@ function Battery({ level, disabled, onPick }: { level: number | null; disabled: 
   return (
     <View accessibilityRole="radiogroup" accessibilityLabel="电量" style={{ gap: space.md }}>
       {/* 没选时是一句小字提示，选了是大字；高度固定，选的时候电池不往下跳 */}
-      <View style={{ height: 34, justifyContent: "center" }}>
-        <Text style={[shown ? type.stat : type.label, { textAlign: "center", color: shown ? c.text : c.muted, fontWeight: shown ? undefined : "400" }]}>
-          {shown ? `${shown} 格 · ${BATTERY_HINT[shown]}` : "点一格，或者横着滑"}
+      <View style={{ height: 56, justifyContent: "center" }}>
+        {/* 只有数字用衬线大字，「格 · 还行」用标题字，基线对齐 */}
+        <Text style={{ textAlign: "center" }}>
+          {shown ? <>
+            <Text style={[type.big, { color: c.text }]}>{shown}</Text>
+            <Text style={[type.title, { color: c.text }]}> 格 · {BATTERY_HINT[shown]}</Text>
+          </> : <Text style={[type.label, { color: c.muted, fontWeight: "400" }]}>点一格，或者横着滑</Text>}
         </Text>
       </View>
       <View style={{ flexDirection: "row", alignItems: "center" }}>

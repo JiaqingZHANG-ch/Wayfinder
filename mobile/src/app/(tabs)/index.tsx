@@ -7,7 +7,7 @@ import { ApiError, Block, getMe, getToday, getWeek, Me, Plan, Week } from "@/api
 import { Arc } from "@/components/art";
 import { enter, Skeleton } from "@/components/motion";
 import { dayLabel, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
-import { Body, Button, Card, Display, ErrorState, Icon, Notice, Screen, Small, Stat, Title } from "@/components/ui";
+import { Button, Card, ErrorState, Icon, Notice, Screen, Small, Stat, Title } from "@/components/ui";
 import { BATTERY_HINT } from "@/labels";
 import { scheduleReminders } from "@/notifications";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
@@ -104,8 +104,8 @@ export default function Today() {
   const classOver = plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now); // 按钮和电量瓷砖用同一个判断
   const left = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now);
   const lastEnd = plan.blocks.length ? plan.blocks[plan.blocks.length - 1].end : "";
-  const summary = done ? "做过的都记下了。" : phase === "over" ? "今天的安排都走完了。"
-    : left.length ? `今天还有 ${left.length} 件事，${lastEnd} 收尾。` : "剩下的都是休息时间。";
+  const summary = done ? "做过的都记下了" : phase === "over" ? "今天的安排都走完了"
+    : left.length ? `还有 ${left.length} 件事，${lastEnd} 收尾` : "剩下的都是休息时间";
   const review = week?.review === "due" && (
     <Card i={4} onPress={() => router.push("/review")} label="打开这周的复盘"
       style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
@@ -123,9 +123,10 @@ export default function Today() {
     <Screen safeTop bottom={TAB_SPACE} sky={now}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}>
       <Animated.View entering={enter(0)} style={{ gap: space.xs }}>
-        <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{dayLabel(plan.day)}{now >= 24 * 60 ? " · 凌晨 4 点前还算这一天" : ""}</Text>
-        <Display>{greeting(Math.floor(now / 60) % 24)}</Display>
-        <Body muted>{summary}</Body>
+        <Text style={[type.eyebrow, type.num, { color: c.muted }]}>
+          {dayLabel(plan.day)} · {greeting(Math.floor(now / 60) % 24)}{now >= 24 * 60 ? " · 凌晨 4 点前还算这一天" : ""}
+        </Text>
+        <Title>{summary}</Title>
       </Animated.View>
 
       {error && <Notice>没连上，显示的是刚才的计划。</Notice>}
@@ -134,15 +135,15 @@ export default function Today() {
         {/* 换的是哪种卡片才淡入；白天、报过、傍晚都是同一张「此刻」卡片，不重来 */}
         <Animated.View key={phase === "over" || done ? phase : "now"} entering={FadeIn.duration(320)}>
           {phase === "over" ? <OverCard blocks={plan.blocks} now={now} onCheckin={checkin} />
-            : done ? <DoneCard blocks={plan.blocks} now={now} tomorrow={plan.tomorrow_task ?? null} />
+            : done ? <DoneCard blocks={plan.blocks} now={now} tomorrow={plan.tomorrow_task ?? null} checkin={plan.checkin} />
             : <NowCard blocks={plan.blocks} now={now} />}
         </Animated.View>
       </Animated.View>
 
       {phase !== "over" && (
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
-          {phase === "day" && <Button label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
-          {phase === "evening" && <Button label="对个账" icon="moon-outline" onPress={checkin} />}
+          {phase === "day" && <Button hug label={classOver ? "下课了，报个电量" : "报个电量"} icon="battery-half-outline" onPress={energy} />}
+          {phase === "evening" && <Button hug label="对个账" icon="moon-outline" onPress={checkin} />}
           {(phase === "day" || phase === "reported") && (
             <Button label={plan.checked_in ? "改一下今天的对账" : "提前对账"} variant="neutral" onPress={checkin} />
           )}
@@ -151,11 +152,19 @@ export default function Today() {
       )}
 
       {!done && <Animated.View entering={enter(3)} style={{ flexDirection: "row", gap: space.md }}>
-        <Stat label="电量" value={level ?? "—"} unit={level ? `格 · ${BATTERY_HINT[level]}` : undefined}
-          sub={level ? (canReport ? "变了可以再报" : undefined) : !canReport ? "今天没报" : classOver ? "还没报" : "下课后报一下"}
-          onPress={canReport ? energy : undefined} a11y={level ? `电量 ${level} 格，点一下重新报` : "报电量"}>
-          <Cells n={5} lit={level ?? 0} color={c.kind.must} />
-        </Stat>
+        {level ? (
+          <Stat label="电量" value={level} unit={`格 · ${BATTERY_HINT[level]}`} sub={canReport ? "变了可以再报" : undefined}
+            onPress={canReport ? energy : undefined} a11y={`电量 ${level} 格，点一下重新报`}>
+            <Cells n={5} lit={level} color={c.kind.must} />
+          </Stat>
+        ) : (
+          // 没报时不写「—」：画一节空电池，下面一句话
+          <Stat label="电量" onPress={canReport ? energy : undefined}
+            a11y={`报电量，${!canReport ? "今天没报" : classOver ? "还没报" : "下课后报一下"}`}>
+            <Cells n={5} lit={0} color={c.kind.must} tall />
+            <Small muted>{!canReport ? "今天没报" : classOver ? "还没报" : "下课后报一下"}</Small>
+          </Stat>
+        )}
         {week && (
           <Stat label="记了几晚" value={week.logged_days} unit="/ 7 晚">
             <Cells n={7} lit={-1} marks={week.logged} color={c.kind.must} round />
@@ -177,29 +186,46 @@ export default function Today() {
 }
 
 /** 瓷砖底下的一排小格：电量亮几格，或者七晚哪几晚记了。 */
-function Cells({ n, lit, marks, color, round }: { n: number; lit: number; marks?: boolean[]; color: string; round?: boolean }) {
+function Cells({ n, lit, marks, color, round, tall }: { n: number; lit: number; marks?: boolean[]; color: string; round?: boolean; tall?: boolean }) {
   const c = useColors();
   return (
-    <View style={{ flexDirection: "row", gap: 4, marginTop: space.sm }} importantForAccessibility="no-hide-descendants">
-      {Array.from({ length: n }, (_, i) => (
-        <View key={i} style={{ flex: round ? undefined : 1, width: round ? 8 : undefined, height: round ? 8 : 6,
-          borderRadius: radius.pill, backgroundColor: (marks ? marks[i] : i < lit) ? color : c.sunken }} />
-      ))}
+    <View style={{ flexDirection: "row", gap: tall ? 3 : 4, marginTop: tall ? space.xs : space.sm }}
+      importantForAccessibility="no-hide-descendants">
+      {Array.from({ length: n }, (_, i) => {
+        const on = marks ? marks[i] : i < lit;
+        const today = round && i === n - 1 && !on; // 今天还没记：只描边，和「那天没记」分开（和本周页一个规矩）
+        return (
+          <View key={i} style={{ flex: round ? undefined : 1, width: round ? 10 : undefined, height: round ? 10 : tall ? 16 : 6,
+            borderRadius: tall ? 4 : radius.pill, backgroundColor: on ? color : today ? "transparent" : c.sunken,
+            borderWidth: today ? 1.5 : 0, borderColor: c.line }} />
+        );
+      })}
     </View>
   );
 }
 
 const HERO = { alignItems: "center", gap: space.sm, paddingVertical: space.sm } as const;
 
-/** 首屏的弧：量出宽度再画。 */
-function HeroArc({ blocks, now, done }: { blocks: Block[]; now: number; done?: boolean }) {
+/** 首屏的弧：量出宽度再画；两脚下面标今天从几点画到几点。 */
+function HeroArc({ blocks, now, done, fills }: { blocks: Block[]; now: number; done?: boolean; fills?: Record<string, Fill> }) {
+  const c = useColors();
   const [w, setW] = useState(0);
+  const foot = [type.eyebrow, type.num, { color: c.muted }];
   return (
-    <View style={{ alignSelf: "stretch", height: 132 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <Arc blocks={blocks} now={now} width={w} height={132} done={done} />
+    <View style={{ alignSelf: "stretch", height: 150 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      <Arc blocks={blocks} now={now} width={w} height={132} done={done} fills={fills} />
+      {blocks.length > 0 && (
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "space-between" }}
+          accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Text style={foot}>{blocks[0].start}</Text>
+          <Text style={foot}>{blocks[blocks.length - 1].end}</Text>
+        </View>
+      )}
     </View>
   );
 }
+
+type Fill = "full" | "half" | "empty";
 
 /** 大号数字：分钟变了，旧的往上淡出、新的从下面淡入。 */
 function BigNumber({ parts }: { parts: [number, string][] }) {
@@ -237,7 +263,7 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
       .filter(Boolean).join("，")} style={HERO}>
       <View style={{ alignSelf: "stretch" }}>
         <HeroArc blocks={blocks} now={now} />
-        <View style={{ position: "absolute", left: 0, right: 0, bottom: -8 }}>
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: 10 }}>
           <BigNumber parts={parts} />
         </View>
       </View>
@@ -268,19 +294,22 @@ function OverCard({ blocks, now, onCheckin }: { blocks: Block[]; now: number; on
       <HeroArc blocks={blocks} now={now} />
       <Text style={[type.eyebrow, { color: c.primary }]}>今天走完了</Text>
       <Title>花一两分钟对个账，就可以休息了。</Title>
-      <Button label="对个账" icon="moon-outline" onPress={onCheckin} />
+      <Button hug label="对个账" icon="moon-outline" onPress={onCheckin} />
     </View>
   );
 }
 
 /** 对完账：弧收好，只说明天先做什么，然后晚安。 */
-function DoneCard({ blocks, now, tomorrow }: { blocks: Block[]; now: number; tomorrow: string | null }) {
+function DoneCard({ blocks, now, tomorrow, checkin }: { blocks: Block[]; now: number; tomorrow: string | null; checkin?: Plan["checkin"] }) {
   const c = useColors();
+  // 弧上的记号按今晚对账的结果画：做了实心、保底半满、没做描边
+  const fills = checkin ? Object.fromEntries(Object.entries(checkin.items).map(([k, v]) =>
+    [k, v.status === "done" ? "full" : v.status === "floor" ? "half" : "empty"] as const)) : undefined;
   return (
     <View accessible accessibilityLabel={`今天收好了，${tomorrow ? `明天先做：${tomorrow}` : "明天见"}，晚安`} style={[HERO, { gap: space.md }]}>
       <View style={{ alignSelf: "stretch" }}>
-        <HeroArc blocks={blocks} now={now} done />
-        <View style={{ position: "absolute", left: 0, right: 0, bottom: 4, alignItems: "center" }}>
+        <HeroArc blocks={blocks} now={now} done fills={fills} />
+        <View style={{ position: "absolute", left: 0, right: 0, bottom: 22, alignItems: "center" }}>
           <Icon name="moon" size={40} color={c.primary} />
         </View>
       </View>

@@ -2,6 +2,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ReactNode, useState } from "react";
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Linking, Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated from "react-native-reanimated";
@@ -63,12 +64,13 @@ export function Card({ children, style, onPress, label, i }: {
   children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string; i?: number;
 }) {
   const c = useColors();
-  const look: ViewStyle = { backgroundColor: c.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md,
-    boxShadow: c.shadow };
+  const look: ViewStyle = { borderRadius: radius.lg, padding: space.lg, gap: space.md, boxShadow: c.shadow, overflow: "hidden" };
+  // 表面是一层自上而下极淡的渐变，不是平涂
+  const face = <LinearGradient colors={c.surfaceGrad} style={{ position: "absolute", inset: 0 }} pointerEvents="none" />;
   const body = onPress ? (
-    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={[look, style]}>{children}</Pressy>
+    <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={[look, style]}>{face}{children}</Pressy>
   ) : (
-    <View style={[look, style]}>{children}</View>
+    <View style={[look, style]}>{face}{children}</View>
   );
   return i === undefined ? body : <Animated.View entering={enter(i)}>{body}</Animated.View>;
 }
@@ -122,17 +124,19 @@ export function ErrorState({ onRetry, text = "网络好了再试一次。", titl
 
 /** 一块数字瓷砖：小标题、一个数字加单位、一句话。size="big" 用于一页里最重要的那个数。 */
 export function Stat({ label, value, unit, sub, size = "stat", style, children, onPress, a11y }: {
-  label: string; value: string | number; unit?: string; sub?: string; size?: "stat" | "big";
+  label: string; value?: string | number; unit?: string; sub?: string; size?: "stat" | "big";
   style?: StyleProp<ViewStyle>; children?: ReactNode; onPress?: () => void; a11y?: string;
 }) {
   const c = useColors();
   return (
     <Card style={[{ flex: 1, gap: 2 }, style]} onPress={onPress} label={a11y && [a11y, sub].filter(Boolean).join("，")}>
       <Text style={[type.eyebrow, { color: c.muted }]}>{label}</Text>
-      <Text accessibilityLabel={`${label} ${value}${unit ?? ""}`}>
-        <Text style={[type[size], { color: c.text }]}>{value}</Text>
-        {unit && <Text style={[type.label, { color: c.muted }]}> {unit}</Text>}
-      </Text>
+      {value !== undefined && (
+        <Text accessibilityLabel={`${label} ${value}${unit ?? ""}`}>
+          <Text style={[type[size], { color: c.text }]}>{value}</Text>
+          {unit && <Text style={[type.label, { color: c.muted }]}> {unit}</Text>}
+        </Text>
+      )}
       {sub && <Text style={[type.small, { color: c.muted }]}>{sub}</Text>}
       {children}
     </Card>
@@ -154,22 +158,26 @@ type ButtonProps = {
   busyLabel?: string; // 有它就表示正在忙：显示它并且不能再点
   accessibilityHint?: string;
   icon?: IconName;
+  hug?: boolean; // 不通栏：按内容宽度居中（首页这种不是单手操作位的地方）
 };
 
-export function Button({ label, onPress, variant = "primary", disabled, busyLabel, accessibilityHint, icon }: ButtonProps) {
+export function Button({ label, onPress, variant = "primary", disabled, busyLabel, accessibilityHint, icon, hug }: ButtonProps) {
   const c = useColors();
   const off = disabled || !!busyLabel;
   const flat = variant === "quiet" || variant === "neutral" || variant === "quietDanger";
   // 不能点的实心按钮换成凹陷底灰字，不用半透明（深色里半透明的陶土色发脏）
   const bg = off && !flat ? c.sunken
     : { primary: c.primary, secondary: c.soft, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
+  const lit = variant === "primary" && !off; // 主按钮：两段渐变、顶边高光、同色投影
   const fg = off ? c.muted
     : { primary: c.onPrimary, secondary: c.onSoft, quiet: c.primary, neutral: c.muted, quietDanger: c.danger, danger: c.onPrimary }[variant];
   return (
     <Pressy onPress={onPress} disabled={off} fadeTo={flat ? 0.6 : 1} accessibilityRole="button" accessibilityLabel={busyLabel ?? label}
       accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
       style={{ minHeight: TOUCH + 8, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
-        paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1 }}>
+        paddingHorizontal: hug ? space.xxl : space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1,
+        ...(hug && { alignSelf: "center" }), ...(lit && { overflow: "hidden", boxShadow: c.primaryShadow }) }}>
+      {lit && <LinearGradient colors={c.primaryGrad} style={{ position: "absolute", inset: 0 }} pointerEvents="none" />}
       {icon && !busyLabel && <Icon name={icon} size={18} color={fg} />}
       <Text style={[flat ? type.label : type.body, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
     </Pressy>

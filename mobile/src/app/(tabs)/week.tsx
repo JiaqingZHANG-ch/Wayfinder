@@ -7,7 +7,7 @@ import { getWeek, Week } from "@/api";
 import { Glyph } from "@/components/art";
 import { enter, Skeleton } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
-import { Card, Display, ErrorState, Icon, Screen, Small, Stat, Title } from "@/components/ui";
+import { Card, Display, ErrorState, Icon, Screen, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS } from "@/labels";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
@@ -57,49 +57,49 @@ export default function WeekScreen() {
         <Display>这一周</Display>
       </Animated.View>
 
-      <Animated.View entering={enter(1)}>
-        {n === 0 ? (
-          <Card style={{ gap: space.xs }}>
-            <Title>这周还没有记录</Title>
-            <Small muted>今晚对一次账，这里就有第一格。</Small>
-            <Days week={week} />
-          </Card>
-        ) : (
-          <Stat size="big" label="记了几晚" value={n} unit="/ 7 晚"
-            sub={n === 7 ? "这 7 天每晚都记了。" : "不用天天满，记下来的每一天都算数。"}>
-            <Days week={week} />
-          </Stat>
-        )}
-      </Animated.View>
+      {n === 0 ? (
+        <Card i={1} style={{ gap: space.xs }}>
+          <Title>这周还没有记录</Title>
+          <Small muted>今晚对一次账，这里就有第一格。</Small>
+          <Days week={week} />
+        </Card>
+      ) : (
+        // 这一周的招牌图：不装卡片，直接画在天色上。每个习惯一行七个它自己的记号，那晚没记的列就是一排小点
+        <Animated.View entering={enter(1)} style={{ gap: space.lg }}>
+          <View accessible accessibilityLabel={`这 7 天记了 ${n} 晚`}>
+            <Text>
+              <Text style={[type.big, { color: c.text }]}>{n}</Text>
+              <Text style={[type.title, { color: c.muted }]}> / 7 晚</Text>
+            </Text>
+            <Small muted>{n === 7 ? "这 7 天每晚都记了。" : "不用天天满，记下来的每一天都算数。"}</Small>
+          </View>
+          {week.habits.length > 0 ? (
+            <View style={{ gap: space.md }}>
+              <View style={{ flexDirection: "row" }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+                {week.logged.map((_, i) => (
+                  <Text key={i} style={[type.eyebrow, { flex: 1, textAlign: "center",
+                    color: i === week.logged.length - 1 ? c.primary : c.muted }]}>{wd(week.start, i)}</Text>
+                ))}
+              </View>
+              {week.habits.map((h) => <HabitRow key={h.id} h={h} start={week.start} />)}
+              <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap", justifyContent: "center", paddingTop: space.xs }}>
+                {([...(["done", "floor", "skip"] as Status[]), null]).map((s) => (
+                  <View key={s ?? "none"} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Mark name="" s={s} size={11} />
+                    <Small muted>{s ? LEGEND[s] : "没记"}</Small>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : <Days week={week} />}
+        </Animated.View>
+      )}
 
       {week.habits.length === 0 && (
         <Card i={2} onPress={() => router.push("/settings?part=routine")} label="去加一个习惯" style={{ gap: 2 }}>
           <Text style={[type.eyebrow, { color: c.muted }]}>习惯</Text>
           <Text style={[type.label, { color: c.text }]}>还没有要坚持的习惯</Text>
           <Small muted>加一个，这里会按天画出哪天做了。</Small>
-        </Card>
-      )}
-      {week.habits.length > 0 && (
-        <Card i={2} style={{ gap: space.md }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-            <Text style={[type.eyebrow, { flex: 1, color: c.muted }]}>习惯</Text>
-            {/* 星期几，和下面每行的七个记号对齐 */}
-            <View style={{ flexDirection: "row", gap: DAY_GAP }} importantForAccessibility="no-hide-descendants">
-              {week.logged.map((_, i) => (
-                <Text key={i} style={[type.small, { width: DAY, textAlign: "center", color: c.muted, fontSize: 11 }]}>{wd(week.start, i)}</Text>
-              ))}
-            </View>
-            <View style={{ width: 36 }} />
-          </View>
-          {week.habits.map((h) => <HabitRow key={h.id} h={h} start={week.start} />)}
-          <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap", paddingTop: space.xs }}>
-            {([...(["done", "floor", "skip"] as Status[]), null]).map((s) => (
-              <View key={s ?? "none"} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Mark name="" s={s} size={11} />
-                <Small muted>{s ? LEGEND[s] : "没记"}</Small>
-              </View>
-            ))}
-          </View>
         </Card>
       )}
 
@@ -147,7 +147,7 @@ function Days({ week }: { week: Week }) {
   );
 }
 
-const DAY = 14, DAY_GAP = 6;
+const DAY = 28;
 
 /** 一天一个这件事自己的记号：做了实心、保底半满、没做空心；那天没对账只画一个小点。图例用圆（name 为空）。 */
 function Mark({ name, s, size = DAY }: { name: string; s: Status | null; size?: number }) {
@@ -159,16 +159,15 @@ function Mark({ name, s, size = DAY }: { name: string; s: Status | null; size?: 
 function HabitRow({ h, start }: { h: Week["habits"][number]; start: string }) {
   const c = useColors();
   return (
-    <View accessible style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
+    <View accessible style={{ gap: space.sm }}
       accessibilityLabel={`${h.title}，7 天里做了 ${h.done_days} 天：${h.days.map((d, i) => `星期${wd(start, i)}${d ? STATUS_LABELS[d] : "没记"}`).join("，")}`}>
-      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.sm }}>
-        <Glyph name={h.title} size={14} color={c.kind.must} />
-        <Text style={[type.label, { flex: 1, color: c.text }]} numberOfLines={1}>{h.title}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <Text style={[type.eyebrow, { flex: 1, color: c.muted }]} numberOfLines={1}>{h.title}</Text>
+        <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{h.done_days} 天</Text>
       </View>
-      <View style={{ flexDirection: "row", gap: DAY_GAP }}>
-        {h.days.map((d, i) => <Mark key={i} name={h.title} s={d} />)}
+      <View style={{ flexDirection: "row" }}>
+        {h.days.map((d, i) => <View key={i} style={{ flex: 1, alignItems: "center" }}><Mark name={h.title} s={d} /></View>)}
       </View>
-      <Text style={[type.small, type.num, { width: 36, textAlign: "right", color: c.muted }]}>{h.done_days} 天</Text>
     </View>
   );
 }
@@ -193,7 +192,7 @@ function ProjectTile({ p, i }: { p: Week["projects"][number]; i: number }) {
         <Title>{said}</Title>
         {total > 0 && (
           <>
-            <View style={{ flexDirection: "row", height: 6, borderRadius: radius.pill, overflow: "hidden", gap: 2 }}>
+            <View style={{ flexDirection: "row", height: 10, borderRadius: radius.pill, overflow: "hidden", gap: 2 }}>
               {cols.filter(([, v]) => v > 0).map(([k, v, o]) => (
                 <View key={k} style={{ flex: v, backgroundColor: c.kind.proj, opacity: o }} />
               ))}

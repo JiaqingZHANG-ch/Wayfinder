@@ -5,7 +5,7 @@ import Animated, { FadeIn, FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, OFFLINE, postCheckin, say } from "@/api";
-import { Glyph, Sky } from "@/components/art";
+import { Glow, Glyph, Sky } from "@/components/art";
 import { ahead, Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
@@ -142,14 +142,35 @@ export default function Checkin() {
   }
 
   if (done) {
+    // 今晚对过的事，一件一个它自己的记号：做了实心、保底半满、没做描边
+    const marks = (items ?? []).filter((it) => done.saved.items?.[it.id]?.status);
+    const big = marks.length > 5 ? 32 : 40;
     return shell(
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.xl }}>
-        <Animated.View entering={FadeIn.duration(360)}>
-          <Animated.View entering={start(ZoomIn.duration(360).easing(EASE), { transform: [{ scale: 0.9 }] })}
-            style={{ width: 112, height: 112, borderRadius: radius.pill, backgroundColor: c.soft, alignItems: "center", justifyContent: "center" }}>
-            <Icon name="moon" size={40} color={c.primary} />
+        {marks.length ? (
+          <View style={{ alignItems: "center", justifyContent: "center", minHeight: 120, alignSelf: "stretch" }}
+            accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Glow color={c.primary} size={260} opacity={0.22} />
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: space.lg, maxWidth: 300 }}>
+              {marks.map((it, i) => {
+                const s = done.saved.items?.[it.id]?.status;
+                return (
+                  <Animated.View key={it.id} entering={start(ZoomIn.delay(i * 80).duration(320).easing(EASE), { transform: [{ scale: 0.6 }] })}>
+                    <Glyph name={it.title} star={it.one} color={c.kind[it.kind]} size={big}
+                      fill={s === "done" ? "full" : s === "floor" ? "half" : "empty"} />
+                  </Animated.View>
+                );
+              })}
+            </View>
+          </View>
+        ) : (
+          <Animated.View entering={FadeIn.duration(360)}>
+            <Animated.View entering={start(ZoomIn.duration(360).easing(EASE), { transform: [{ scale: 0.9 }] })}
+              style={{ width: 112, height: 112, borderRadius: radius.pill, backgroundColor: c.soft, alignItems: "center", justifyContent: "center" }}>
+              <Icon name="moon" size={40} color={c.primary} />
+            </Animated.View>
           </Animated.View>
-        </Animated.View>
+        )}
         <Animated.View entering={FadeIn.delay(250).duration(motion.slow)} style={{ alignSelf: "stretch", alignItems: "center", gap: space.md }}>
           <Display center>{done.closing}</Display>
           {logged !== null && (
@@ -248,7 +269,8 @@ export default function Checkin() {
         <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {keys.map((k) => (
             <Option key={k} icon={STATUS_LOOK[k].icon} title={STATUS_LABELS[k]} sub={floor ? FLOOR_SUB[k] : STATUS_LOOK[k].sub}
-              mark={{ name: step.item.title, star: step.item.one, fill: k === "done" ? "full" : k === "floor" ? "half" : "empty" }}
+              mark={{ name: step.item.title, star: step.item.one, fill: k === "done" ? "full" : k === "floor" ? "half" : "empty",
+                color: c.kind[step.item.kind] }}
               on={cur === k} onPress={() => pick(step.item.id, { status: k })} />
           ))}
         </View>
@@ -318,8 +340,9 @@ function BigMark({ item, status }: { item: CheckinItem; status?: Status }) {
   return (
     <View style={{ flex: 1, minHeight: 120, alignItems: "center", justifyContent: "center" }}
       accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Glow color={c.kind[item.kind]} size={240} opacity={!status || status === "skip" ? 0.1 : 0.28} />
       <Animated.View key={status ?? "none"} entering={ZoomIn.duration(220)}>
-        <Glyph name={item.title} star={item.one} color={c.kind[item.kind]} size={112}
+        <Glyph name={item.title} star={item.one} color={c.kind[item.kind]} size={144}
           fill={status === "done" ? "full" : status === "floor" ? "half" : "empty"} dim={!status || status === "skip"} />
       </Animated.View>
     </View>
@@ -342,7 +365,7 @@ function ItemHead({ item, title }: { item: CheckinItem; title?: boolean }) {
  */
 function Option({ icon, title, sub, on, onPress, mark }: {
   icon: IconName; title: string; sub?: string; on: boolean; onPress: () => void;
-  mark?: { name: string; star?: boolean; fill: "full" | "half" | "empty" };
+  mark?: { name: string; star?: boolean; fill: "full" | "half" | "empty"; color: string };
 }) {
   const c = useColors();
   return (
@@ -353,7 +376,7 @@ function Option({ icon, title, sub, on, onPress, mark }: {
         borderColor: on ? c.primary : "transparent", boxShadow: on ? undefined : c.shadow }}>
       <View style={{ width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",
         backgroundColor: on ? c.card : c.sunken }}>
-        {mark ? <Glyph name={mark.name} star={mark.star} fill={mark.fill} size={22} color={on ? c.primary : c.muted} />
+        {mark ? <View style={{ opacity: on ? 1 : 0.6 }}><Glyph name={mark.name} star={mark.star} fill={mark.fill} size={22} color={mark.color} /></View>
           : <Icon name={icon} size={24} color={on ? c.primary : c.muted} />}
       </View>
       <View style={{ flex: 1 }}>

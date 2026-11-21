@@ -1,10 +1,11 @@
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Text } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { getSettings, Settings } from "@/api";
+import { Glyph } from "@/components/art";
 import { enter } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
 import { Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
@@ -28,6 +29,21 @@ export default function MeScreen() {
         <Text style={[type.eyebrow, type.num, { color: c.muted, minHeight: 16 }]}>{summary || " "}</Text>
         <Display>我</Display>
       </Animated.View>
+
+      {s && s.habits.length + (s.projects?.length ?? 0) > 0 && (
+        // 我的记号：每个习惯、项目一个，和时间线、本周页里长一样
+        <Animated.View entering={enter(1)}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: space.lg, paddingVertical: space.xs }}>
+            {[...s.habits.map((h) => [h.title, c.kind.must] as const), ...(s.projects ?? []).map((p) => [p.title, c.kind.proj] as const)]
+              .map(([t, col]) => (
+                <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.xs, width: 64 }}>
+                  <Glyph name={t} color={col} size={28} />
+                  <Text style={[type.small, { fontSize: 11, lineHeight: 15, color: c.muted }]} numberOfLines={1}>{t}</Text>
+                </View>
+              ))}
+          </ScrollView>
+        </Animated.View>
+      )}
 
       <Eyebrow>计划</Eyebrow>
       <Card i={1} style={{ paddingVertical: space.xs }}>

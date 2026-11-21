@@ -164,7 +164,7 @@ export const answerAdjustment = (id: number, index: number, accept: boolean) =>
 export type CheckinBody =
   | { result: { items: Record<string, { status: string; vs_plan?: string }>; note?: string; blocker?: string; tomorrow_task?: string } }
   | { sentence: string };
-export type CheckinResult = { crisis: false; saved: { tomorrow_task?: string }; closing: string }; // saved 是存下的整份对账
+export type CheckinResult = { crisis: false; saved: { tomorrow_task?: string; items?: Record<string, { status?: Status }> }; closing: string }; // saved 是存下的整份对账
 export const postCheckin = (body: CheckinBody) => send<CheckinResult | Crisis>("POST", "/checkin", body);
 
 /** 今晚要对账的事项：习惯和可选项按块 id，项目按任务 id 只算一次。和后端 api.py 的 _items 一致。 */
