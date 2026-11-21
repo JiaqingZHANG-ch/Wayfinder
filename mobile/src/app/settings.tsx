@@ -5,6 +5,7 @@ import Animated, { FadeIn, SlideInDown, useAnimatedStyle, useSharedValue, withTi
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ClassItem, getSettings, Habit, isCrisis, Project, putSettings, say, Settings } from "@/api";
+import { Glyph } from "@/components/art";
 import { EnergyPick } from "@/components/chips";
 import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
 import { HALF, Num } from "@/components/fields";
@@ -201,6 +202,7 @@ export default function SettingsScreen() {
               {s.habits.map((h, i) => (
                 <Card key={h.id ?? `new-${i}`} i={i + 2}>
                   <Row>
+                    <Mark title={h.title} color={c.kind.must} />
                     <Field label="叫什么" value={h.title} onChangeText={(title) => setHabit(i, { title })} style={{ flex: 1, minWidth: 130 }} />
                     {s.habits.length > 1 && (
                       <IconButton name="trash-outline" color={c.muted} label={`删掉${h.title || "这个习惯"}`} onPress={() => remove("habits", i, h.title)} />
@@ -254,6 +256,7 @@ export default function SettingsScreen() {
               {projects.map((p, i) => (
                 <Card key={p.id ?? `new-${i}`} i={i + 1}>
                   <Row>
+                    <Mark title={p.title} color={c.kind.proj} />
                     <Field label="项目名" value={p.title} onChangeText={(title) => setProject(i, { title })} style={{ flex: 1, minWidth: 130 }} />
                     <IconButton name="trash-outline" color={c.muted} label={`删掉${p.title || "这个项目"}`} onPress={() => remove("projects", i, p.title)} />
                   </Row>
@@ -369,6 +372,16 @@ function Weekdays({ value, onChange }: { value: number; onChange: (v: number) =>
           </Pressy>
         );
       })}
+    </View>
+  );
+}
+
+/** 这件事的记号：名字一改它就跟着变，和时间线、本周页里长一样。还没起名就是空圆。 */
+function Mark({ title, color }: { title: string; color: string }) {
+  return (
+    <View style={{ width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: `${color}29` }}
+      accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {title.trim() !== "" && <Glyph name={title.trim()} color={color} size={26} />}
     </View>
   );
 }
