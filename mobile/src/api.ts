@@ -247,9 +247,13 @@ export const dayText = (d: string) => `${d.slice(0, 4)}年${Number(d.slice(5, 7)
 export type QuarterGoal = { text: string; check: string };
 export type Quarter = {
   id: number; day: string; scores: Record<string, number>; focus: string; start: string; stop: string; keep: string; goals: QuarterGoal[];
+  // 「请几个视角看看」：刚存好的返回里没有这几项，GET /quarter 的 last 才有
+  council?: QuarterCouncil | null; council_status?: "running" | "done" | "failed" | "crisis" | null; message?: string;
 };
-export type QuarterIn = Omit<Quarter, "id" | "day"> & { extra_area?: string };
+export type QuarterCouncil = { lenses: { title: string; sees: string; unknown: string; test: string }[]; disagreement: string };
+export type QuarterIn = Omit<Quarter, "id" | "day" | "council" | "council_status" | "message"> & { extra_area?: string };
 export const getQuarter = () => send<{ areas: string[]; available: boolean; days_used: number; last: Quarter | null }>("GET", "/quarter");
+export const startQuarterCouncil = () => send<{ status: string }>("POST", "/quarter/council", {});
 export const postQuarter = (q: QuarterIn) => send<Quarter | Crisis>("POST", "/quarter", q);
 export const restartDeepTalk = () => send<DeepTalkState>("POST", "/deep-talk/restart", {});
 

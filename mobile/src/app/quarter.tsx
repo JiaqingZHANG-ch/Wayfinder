@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-na
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { getQuarter, isCrisis, OFFLINE, postQuarter, Quarter, QuarterGoal, say } from "@/api";
+import { getQuarter, isCrisis, OFFLINE, postQuarter, Quarter, QuarterGoal, say, startQuarterCouncil } from "@/api";
 import { Dots } from "@/components/dots";
 import { ahead, Bar, Skeleton } from "@/components/motion";
 import { Body, Button, Card, Chip, CrisisCard, Display, Field, IconButton, Notice, Title } from "@/components/ui";
@@ -29,8 +29,25 @@ export default function QuarterScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
 
+  const [view, setView] = useState<Pick<Quarter, "council" | "council_status" | "message"> | null>(null); // 视角的状态
   const load = () => { getQuarter().then((r) => setAreas(r.areas), () => setMessage(OFFLINE)); };
   useEffect(load, []);
+
+  async function askCouncil() {
+    setMessage(null);
+    try {
+      await startQuarterCouncil();
+      setView({ council_status: "running" }); // 开过的也先当在看：下一次轮询就拿到结果
+    } catch (e) { setMessage(say(e)); }
+  }
+  const running = view?.council_status === "running";
+  useEffect(() => { // 开会时每 3 秒查一次
+    if (!running) return;
+    const t = setInterval(() => {
+      getQuarter().then((r) => { if (r.last) setView(r.last); }, () => { setView(null); setMessage(OFFLINE); });
+    }, 3000);
+    return () => clearInterval(t);
+  }, [running]);
 
   const all = areas ? [...areas, ...(extra.trim() ? [extra.trim()] : [])] : [];
   const lowest = all.reduce<string | null>((m, a) => (m === null || (scores[a] ?? 11) < (scores[m] ?? 11) ? a : m), null);
@@ -89,8 +106,29 @@ export default function QuarterScreen() {
             <Body muted>{`每周看：${g.check}`}</Body>
           </Card>
         ))}
+        {running && <><Body muted>大概一两分钟。也可以先关掉，下次再看。</Body><Skeleton height={140} r={radius.lg} /></>}
+        {view?.council_status === "crisis" && <CrisisCard message={view.message ?? ""} />}
+        {view?.council_status === "failed" && <Body muted>这次没能看完，可以再点一次。</Body>}
+        {view?.council && view.council_status === "done" && (
+          <>
+            {view.council.lenses.map((l) => (
+              <Card key={l.title}>
+                <Title>{l.title}</Title>
+                <Body>{`看到：${l.sees}`}</Body>
+                <Body>{`不确定的：${l.unknown}`}</Body>
+                <Body>{`一个月内试试：${l.test}`}</Body>
+              </Card>
+            ))}
+            {view.council.disagreement !== "" && <Card><Title>他们的分歧</Title><Body>{view.council.disagreement}</Body></Card>}
+          </>
+        )}
       </>,
-      <Button label="好" onPress={leave} />,
+      <>
+        {view?.council_status !== "done" && view?.council_status !== "crisis" && (
+          <Button label="请几个视角看看" variant="secondary" disabled={running} onPress={askCouncil} />
+        )}
+        <Button label="好" onPress={leave} />
+      </>,
     );
   }
 
