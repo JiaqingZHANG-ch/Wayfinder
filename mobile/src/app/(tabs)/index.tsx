@@ -4,9 +4,11 @@ import { AppState, RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ApiError, confirmPlan, getMe, getToday, isCrisis, Me, Plan, say, sayDay } from "@/api";
+import { ApiError, Block, confirmPlan, deleteBlock, editBlock, getMe, getToday, isCrisis, Me, Plan, reflow, say, sayDay } from "@/api";
+import { Changes } from "@/components/changes";
+import { planDiff } from "@/diff";
 import { enter, haptic, Pressy, Skeleton } from "@/components/motion";
-import { dayLabel, toMin, useNow } from "@/components/plan-view";
+import { dayLabel, fromMin, toMin, useNow } from "@/components/plan-view";
 import { Timeline } from "@/components/timeline";
 import { Button, CrisisCard, ErrorState, Field, Icon, Notice, Screen, Small } from "@/components/ui";
 import { scheduleReminders } from "@/notifications";
@@ -40,6 +42,9 @@ export default function Today() {
   const [busy, setBusy] = useState<"say" | "confirm" | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null); // 排一下、确认的结果说明（没听清、日历没写进去）
+  const [ask, setAsk] = useState(false); // 手动改过：问要不要把其余的重排
+  const [reflowing, setReflowing] = useState(false);
+  const [moved, setMoved] = useState<Block[] | null>(null); // 重排前的块；有它就列出改了几处
   const last = useRef<string | null>(null);
   const now = useNow();
   const c = useColors();
@@ -85,6 +90,8 @@ export default function Today() {
       else {
         haptic.success();
         setPlan(res);
+        setAsk(false);
+        setMoved(null);
         setText("");
       }
     } catch (e) {
@@ -106,6 +113,55 @@ export default function Today() {
       setSaid(say(e));
     }
     setBusy(null);
+  }
+
+  /** 手动改一块的时间（拖、拉、面板里改时长都走这里）：返回错误说明，成功是 null。 */
+  async function edit(b: Block, start: number, end: number) {
+    if (!plan) return null;
+    try {
+      const res = await editBlock(plan.version, b.id, fromMin(start), fromMin(end));
+      setPlan(res);
+      setAsk(true);
+      setMoved(null);
+      return null;
+    } catch (e) {
+      return stale(e);
+    }
+  }
+
+  async function remove(b: Block) {
+    if (!plan) return null;
+    try {
+      setPlan(await deleteBlock(b.id, plan.version));
+      setAsk(true);
+      setMoved(null);
+      return null;
+    } catch (e) {
+      return stale(e);
+    }
+  }
+
+  /** 409 = 计划在别处变过：重新拿一遍，让用户再来一次。 */
+  function stale(e: unknown) {
+    if (e instanceof ApiError && e.status === 409) {
+      load();
+      return "计划刚在别处改过，已经刷新，再试一次。";
+    }
+    return say(e);
+  }
+
+  async function doReflow() {
+    if (!plan) return;
+    setReflowing(true);
+    try {
+      const { before, ...next } = await reflow(plan.version);
+      setPlan(next);
+      setMoved(before);
+      setAsk(false);
+    } catch (e) {
+      setSaid(stale(e));
+    }
+    setReflowing(false);
   }
 
   async function refresh() {
@@ -132,10 +188,20 @@ export default function Today() {
   // 正事：课、习惯、项目、可选；吃饭、路上、回家这些生活块不算
   const todo = plan.blocks.filter((b) => b.kind !== "life" && toMin(b.end) > now).length;
   const evening = !plan.checked_in && (now >= EVENING || !todo);
-  const footer = evening ? <Button label="对个账" onPress={() => router.push("/checkin")} />
+  const askBar = ask && !plan.checked_in && (
+    <View style={{ gap: space.sm }}>
+      <Text accessibilityLiveRegion="polite" style={[type.label, { color: c.text }]}>要不要把其余的按精力重新排一下？</Text>
+      <View style={{ flexDirection: "row", gap: space.sm }}>
+        <View style={{ flex: 1 }}><Button label="重排" busyLabel={reflowing ? "正在重排……" : undefined} onPress={doReflow} /></View>
+        <View style={{ flex: 1 }}><Button label="不用" variant="secondary" disabled={reflowing} onPress={() => setAsk(false)} /></View>
+      </View>
+    </View>
+  );
+  const main = evening ? <Button label="对个账" onPress={() => router.push("/checkin")} />
     : !plan.confirmed && !plan.checked_in ? (
       <Button label="用这个计划" busyLabel={busy === "confirm" ? "正在确认……" : undefined} onPress={() => confirm(plan.version)} />
     ) : undefined;
+  const footer = askBar || main ? <View style={{ gap: space.md }}>{askBar}{main}</View> : undefined;
   const empty = !plan.items?.length;
   const canSay = !!text.trim() && !busy;
   const week = weekOf(plan.day);
@@ -201,8 +267,15 @@ export default function Today() {
       {said && <Notice>{said}</Notice>}
       {plan.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
 
+      {moved && (
+        <View style={{ gap: space.sm }}>
+          {(() => { const ch = planDiff(moved, plan.blocks, "00:00"); return ch.length ? <Changes changes={ch} /> : <Notice>其余的不用动，照原来的来。</Notice>; })()}
+          <Button label="知道了" variant="quiet" onPress={() => setMoved(null)} />
+        </View>
+      )}
+
       <Animated.View entering={enter(2)}>
-        <Timeline blocks={plan.blocks} items={plan.items} now={now} />
+        <Timeline blocks={plan.blocks} items={plan.items} now={now} onEdit={edit} onDelete={remove} />
       </Animated.View>
     </Screen>
   );

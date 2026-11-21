@@ -170,6 +170,12 @@ export const confirmProfile = (id: number, content?: string) =>
 export const postEnergy = (level: number, preview = false) => send<Plan | Crisis>("POST", "/energy", { level, preview });
 /** 说一句今天要做什么：替换当天全部事项，返回还没确认的新一版计划。听不懂是 422。 */
 export const sayDay = (text: string) => send<Plan | Crisis>("POST", "/day/say", { text });
+/** 手动改一块的时间。overlaps：撞在一起的块 id。409 = 版本过期（别处改过），要重新拿 /today。 */
+export const editBlock = (version: number, block_id: string, start: string, end: string) =>
+  send<Plan & { overlaps: string[] }>("POST", "/plan/edit", { version, block_id, start, end });
+export const deleteBlock = (id: string, version: number) => send<Plan>("DELETE", `/plan/block/${encodeURIComponent(id)}?version=${version}`);
+/** 把其余的按精力重新排：before 是重排前那一版的块，给 planDiff 用。 */
+export const reflow = (version: number) => send<Plan & { before: Block[] }>("POST", "/plan/reflow", { version });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
 export const getMe = () => send<Me>("GET", "/me");
 /** consent 不填 = 只改国家，不算同意。 */

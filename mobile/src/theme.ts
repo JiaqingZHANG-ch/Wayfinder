@@ -11,7 +11,7 @@ type Kinds = { class: string; must: string; proj: string; flex: string; life: st
 type Palette = {
   bg: string; surface: string; surface2: string; tint: string; ink: string; ink2: string;
   primary: string; primaryEdge: string; onPrimary: string; primaryInk: string;
-  done: string; mark: string; line: string; cardEdge: string; danger: string; ok: string; overlay: string;
+  done: string; mark: string; line: string; cardEdge: string; danger: string; ok: string; warn: string; overlay: string;
   hi: string; // 卡片内高光
   stage: string; // 舞台场景图没盖到的那条天（v4 的 .stagebox 底色）
   head: string; onHead: string; // 今天页的暖橙头卡和上面的字
@@ -37,6 +37,7 @@ const dayPalette: Palette = {
   cardEdge: "#EADBC4", // 卡片、次要按钮、标签栏的底边，装饰性（卡片靠里面的字认出来）
   danger: "#A63A32", // 不刺眼的砖红：vs bg 6.0:1，vs surface 6.3:1
   ok: "#2A7352", // 当字用的绿：vs surface 5.6:1，vs bg 5.3:1
+  warn: "#A86400", // 琥珀，时间撞在一起的块描边（不用红）：vs bg 4.4:1，vs surface 4.6:1，vs 四种块填充 3.3–3.6:1（≥3:1）
   overlay: "rgba(58, 42, 30, 0.5)",
   hi: "rgba(255, 255, 255, 0.4)",
   stage: "#FFF1DE",
@@ -66,6 +67,7 @@ const nightPalette: Palette = {
   cardEdge: "#4A3E34",
   danger: "#F0918A", // vs bg 7.6:1，vs surface 6.7:1
   ok: "#7FD1A6", // vs surface 8.5:1
+  warn: "#F2B84B", // 琥珀：vs bg 9.7:1，vs surface 8.7:1，vs 四种块填充 5.8–6.3:1
   overlay: "rgba(0, 0, 0, 0.55)",
   hi: "rgba(255, 255, 255, 0.06)",
   stage: "#1B2033",

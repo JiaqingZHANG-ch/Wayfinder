@@ -20,8 +20,9 @@ const OPEN = { duration: 380, easing: Easing.bezier(0.32, 0.72, 0, 1) }; // iOS 
 const SHUT = { duration: 220, easing: Easing.in(Easing.cubic) };
 
 /** header：标题那一行，和把手一起都能按住往下拖（系统面板就是按住顶部任何地方都能拖）。 */
-export function Sheet({ header, children }: {
+export function Sheet({ header, children, onClose }: {
   header?: (close: () => void) => ReactNode; children: (close: () => void) => ReactNode;
+  onClose?: () => void; // 不是路由、而是页面里的 Modal 时：关完调它，不返回上一页
 }) {
   const c = useColors();
   const bottom = useSafeAreaInsets().bottom;
@@ -40,8 +41,8 @@ export function Sheet({ header, children }: {
     if (closing.get()) return;
     closing.set(true);
     fade.set(withTiming(0, SHUT));
-    y.set(withTiming(height, SHUT, () => scheduleOnRN(leave)));
-  }, [fade, y, height, closing]);
+    y.set(withTiming(height, SHUT, () => scheduleOnRN(onClose ?? leave)));
+  }, [fade, y, height, closing, onClose]);
 
   const drag = usePanGesture({
     // 往下跟手；往上只给 0.2 倍的橡皮筋
