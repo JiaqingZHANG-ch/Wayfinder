@@ -520,18 +520,21 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     tasks = [replace(x, remaining_min=max(0, x.remaining_min - math.ceil(progress.get(x.id, 0) / x.est_factor)))
              for x in inp.tasks if x.id not in drop]
 
-    block_on = sum(h.id in inp.habit_block for h in inp.habits) >= 2
+    start = focus_free_at or cutoff  # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
+    habit_block = inp.habit_block
+    block_on = sum(h.id in habit_block for h in inp.habits) >= 2
+    if block_on and sum(h.minutes for h in inp.habits if h.id in habit_block and h.id not in drop) > inp.sleep - start:
+        block_on, habit_block = False, []  # 睡前剩的时间放不下整块：拆开按各自的窗口排，放不下的报「来不及」
     # 原计划里成块排的习惯不看自己的窗口；块里只剩一项时求解器会改回看窗口，所以把窗口放宽到整天
-    habits = [replace(h, window_start=inp.wake, window_end=inp.sleep) if block_on and h.id in inp.habit_block else h
+    habits = [replace(h, window_start=inp.wake, window_end=inp.sleep) if block_on and h.id in habit_block else h
               for h in inp.habits if h.id not in drop]
     meals = [x for x in inp.meals if x.id not in drop]
 
-    def fits(x, start: int) -> bool:
-        return x.window_end - max(x.window_start, start) >= x.minutes
+    def fits(x, at: int) -> bool:
+        return x.window_end - max(x.window_start, at) >= x.minutes
 
-    # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
-    late = [x.title for x in habits if not fits(x, focus_free_at or cutoff)] + [x.title for x in meals if not fits(x, cutoff)]
-    habits, meals = [h for h in habits if fits(h, focus_free_at or cutoff)], [x for x in meals if fits(x, cutoff)]
+    late = [x.title for x in habits if not fits(x, start)] + [x.title for x in meals if not fits(x, cutoff)]
+    habits, meals = [h for h in habits if fits(h, start)], [x for x in meals if fits(x, cutoff)]
 
     cost = inp.energy.cost
     past_cost = sum(_block_cost(inp, b) for b in keep)
@@ -548,15 +551,17 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
     ids = {h.id for h in habits}
     rest = replace(inp, wake=cutoff, rules=replace(inp.rules, getup_min=0), habits=habits, meals=meals,
                    flex=[f for f in inp.flex if f.id not in drop], tasks=tasks, energy=energy,
-                   habit_block=[i for i in inp.habit_block if i in ids], focus_free_at=focus_free_at)
+                   habit_block=[i for i in habit_block if i in ids], focus_free_at=focus_free_at)
     after = solve_day(rest)
 
     # 过去的课和通勤照原计划留着；新排的只要现在（或正在做的那块结束）之后的
     cut = max([t] + [b.end for b in past])
     new = [b for b in after.blocks if not b.id.startswith("free-") and b.start >= cut]
+    used = {b.id for b in past}
     for b in new:
-        if b.id in kept_ids:  # 同一个项目上午排过 x-0，晚上新排的也叫 x-0：改名免得日历同步认错
+        while b.id in used:  # 同一个项目上午排过 x-0，晚上新排的也叫 x-0：改名免得日历同步认错（重排几次都不重名）
             b.id += "-r"
+        used.add(b.id)
     blocks = past + new
     projects = sorted((b for b in blocks if b.kind == "proj"), key=lambda b: b.start)
     for i, b in enumerate(projects):

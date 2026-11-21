@@ -72,6 +72,32 @@ def test_replan_habit_after_late_focus_is_reported_not_infeasible():
     assert any("看书" in w for w in plan.warnings) or any(b.id == "reading" for b in plan.blocks)
 
 
+def test_replan_habit_block_too_long_for_the_evening_splits_up():
+    """看书和拉伸成块排（共 50 分钟），21:15 才重排、22:00 睡：块放不下就拆开，看书照排，拉伸说来不及。"""
+    from dataclasses import replace
+    from planner.solve import replan_from
+    inp = load_input(Path(__file__).parent.parent / "examples" / "2026-11-16.json")
+    stored = []
+    for b in solve_day(inp).blocks:
+        b = replace(b)
+        if b.id in ("reading", "stretch"):  # 存着的计划里这两项被挪到了晚上更晚的时候
+            b.start, b.end = b.start + 80, b.end + 80
+        stored.append(b)
+    plan = replan_from(inp, "21:15", before=stored)
+    assert any(b.id == "reading" and b.start >= to_min("21:15") for b in plan.blocks)
+    assert any("拉伸" in w for w in plan.warnings)
+
+
+def test_replan_twice_keeps_block_ids_unique():
+    """同一天重排两次：新排的块改名后也不能和已经过去的重名（日历同步按 id 认块）。"""
+    from planner.solve import replan_from
+    inp = _student()
+    first = replan_from(inp, "13:00")
+    second = replan_from(inp, "19:00", before=first.blocks)
+    ids = [b.id for b in second.blocks]
+    assert len(ids) == len(set(ids))
+
+
 def test_replan_meeting_right_after_focus_still_fits():
     """评审 A2：17:20 正在复习（到 17:40），设置里加了 18:00 的会：会照课表开，不被「放松」挡住。"""
     from dataclasses import replace
