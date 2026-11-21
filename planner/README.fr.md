@@ -1,48 +1,32 @@
-# Planificateur de journée (daily-planner)
+# Solveur d'emploi du temps (planner)
 
 🇫🇷 Version française · 🇨🇳 [中文说明](README.md)
 
-Un petit programme qui organise automatiquement ma journée : cours, trajets en bus, repas, habitudes quotidiennes et projets. L'idée est née du cours d'optimisation (programmation linéaire et programmation par contraintes) de mon Master à l'Université de Caen Normandie : chaque jour, je dois faire entrer beaucoup de choses dans un temps limité, et c'est exactement un problème de planification sous contraintes.
+C'est le moteur de planification de Wayfinder. Il reçoit la situation d'une personne pour une journée (cours, horaires de bus, repas, habitudes à garder, projets et échéances) et calcule avec un solveur de contraintes (Google OR-Tools CP-SAT) un emploi du temps heure par heure **réaliste pour un humain**. Toutes les règles viennent des données d'entrée et ne visent personne en particulier : les cours, les habitudes et le rythme de chacun sont remplis par l'accueil et les réglages de Wayfinder.
 
-Le projet est en cours. Cette première étape planifie **une seule journée**.
+## Ce qu'il prend en compte
 
-## Pourquoi ce projet
+1. **Contraintes dures** : cours et examens, sommeil, repas, trajets. Le bus du retour est choisi au moins 20 minutes après la fin du cours (réglable), et des minutes de transition sont laissées avant et après chaque déplacement.
+2. **Habitudes quotidiennes** : chacune a une durée et une plage horaire ; on peut préciser qu'elle se fait seulement à la maison, qu'elle peut se faire pendant le trajet, ou que plusieurs habitudes se font d'un seul bloc. Si une habitude ne rentre pas, elle n'est pas effacée en silence : le programme explique ce qui la bloque.
+3. **Projets** : ils se partagent le temps restant. L'urgence dépend de la **marge** (le temps disponible avant l'échéance moins le travail qui reste), pas seulement de la date limite ; la concentration totale de la journée a une limite, et les jours chargés en cours laissent moins de place aux projets.
+4. **Énergie** : cours, habitudes et projets ont chacun un coût, plus faible pour ce qu'on aime ; quand l'énergie déclarée du jour est basse, seules les versions minimales des habitudes sont planifiées.
+5. **Replanifier seulement la fin de la journée** : si quelque chose change, ce qui est passé ne bouge pas, seul le reste est recalculé.
 
-- J'ai cinq ou six projets en parallèle, des cours tous les jours et des habitudes que je veux garder (lecture, calligraphie, anglais, sport).
-- Faire le planning à la main prend du temps et donne parfois un plan impossible à suivre (par exemple prendre un bus cinq minutes après la fin d'un cours).
-- Je voulais un plan **réaliste pour un humain**, qui change le moins possible d'un jour à l'autre, et qui explique pourquoi il place chaque tâche à tel moment.
+Ensuite, une **vérification indépendante** relit le plan : pas de chevauchement, un bus pour chaque trajet, assez de temps après les cours, rien de « à la maison » placé pendant qu'on est à l'université, assez de sommeil. Si une règle n'est pas respectée, le programme refuse de produire le plan et dit pourquoi.
 
-## Ce que fait le programme
+## Exemple
 
-Le programme lit un fichier JSON qui décrit la journée, calcule un emploi du temps, le vérifie, puis l'écrit dans un autre fichier JSON.
-
-Il respecte trois niveaux de règles, dans cet ordre :
-
-1. **Obligatoire (contraintes dures)** : les cours et examens, le sommeil, les repas, les trajets. Le bus du retour est choisi au moins 20 minutes après la fin du dernier cours (le cours peut finir en retard, il faut ranger ses affaires et marcher jusqu'à l'arrêt). Avant et après chaque déplacement, le programme laisse quelques minutes de transition.
-2. **Habitudes quotidiennes** : lecture, calligraphie, anglais… chacune a une durée fixe et une plage horaire. Si une habitude ne rentre pas, le programme ne l'efface pas en silence : il explique ce qui la bloque.
-3. **Projets** : ils se partagent le temps qui reste. Le plus urgent passe en premier. L'urgence ne dépend pas seulement de la date limite mais de la **marge** : le temps disponible avant l'échéance moins le travail qui reste. Un petit devoir pour demain peut être moins urgent qu'un gros projet pour dans dix jours. Une tâche longue est découpée en blocs d'au moins deux heures, et la charge de travail de la journée a une limite (moins de travail les jours où il y a beaucoup de cours).
-
-Ensuite, une **vérification indépendante** relit le plan : pas de chevauchement, un bus pour chaque trajet, assez de temps après les cours, aucune tâche « à la maison » placée pendant que je suis à l'université, huit heures de sommeil. Si une règle n'est pas respectée, le programme refuse de produire le plan et dit pourquoi.
-
-## Exemple : le lundi 16 novembre 2026
-
-Avec mon vrai emploi du temps de ce jour-là (cours le matin, examen à 10h15, TP de 15h30 à 17h30), le programme propose :
+`examples/2026-11-16.json` décrit le lundi d'un étudiant fictif (cours, examen de mi-semestre, TP l'après-midi). Le programme propose :
 
 ```
-06:15 calligraphie → 06:35 petit-déjeuner → 07:11 départ (anglais pendant le trajet)
+06:30 petit-déjeuner → 07:11 départ (anglais pendant le trajet)
 08:00 cours → 10:15 examen → 12:15 déjeuner
-13:00–15:00 projet, à la bibliothèque de l'université
+13:00–15:30 temps libre
 15:30 TP → 17:51 bus du retour → 18:21 dîner
-19:06 projet → 19:46 français → 20:30 lecture
+19:06 journal → 20:06 lecture → 20:36 étirements
 ```
 
-Il prend le bus de 17h51 et non celui de 17h35, trop proche de la fin du TP.
-
-## Outils
-
-- **Python 3.12**
-- **OR-Tools CP-SAT** (Google) : le solveur de programmation par contraintes qui calcule le planning.
-- **pytest** : 30 tests automatiques, dont des cas tirés de vraies erreurs de planification (bus impossible, tâche placée au réveil, nom de lieu mal écrit…).
+Il prend le bus de 17h51 et non celui de 17h35, trop proche de la fin du TP ; comme les cours et l'examen ont déjà consommé une grande partie de l'énergie, il ne place pas de projet le soir et le signale. Le dossier `examples/users/` contient aussi les réglages complets de quelques utilisateurs fictifs.
 
 ## Lancer le programme
 
@@ -50,24 +34,10 @@ Il prend le bus de 17h51 et non celui de 17h35, trop proche de la fin du TP.
 .\run.ps1 examples\2026-11-16.json -o out.json
 ```
 
-Tests : `uv run pytest`
+Tests : `uv run pytest` (84 tests)
 
-Le fichier d'entrée est décrit dans `src/planner/model.py`. Le résultat contient, pour chaque bloc, l'heure de début et de fin, le type (cours, habitude, projet…) et, pour les projets, une phrase qui explique pourquoi ils sont placés là.
-
-## Limites actuelles
-
-- Une seule journée à la fois (pas encore la semaine).
-- Pas encore de « perturbation minimale » : quand quelque chose change (cours annulé, nouvelle échéance), le programme recalcule tout au lieu de modifier le moins possible le plan d'origine.
-- Les trajets vers un lieu autre que la maison ou l'université sont estimés à 30 minutes.
-- La limite d'attention sur toute la journée (environ 8 heures de vraie concentration) n'est pas encore modélisée ; pour l'instant seule la charge des projets est limitée.
-
-## Prochaines étapes
-
-1. Planifier sept jours d'un coup.
-2. Replanifier en changeant le moins possible le plan existant.
-3. Gérer les réunions « à confirmer » et les changements dans la journée.
-4. Modéliser la limite d'attention de la journée.
+Le format d'entrée est décrit dans `src/planner/model.py`, la liste des règles et leur origine dans `docs/constraints.md`.
 
 ## Données et vie privée
 
-Les vraies données personnelles restent dans `data/` (exclu du dépôt). Le dossier `examples/` ne contient qu'un exemple sans nom réel.
+Les vraies données restent dans `data/` (exclu du dépôt par `.gitignore`). Le dossier `examples/` ne contient que des personnes fictives.

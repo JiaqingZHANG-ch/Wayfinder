@@ -603,11 +603,11 @@ def test_review_asks_still_right_for_old_profile(setup):
 def test_last_nights_one_thing_is_planned_today_and_answers_yesterday_done(setup):
     client, db, _ = setup
     db.save_log(1, {"date": "2026-11-19", "energy_after_class": None, "items": {}, "blocker": "", "note": "",
-                    "tomorrow_task": "把 EGG 的图画完", "yesterday_done": None})
+                    "tomorrow_task": "把报告的图画完", "yesterday_done": None})
     plan = client.post("/energy", json={"level": 4, "now": "18:00"}).json()
     one = [b for b in plan["blocks"] if b.get("task_id") == "one-thing"]
-    assert one and one[0]["title"] == "把 EGG 的图画完"
-    assert not any("把 EGG" in w for w in plan["warnings"])  # 排上了就不该报截止日
+    assert one and one[0]["title"] == "把报告的图画完"
+    assert not any("把报告" in w for w in plan["warnings"])  # 排上了就不该报截止日
     r = client.post("/checkin", json={"result": {"items": {"one-thing": {"status": "done"}}}}).json()
     assert r["saved"]["yesterday_done"] is True
 

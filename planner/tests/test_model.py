@@ -33,19 +33,19 @@ def test_energy_defaults_when_absent(tmp_path):
     assert inp.energy.base_min == 480 and inp.energy.load == 0.8
     assert inp.energy.periods == [(720, 2.0), (1080, 1.5), (1440, 1.0)]
     assert inp.habit_block == []
-    assert load_input(EXAMPLE).habit_block == ["english", "reading", "calligraphy"]
+    assert load_input(EXAMPLE).habit_block == ["english", "reading", "stretch"]
 
 
 def test_energy_overrides(tmp_path):
     raw = json.loads(EXAMPLE.read_text(encoding="utf-8"))
-    raw["energy"] = {"base_min": 420, "periods": [["13:00", 2.0], ["24:00", 1.0]], "cost": {"calligraphy": 0.2}}
-    raw["habit_block"] = ["reading", "calligraphy"]
+    raw["energy"] = {"base_min": 420, "periods": [["13:00", 2.0], ["24:00", 1.0]], "cost": {"stretch": 0.2}}
+    raw["habit_block"] = ["reading", "stretch"]
     p = tmp_path / "in.json"; p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     inp = load_input(p)
     assert inp.energy.base_min == 420 and inp.energy.gym_bonus_min == 120
     assert inp.energy.periods == [(780, 2.0), (1440, 1.0)]
-    assert inp.energy.cost == {"class": 1.0, "project": 1.0, "habit": 1.0, "calligraphy": 0.2}  # 和默认值合并
-    assert inp.habit_block == ["reading", "calligraphy"]
+    assert inp.energy.cost == {"class": 1.0, "project": 1.0, "habit": 1.0, "stretch": 0.2}  # 和默认值合并
+    assert inp.habit_block == ["reading", "stretch"]
 
 @pytest.mark.parametrize("energy", [
     {"periods": [["12:00", 2.0], ["18:00", 1.5]]},   # 没覆盖到 22:00 睡觉

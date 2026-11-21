@@ -38,11 +38,11 @@ def test_other_event_gets_travel(tmp_path):  # C1
     assert any("看医生" in w for w in plan.warnings)
 
 
-def test_home_habit_not_on_campus(tmp_path):  # I1：练字只能在家，窗口却全在人在学校的时段
+def test_home_habit_not_on_campus(tmp_path):  # I1：拉伸只能在家，窗口却全在人在学校的时段
     def change(raw):
         raw.pop("habit_block")  # 不成块的习惯仍守自己的窗口和地点
-        habit(raw, "calligraphy").update(window=["13:00", "15:30"], where="home")
-    with pytest.raises(PlanInfeasible, match="练字"):
+        habit(raw, "stretch").update(window=["13:00", "15:30"], where="home")
+    with pytest.raises(PlanInfeasible, match="拉伸"):
         solve_day(load_input(variant(tmp_path, change)))
 
 
@@ -78,7 +78,7 @@ def test_no_work_at_wake_minute(tmp_path):  # I5
 def test_check_flags_home_task_while_away():  # I6
     inp = load_input(EXAMPLE)
     plan = solve_day(inp)
-    plan.blocks.append(Block("egg-edits-9", "EGG 按导师的意见改展示", to_min("13:00"), to_min("14:00"), "proj", task_id="egg-edits"))
+    plan.blocks.append(Block("report-edits-9", "课程报告：按老师意见修改", to_min("13:00"), to_min("14:00"), "proj", task_id="report-edits"))
     assert any("不在家" in p for p in check_plan(inp, plan))
 
 

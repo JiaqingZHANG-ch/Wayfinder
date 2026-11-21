@@ -80,7 +80,7 @@ class Habit:
     window_start: int
     window_end: int
     can_be_on_bus: bool = False
-    where: str = "any"  # home | campus | any（练字只能在家）
+    where: str = "any"  # home | campus | any（比如某个习惯只能在家做）
     floor_min: int | None = None  # 保底版分钟数（低电量时用）；不填 = 标准分钟数
 
     def __post_init__(self) -> None:

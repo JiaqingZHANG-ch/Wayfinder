@@ -7,7 +7,7 @@ from planner.model import BusToCampus, FixedEvent, load_input, to_min
 from planner.solve import solve_day
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "2026-11-16.json"
-HABITS = {"calligraphy": 20, "reading": 30, "english": 30, "french": 30}
+HABITS = {"stretch": 20, "reading": 30, "english": 30, "journal": 30}
 
 
 def core_input():
@@ -63,5 +63,5 @@ def test_english_on_bus_only_if_30():
 def test_overfull_day_reports_habit():
     inp = core_input()
     inp.fixed = [FixedEvent("all-day", "全天活动", to_min("06:00"), to_min("22:00"), "other", "meeting")]
-    with pytest.raises(PlanInfeasible, match="练字|看书|英语|法语"):
+    with pytest.raises(PlanInfeasible, match="拉伸|看书|英语|写日记"):
         solve_day(inp)

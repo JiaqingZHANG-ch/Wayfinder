@@ -46,13 +46,13 @@ def test_hard_task_lands_in_morning(home_day):
 
 
 def test_no_extra_pomodoro(home_day):  # 剩 60：早上 2 个番茄（92）够了，第 3 个不许排
-    home_day.tasks = [task(home_day, "egg-flow")]
+    home_day.tasks = [task(home_day, "report-outline")]
     home_day.tasks[0].remaining_min = 60
     assert sum(b.pomodoros for b in proj(solve_day(home_day))) == 2
 
 
 def test_tiny_remainder(home_day):  # Review Focus 3
-    home_day.tasks = [task(home_day, "egg-flow")]
+    home_day.tasks = [task(home_day, "report-outline")]
     home_day.tasks[0].remaining_min = 10
     assert sum(b.pomodoros for b in proj(solve_day(home_day))) <= 1
 
@@ -80,7 +80,7 @@ def test_over_budget_day_keeps_musts():           # 11-16：课和考试 360 + �
     inp = load_input(EXAMPLE)
     plan = solve_day(inp)
     assert proj(plan) == [] and any("不排项目" in w for w in plan.warnings)
-    assert plan.energy_used == pytest.approx(445)      # 360 课 + 公交英语 15 + 法语 30 + 阅读 30 + 书法 10
+    assert plan.energy_used == pytest.approx(445)      # 360 课 + 公交英语 15 + 写日记 30 + 阅读 30 + 拉伸 10
     assert {h.id for h in inp.habits} <= {b.id for b in plan.blocks}
 
 
@@ -100,21 +100,21 @@ def by_id(plan, i):
 def test_habit_block_contiguous_at_home(home_day):
     home_day.tasks = []                                  # 没有项目时，块往早排
     plan = solve_day(home_day)
-    e, r, k = (by_id(plan, i) for i in ("english", "reading", "calligraphy"))
+    e, r, k = (by_id(plan, i) for i in ("english", "reading", "stretch"))
     assert e.end == r.start and r.end == k.start and (e.end - e.start, r.end - r.start, k.end - k.start) == (30, 30, 20)
     assert k.end <= to_min("12:00")                      # 越早越好，窗口不再是各自的
 
 
-def test_habit_block_shrinks_when_english_on_bus():      # 11-16：英语在车上，块只剩看书 → 练字，落在到家之后
+def test_habit_block_shrinks_when_english_on_bus():      # 11-16：英语在车上，块只剩看书 → 拉伸，落在到家之后
     plan = solve_day(load_input(EXAMPLE))
-    r, k = by_id(plan, "reading"), by_id(plan, "calligraphy")
+    r, k = by_id(plan, "reading"), by_id(plan, "stretch")
     assert r.end == k.start and r.start >= to_min("18:16")
     assert by_id(plan, "english").start == to_min("07:11")
 
 
 def test_habit_block_before_home_projects(home_day):     # 用户 11-18：习惯先做完，再做项目（硬约束）
     plan = solve_day(home_day)                           # home_day 带项目任务
-    k = by_id(plan, "calligraphy")
+    k = by_id(plan, "stretch")
     assert proj(plan)
     assert all(b.start >= k.end for b in plan.blocks if b.kind == "proj")
 
@@ -195,7 +195,7 @@ def test_check_block_crosses_period(home_day):
 
 def test_check_rest(home_day):
     def m(plan, b):
-        k = by_id(plan, "calligraphy")
+        k = by_id(plan, "stretch")
         b.start, b.end = k.end + 10, k.end + 10 + (b.end - b.start)
     assert any("放松" in p for p in bad(home_day, m))
 
@@ -210,10 +210,10 @@ def loved(inp, *ids):                                    # 用户 11-18：热爱
 
 
 def test_loved_project_costs_nothing(home_day):          # 精力上限 0：普通项目排不进，热爱的照样排
-    home_day.tasks = [task(home_day, "egg-flow")]
+    home_day.tasks = [task(home_day, "report-outline")]
     home_day.energy.base_min = 0
     assert proj(solve_day(home_day)) == []
-    loved(home_day, "egg-flow")
+    loved(home_day, "report-outline")
     plan = solve_day(home_day)
     assert proj(plan) and check_plan(home_day, plan) == []
     assert not any("不排项目" in w for w in plan.warnings)
@@ -222,7 +222,7 @@ def test_loved_project_costs_nothing(home_day):          # 精力上限 0：普�
 def test_loved_project_needs_no_rest(home_day):          # 做完热爱的事不用放松（但不算自由时间）
     loved(home_day, *(t.id for t in home_day.tasks))
     def m(plan, b):
-        k = by_id(plan, "calligraphy")
+        k = by_id(plan, "stretch")
         b.start, b.end = k.end + 10, k.end + 10 + (b.end - b.start)
     assert not any("放松" in p for p in bad(home_day, m))
 

@@ -108,8 +108,8 @@ def _fixed_conflict(inp: PlanInput, c: Commute) -> str | None:
     return None
 
 
-def _english_on_bus(inp: PlanInput, c: Commute, habits: list[Habit]) -> Habit | None:
-    """英语能在通勤上听：出门到进教室整段 ≥ 习惯时长，且在习惯窗口内。"""
+def _habit_on_bus(inp: PlanInput, c: Commute, habits: list[Habit]) -> Habit | None:
+    """能在通勤路上做的习惯（比如听英语）：出门到进教室整段 ≥ 习惯时长，且在习惯窗口内。"""
     if not c.out:
         return None
     for h in habits:
@@ -141,7 +141,7 @@ def task_cost(inp: PlanInput, task_id: str) -> float:
 def fixed_cost(inp: PlanInput, c: Commute) -> float:
     """课、考试、会议和必做习惯一定会花掉的精力（分钟）。"""
     cost = inp.energy.cost
-    on_bus = _english_on_bus(inp, c, inp.habits)
+    on_bus = _habit_on_bus(inp, c, inp.habits)
     total = sum((e.end - e.start) * event_cost(inp, e) for e in inp.fixed if e.kind in FOCUS_KINDS)
     for h in inp.habits:
         total += h.minutes * cost.get(h.id, cost["habit"]) * (ON_BUS_COST if h is on_bus else 1)
@@ -191,7 +191,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     work_lo = lo + inp.rules.getup_min
     fixed = [Block(e.id, e.title, e.start, e.end, "class") for e in inp.fixed]
     commute = _commute_blocks(c) + _travel_blocks(inp)
-    on_bus = _english_on_bus(inp, c, habits)
+    on_bus = _habit_on_bus(inp, c, habits)
     away_spans = _away_spans(inp, c)
     home_ivs = [m.NewFixedSizeIntervalVar(a, z - a, f"away-{i}") for i, (a, z) in enumerate(away_spans)]
     # 两组不重叠：busy 管所有事；gapped 只管非生活类的事，每件结束后留 pad 分钟。

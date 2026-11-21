@@ -34,7 +34,7 @@ def test_crisis_phrases_are_caught(text):
     "",
     "今天读了20分钟书",
     "我不想死记硬背",
-    "想死磕 EGG 这一节",
+    "想死磕数据库这一节",
     "想死线前交掉",
 ])
 def test_everyday_exaggeration_is_not_crisis(text):

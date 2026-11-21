@@ -26,11 +26,11 @@ def minutes(blocks):
     return sum(b.end - b.start for b in blocks)
 
 
-def test_egg_in_campus_gap(light_day):
+def test_report_in_campus_gap(light_day):
     inp = light_day
     plan = solve_day(inp)
     gap = [b for b in proj_blocks(plan) if b.start >= to_min("10:00") and b.end <= to_min("12:51")]
-    assert any(b.task_id in ("egg-flow", "cv") for b in gap)
+    assert any(b.task_id in ("report-outline", "cv") for b in gap)
     home_ids = {t.id for t in inp.tasks if t.where == "home"}
     for b in proj_blocks(plan):
         if b.task_id in home_ids:

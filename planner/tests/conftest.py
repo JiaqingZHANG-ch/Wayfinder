@@ -17,5 +17,5 @@ def home_day():  # 在家的一天：没课、没 flex，四个任务都在
 @pytest.fixture
 def light_day():  # 只有早上一节 CM（08:00–10:00），回程 12:51
     inp = load_input(EXAMPLE)
-    inp.fixed = [e for e in inp.fixed if e.id == "cm-parallele"]
+    inp.fixed = [e for e in inp.fixed if e.id == "lecture"]
     return inp
