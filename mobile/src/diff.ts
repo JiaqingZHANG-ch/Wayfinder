@@ -8,7 +8,7 @@ const min = (t: string) => { const h = Number(t.slice(0, 2)); return (h < 4 ? h 
 
 /**
  * 比较重排前后 from 之后的安排，只列变了的：时长变了、挪了时间、新加的、今晚不排了的。吃饭路上这些生活块不算。
- * 同一件事拆成几块时按第几块对上（task_id 没有就用标题）。
+ * 同一件事拆成几块时按第几块对上。项目按 task_id，习惯和课按块 id（习惯换成保底版时标题会变，id 不变）。
  */
 // shortcut: 同一件事拆成几块时按第几块配对，第一块被拿掉会错位成「时长变了」；常见了再按开始时间对齐
 export function planDiff(before: Block[], after: Block[], from: string): Change[] {
@@ -16,7 +16,7 @@ export function planDiff(before: Block[], after: Block[], from: string): Change[
   const keyed = (bs: Block[]) => {
     const seen = new Map<string, number>();
     return bs.filter((b) => b.kind !== "life" && min(b.end) > min(from)).map((b) => {
-      const k = b.task_id ?? b.title;
+      const k = b.task_id ?? b.id;
       const n = (seen.get(k) ?? 0) + 1;
       seen.set(k, n);
       return [`${k}#${n}`, b] as const;

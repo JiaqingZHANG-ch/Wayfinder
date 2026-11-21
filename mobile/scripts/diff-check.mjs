@@ -34,4 +34,9 @@ assert.deepEqual(planDiff(late, [late[0], b("now", "EGG 报告", "23:00", "23:50
   { time: "23:00", title: "EGG 报告", was: "20 分", now: "10 分" },
 ]);
 assert.deepEqual(planDiff(late, [late[1]], "23:40"), [{ time: "23:50", title: "收尾", now: "今晚不排了" }]);
+// 习惯没有 task_id：按块 id 对上，换成保底版改了标题也算同一件
+const habit = (title, start, end) => ({ id: "habit-1", title, start, end, kind: "must", task_id: null, pomodoros: null });
+assert.deepEqual(planDiff([habit("看书", "18:40", "19:25")], [habit("看书（保底）", "18:25", "18:35")], "17:05"), [
+  { time: "18:25", title: "看书（保底）", was: "45 分", now: "10 分" },
+]);
 console.log("diff-check ok");
