@@ -217,7 +217,7 @@ function SettingsForm({ v, setV }: { v: FormValues; setV: (v: FormValues) => voi
         </Row>
       </Card>
       <Card>
-        <Field label="先养一个习惯，叫什么" value={v.title} onChangeText={(title) => setV({ ...v, title })} />
+        <Field label="先养一个习惯，叫什么" placeholder="比如：英语听力、看书" value={v.title} onChangeText={(title) => setV({ ...v, title })} />
         <Row>
           <Num label="精神好时做几分钟" value={v.minutes} onChange={(minutes) => setV({ ...v, minutes })} />
           <Num label="没电时至少几分钟" value={v.floor_min} onChange={(floor_min) => setV({ ...v, floor_min })} />

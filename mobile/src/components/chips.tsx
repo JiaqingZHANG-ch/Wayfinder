@@ -17,7 +17,7 @@ export function EnergyPick({ value, onChange }: { value: Energy | null; onChange
     <Row>
       {(Object.keys(ENERGY_LABELS) as Energy[]).map((k) => (
         <View key={k} style={{ gap: space.xs, alignItems: "center" }}>
-          <Chip label={ENERGY_LABELS[k]} role="checkbox" on={value === k} onPress={() => onChange(value === k ? null : k)} />
+          <Chip label={ENERGY_LABELS[k]} on={value === k} onPress={() => onChange(value === k ? null : k)} />
           <Text style={[type.small, { color: c.muted }]}>{ENERGY_HINTS[k]}</Text>
         </View>
       ))}

@@ -94,7 +94,7 @@ function EnergyPanel({ close }: { close: () => void }) {
 
   return (
     <View style={{ gap: space.lg, flexShrink: 1 }}>
-      <Battery level={level} disabled={(busy && !plan) || confirmed} onPick={report} />
+      <Battery level={level} disabled={busy || confirmed} onPick={report} />
 
       <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled">
         {busy && !plan && (

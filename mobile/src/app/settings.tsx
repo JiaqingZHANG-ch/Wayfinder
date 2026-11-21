@@ -155,7 +155,7 @@ export default function SettingsScreen() {
       setSaved(JSON.stringify(n));
       setRemoved(null);
       haptic.success();
-      setMessage({ text: "存好了，今天的计划已经按新设置重排。", tone: "info" });
+      setMessage({ text: "今天的计划已经按新设置重排。", tone: "info" });
       setJustSaved(true);
       return true;
     } catch (e) {
