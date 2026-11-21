@@ -4,8 +4,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, pick_cards, run_council
-from mentor.model import ModelError
+from mentor.council import CARDS_DIR, MIN_OPINIONS, Card, load_cards, pick_cards, run_council, run_versions_council
+from mentor.model import FakeModel, ModelError
 from mentor.store import Council, Opinion, Store
 
 D14 = date(2026, 11, 14)
@@ -443,3 +443,23 @@ def test_shipped_cards_do_not_invite_speaking_as_the_author_or_labelling_the_per
 def test_unknown_trigger_raises(store):
     with pytest.raises(ValueError):
         run_council(store, RoutingModel({}, []), [A, B], D14, "daily")
+
+
+VERSIONS_LENS = json.dumps({"versions": [{"sees": "看到", "unknown": "未知", "test": "试验"}] * 3}, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("versions, speakers", [
+    (["做开发", "做数据", "开书店"], 2),
+    (["做开发", "压力很大但想试试", "开书店"], 3),  # 自己提到压力：「情绪与焦虑」才上
+])
+def test_versions_council_emotion_lens_only_when_mentioned(versions, speakers):
+    model = FakeModel([VERSIONS_LENS] * speakers + [json.dumps({"disagreement": ""})])
+    status, out = run_versions_council(model, [A, C, card("壬", "情绪与焦虑")], versions, "档案：方向")
+    assert status == "ok" and len(out["lenses"]) == speakers and out["disagreement"] == ""
+    assert out["lenses"][0]["versions"][2] == {"sees": "看到", "unknown": "未知", "test": "试验"}
+
+
+def test_versions_council_crisis_and_too_few():
+    assert run_versions_council(FakeModel(['{"crisis": true}'] * 2), [A, C], ["a", "b", "c"], "") == ("crisis", None)
+    bad = json.dumps({"versions": [{"sees": "只有一个版本", "unknown": "x", "test": "y"}]}, ensure_ascii=False)
+    assert run_versions_council(FakeModel([VERSIONS_LENS] + [bad] * 2), [A, C], ["a", "b", "c"], "") == ("failed", None)

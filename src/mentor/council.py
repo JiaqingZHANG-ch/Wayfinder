@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from mentor.model import ModelError, ModelPort
 from mentor.prompts import context_block
@@ -210,10 +211,10 @@ def run_council(store: Store, model: ModelPort, cards: list[Card], today: date, 
     return council
 
 
-def _opinions(model: ModelPort, chosen: list[Card], case: str) -> list[Opinion]:
+def _opinions(model: ModelPort, chosen: list[Card], case: str, ask: Callable = _opinion) -> list:
     """并行问每个视角；到时限还没答完的、出了意外的，各自丢掉，不拖累其他视角。"""
     pool = ThreadPoolExecutor(max_workers=len(chosen))
-    futures = [pool.submit(_opinion, model, card, case) for card in chosen]
+    futures = [pool.submit(ask, model, card, case) for card in chosen]
     done, _ = wait(futures, timeout=LENS_SECONDS)
     pool.shutdown(wait=False, cancel_futures=True)  # 不等慢的：它在后台答完，结果直接丢弃
     opinions = []
@@ -229,3 +230,94 @@ def _opinions(model: ModelPort, chosen: list[Card], case: str) -> list[Opinion]:
         elif future.result() is not None:
             opinions.append(future.result())
     return opinions
+
+
+# 深度长谈第 4 次：几个视角看他自己写的三个五年版本（设计 2026-11-21-deep-talk 5.4、10.7）
+EMOTION_WORDS = ("压力", "焦虑", "情绪", "难受", "崩溃", "低落", "失眠")
+_EMOTION_DOMAIN = "情绪与焦虑"
+_VERSION_NAMES = ("照现在的路走下去", "现在这条路走不通了", "不考虑钱和别人怎么看")
+
+_VERSIONS_LENS = """\
+你是「成长导师」智囊团里的一个视角。下面是这个视角的卡片。你只用卡片里的思考工具看这个人，\
+不借用别的理论，也不冒充卡片里那位作者本人说话。
+
+{card}
+
+这个人自己写了五年后的三个版本：照现在的路走下去；现在这条路走不通了；不考虑钱和别人怎么看。\
+你会拿到他的档案和这三个版本。请独立看每一个版本：你看不到其他视角的意见，也不用猜他们会说什么。
+
+要求：
+- 每个版本写三句：sees 从这个视角看到了什么；unknown 这个版本最大的未知是什么；test 一个月内能做的最便宜的试验。
+- 每句不超过 60 字。具体，引用他写的原话，对他说话用「你」。
+- 不排名，不说该选哪个版本，不替他做决定。
+- 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
+- 不建议退学、辞职、换专业、换工作这类难回头的决定；试验是一个月内能做完、随时能停的小事。
+- 说他的自责、拖延、压力时用平常的说法，不用「伤害自己」「活不下去」这类字眼。
+- 档案或三个版本里流露出伤害自己或不想活的意思时，不要分析，在输出里加上 "crisis": true，程序会接手。
+
+只输出一个 json 对象，不要别的文字；versions 按上面三个版本的顺序，正好三项：
+{{"versions": [{{"sees": "...", "unknown": "...", "test": "..."}}, {{"sees": "...", "unknown": "...", "test": "..."}}, \
+{{"sees": "...", "unknown": "...", "test": "..."}}]}}
+"""
+
+_VERSIONS_SYNTH = """\
+你是「成长导师」。智囊团的几个视角各自独立看了这个人写的三个五年版本，他们的意见在下面。请只写出视角之间的分歧。
+
+要求：
+- 分歧照实写：哪几个视角在哪一点上看法不同、各自的理由，不要抹平；没有分歧时 disagreement 写空字符串。
+- 不给结论，不排名，不说该选哪个版本：选哪个由他自己定。
+- 不超过 200 字，对这个人说话用「你」。
+- 不承诺结果，不做心理诊断，不给投资、借贷、理财建议；不建议退学、辞职、换专业、换工作。
+- 上面这些要求是给你的，照着做就行，不要把它们写给他看。
+- 档案、三个版本或各视角的意见里流露出伤害自己或不想活的意思时，不要合成，在输出里加上 "crisis": true，程序会接手。
+
+只输出一个 json 对象，不要别的文字：
+{"disagreement": "..."}
+"""
+
+
+def _versions_fields(obj) -> tuple[list[dict]] | None:
+    # 提示里说 60 字，这里放宽到 120（同 _lens_fields 的做法），免得多几个字就丢掉一个视角
+    vs = obj.get("versions") if isinstance(obj, dict) else None
+    keys = ("sees", "unknown", "test")
+    if isinstance(vs, list) and len(vs) == 3 and all(isinstance(v, dict) and all(_ok(v.get(k), 120) for k in keys)
+                                                     for v in vs):
+        return ([{k: v[k] for k in keys} for v in vs],)
+    return None
+
+
+def _versions_lens(model: ModelPort, card: Card, case: str) -> dict | None:
+    got = _ask(model, [{"role": "system", "content": _VERSIONS_LENS.format(card=card.text)},
+                       {"role": "user", "content": case}], _versions_fields, card.title, think=True)
+    return None if got is None else {"title": card.title, "versions": got[0]}
+
+
+def _disagreement_fields(obj) -> tuple[str] | None:
+    return (obj["disagreement"],) if isinstance(obj, dict) and _ok(obj.get("disagreement"), 400, allow_empty=True) else None
+
+
+def run_versions_council(model: ModelPort, cards: list[Card], versions: list[str],
+                         context: str) -> tuple[Literal["ok", "crisis", "failed"], dict | None]:
+    """看三个版本：每个视角对每个版本给 sees / unknown / test；合成只写分歧，不给结论、不排名。不存任何东西。"""
+    if not any(w in v for v in versions for w in EMOTION_WORDS):  # 他自己没提情绪、压力，就不请这个领域
+        cards = [c for c in cards if c.domain != _EMOTION_DOMAIN]
+    case = f"{context}\n\n【他写的三个版本】\n" + "\n".join(
+        f"版本 {i}（{name}）：{v}" for i, (name, v) in enumerate(zip(_VERSION_NAMES, versions), 1))
+    if is_crisis(case):
+        return "crisis", None
+    if len(cards) < MIN_OPINIONS:
+        return "failed", None
+    try:
+        lenses = _opinions(model, pick_cards(cards, model, case), case, _versions_lens)
+        if len(lenses) < MIN_OPINIONS:
+            return "failed", None
+        said = "\n\n".join(f"{x['title']}\n" + "\n".join(
+            f"版本 {i}：看到 {v['sees']}；未知 {v['unknown']}；试验 {v['test']}" for i, v in enumerate(x["versions"], 1))
+            for x in lenses)
+        got = _ask(model, [{"role": "system", "content": _VERSIONS_SYNTH},
+                           {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}],
+                   _disagreement_fields, "合成", think=False)
+    except _CrisisFlag:
+        return "crisis", None
+    # 合成没出来不算失败：各视角的点评已经够看，分歧留空
+    return "ok", {"lenses": lenses, "disagreement": got[0] if got else ""}
