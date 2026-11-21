@@ -91,7 +91,7 @@ export function PlanView({ plan, from, now, showEnergy = true, fold, title, acti
           </Small>
           <View style={{ height: 6, borderRadius: radius.pill, backgroundColor: c.sunken, overflow: "hidden" }}
             accessible accessibilityRole="progressbar" accessibilityLabel={`精力已安排 ${Math.round(used * 100)}%`}>
-            <View style={{ width: `${used * 100}%`, height: "100%", backgroundColor: c.kind.must, borderRadius: radius.pill }} />
+            <View style={{ width: `${used * 100}%`, height: "100%", backgroundColor: c.kindEdge.must, borderRadius: radius.pill }} />
           </View>
         </View>
       )}
@@ -125,7 +125,7 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
   const minutes = toMin(b.end) - toMin(b.start);
   // 行高跟着时长走：45 分钟和 2 小时一眼看得出区别（Structured 的做法）
   const h = quiet ? 36 : Math.min(96, Math.max(56, 56 + (minutes - 30) * 0.4));
-  const tint = c.kind[b.kind];
+  const tint = c.kindEdge[b.kind];
   return (
     <View style={{ flexDirection: "row", gap: space.md, minHeight: h }}
       accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${goal ? `，为了：${goal}` : ""}${live ? "，正在进行" : ""}`}>
@@ -135,7 +135,7 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
       <View style={{ alignItems: "center", width: 36 }}>
         {quiet ? (
           <View style={live ? { width: 10, height: 10, borderRadius: radius.pill, marginTop: 14, backgroundColor: c.primaryEdge }
-            : { width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kind.life }} />
+            : { width: 6, height: 6, borderRadius: radius.pill, marginTop: 8, backgroundColor: c.kindEdge.life }} />
         ) : (
           // 记号坐进一个这类事颜色的圆里；正在做的那件，圆是主色黄
           <View style={{ width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center",

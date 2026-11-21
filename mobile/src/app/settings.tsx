@@ -202,7 +202,7 @@ export default function SettingsScreen() {
               {s.habits.map((h, i) => (
                 <Card key={h.id ?? `new-${i}`} i={i + 2}>
                   <Row>
-                    <Mark title={h.title} color={c.kind.must} />
+                    <Mark title={h.title} color={c.kindEdge.must} />
                     <Field label="叫什么" value={h.title} onChangeText={(title) => setHabit(i, { title })} style={{ flex: 1, minWidth: 130 }} />
                     {s.habits.length > 1 && (
                       <IconButton name="trash-outline" color={c.muted} label={`删掉${h.title || "这个习惯"}`} onPress={() => remove("habits", i, h.title)} />
@@ -256,7 +256,7 @@ export default function SettingsScreen() {
               {projects.map((p, i) => (
                 <Card key={p.id ?? `new-${i}`} i={i + 1}>
                   <Row>
-                    <Mark title={p.title} color={c.kind.proj} />
+                    <Mark title={p.title} color={c.kindEdge.proj} />
                     <Field label="项目名" value={p.title} onChangeText={(title) => setProject(i, { title })} style={{ flex: 1, minWidth: 130 }} />
                     <IconButton name="trash-outline" color={c.muted} label={`删掉${p.title || "这个项目"}`} onPress={() => remove("projects", i, p.title)} />
                   </Row>

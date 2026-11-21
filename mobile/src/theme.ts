@@ -1,68 +1,80 @@
 /**
- * Wayfinder 的设计令牌：「黏土小镇」（v4 小样 .oil-ui/redesign2/explore/A-clay-town-v4.html 的 :root）。
- * 材质只有两种说法：黏土 = 图片（assets/images/clay/）；控件 = 平色块，不描边、不叠模糊投影，
- * 厚度只靠一道实色底边 0 4px 0 <edge>（RN 0.88 的 boxShadow，web 和原生都认）。
+ * Wayfinder 的设计令牌：奶油底、暖橙头卡、青绿主按钮、彩色圆角任务块（2026-11-21「说一句话排今天」）。
+ * 控件是平色块，不叠模糊投影，厚度只靠一道实色底边 0 4px 0 <edge>（RN 0.88 的 boxShadow，web 和原生都认）。
  * 规范见 docs/design.md。页面里不直接写颜色和数字，都从这里拿。
- * 对比度：文字 ≥ 4.5:1，非文字 ≥ 3:1（WCAG AA）。下面注释里是实测值，改色后要重新核对。
+ * 对比度：文字 ≥ 4.5:1，非文字 ≥ 3:1（WCAG AA）。下面注释里是实测值（WCAG 2 公式算的），改色后要重新核对。
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import { AppState, Platform, TextStyle, useColorScheme } from "react-native";
 
+type Kinds = { class: string; must: string; proj: string; flex: string; life: string };
 type Palette = {
   bg: string; surface: string; surface2: string; tint: string; ink: string; ink2: string;
   primary: string; primaryEdge: string; onPrimary: string; primaryInk: string;
   done: string; mark: string; line: string; cardEdge: string; danger: string; ok: string; overlay: string;
   hi: string; // 卡片内高光
   stage: string; // 舞台场景图没盖到的那条天（v4 的 .stagebox 底色）
-  kind: { class: string; must: string; proj: string; flex: string; life: string };
+  head: string; onHead: string; // 今天页的暖橙头卡和上面的字
+  kind: Kinds; // 时间轴上任务块的填充色（浅），上面写 ink / ink2
+  kindEdge: Kinds; // 同色系的深一档：块的描边，也当这类事的记号（图标、进度条）
 };
 
-// 白天
+// 白天：奶油底、暖橙头卡、青绿主按钮（说一句话排今天，参考图 1）
 const dayPalette: Palette = {
-  bg: "#F8EEDD", // 奶油底
-  surface: "#FFFAF1", // 卡片
-  surface2: "#F3E6CF", // 次级面：未选的块、输入框
-  tint: "#FCE6BD", // 被改动的行、选中的浅主色底
-  ink: "#2E2216", // vs surface 14.9:1，vs bg 13.5:1，vs tint 12.7:1
-  ink2: "#6A5038", // vs bg 6.5:1，vs surface 7.2:1，vs surface2 6.0:1，vs tint 6.1:1
-  primary: "#EBAA3C", // 雨衣黄，只做填充（vs bg 1.8:1，不能当字和记号）
-  primaryEdge: "#A3631A", // 主色控件的底边，也当主色的记号 / 边框：vs bg 4.2:1，vs surface 4.6:1，vs tint 4.0:1
-  onPrimary: "#2A1606", // vs primary 8.5:1
-  primaryInk: "#8A4B0B", // 主色的字：vs bg 5.9:1，vs surface 6.5:1，vs tint 5.6:1
-  done: "#3F8A64", // 做了（记号）：vs surface 4.0:1
-  mark: "#8E6E4C", // 没做 / 没记（记号）：vs surface 4.5:1，vs bg 4.1:1
-  line: "#E7D8BF", // 分隔线，装饰性
-  cardEdge: "#E2CFAE", // 卡片、次要按钮、标签栏的底边
-  danger: "#A63A32", // 不刺眼的砖红：vs bg 5.6:1，vs surface 6.2:1；危险按钮上的 bg 色字 5.6:1
-  ok: "#2F7A55", // 当字用的绿（done 当字不够 4.5）：vs surface 5.0:1，vs bg 4.5:1
-  overlay: "rgba(46, 34, 22, 0.5)",
+  bg: "#FFF6EA", // 奶油底
+  surface: "#FFFDF8", // 卡片
+  surface2: "#F6EADB", // 次级面：输入框、未选的块
+  tint: "#DCEFEA", // 浅青绿：被改动的行、选中的底
+  ink: "#3A2A1E", // 深棕：vs bg 12.8:1，vs surface 13.5:1，vs surface2 11.6:1，vs tint 11.5:1
+  ink2: "#6B5444", // vs bg 6.6:1，vs surface 6.9:1，vs surface2 5.9:1，vs tint 5.9:1
+  primary: "#1F7A73", // 青绿，主按钮填充：vs bg 4.8:1；vs head 2.9:1，所以头卡上的圆按钮带 primaryEdge 底边
+  primaryEdge: "#155C56", // 主色控件的底边 / 记号：vs bg 7.3:1，vs head 4.4:1
+  onPrimary: "#FFFFFF", // vs primary 5.1:1
+  primaryInk: "#17635D", // 主色的字：vs bg 6.6:1，vs surface 6.9:1，vs tint 5.9:1
+  done: "#2F7F5B", // 做了（记号）：vs surface 4.8:1
+  mark: "#8A6F58", // 没做 / 没记（记号）：vs surface 4.6:1，vs bg 4.4:1
+  line: "#EFE2CF", // 分隔线，装饰性
+  cardEdge: "#EADBC4", // 卡片、次要按钮、标签栏的底边，装饰性（卡片靠里面的字认出来）
+  danger: "#A63A32", // 不刺眼的砖红：vs bg 6.0:1，vs surface 6.3:1
+  ok: "#2A7352", // 当字用的绿：vs surface 5.6:1，vs bg 5.3:1
+  overlay: "rgba(58, 42, 30, 0.5)",
   hi: "rgba(255, 255, 255, 0.4)",
-  stage: "#F7ECD9",
-  kind: { class: "#A39A8F", must: "#6F8F72", proj: "#5B7A99", flex: "#D9A441", life: "#C4B8AA" },
+  stage: "#FFF1DE",
+  head: "#F6B77C", // 暖橙头卡
+  onHead: "#3A2A1E", // vs head 7.8:1（ink2 在橙上只有 4.0，头卡上的字一律用它）
+  // 块上的字：ink vs 块 9.7–11.7:1，ink2 vs 块 5.0–6.0:1
+  kind: { class: "#CFDDF8", must: "#D7E6DA", proj: "#FBD9B5", flex: "#F9CFD3", life: "#F4ECE1" }, // 蓝 灰绿 桃 粉 淡
+  // 块边界 vs bg / vs surface：class 3.8 / 4.0，must 3.7 / 3.9，proj 3.5 / 3.7，flex 3.9 / 4.1，life 3.1 / 3.3
+  kindEdge: { class: "#5F7FB8", must: "#5E8A69", proj: "#B87436", flex: "#B8636E", life: "#9A8A7A" },
 };
 
-// 夜里（也就是 App 的深色模式）：v4 的灰蓝石板夜色
+// 夜里（也就是 App 的深色模式）：同一套暖色的暗版，深可可底
 const nightPalette: Palette = {
-  bg: "#191C28",
-  surface: "#252A3A",
-  surface2: "#1F2331",
-  tint: "#4A3A3E",
-  ink: "#FBF3E4", // vs bg 15.4:1，vs surface 13.0:1，vs tint 9.7:1
-  ink2: "#CBD1E0", // vs bg 11.1:1，vs surface 9.3:1，vs tint 7.0:1
-  primary: "#F2B64C", // vs bg 9.4:1
-  primaryEdge: "#B9761F", // vs bg 4.6:1，vs surface 3.9:1
-  onPrimary: "#2A1606", // vs primary 9.5:1
-  primaryInk: "#FFC766", // vs bg 11.0:1，vs surface 9.3:1，vs tint 6.9:1
-  done: "#7FD1A6", // vs surface 7.9:1
-  mark: "#9AA3BF", // vs surface 5.7:1，vs bg 6.8:1
-  line: "#343A4E",
-  cardEdge: "#6B7493", // 比面亮一档，像月光照到的边：vs bg 3.7:1
-  danger: "#F0918A", // vs bg 7.4:1，vs surface 6.2:1；危险按钮上的 bg 色字 7.4:1
-  ok: "#7FD1A6", // vs surface 7.9:1
+  bg: "#1E1915",
+  surface: "#2A231D",
+  surface2: "#241E19",
+  tint: "#1E3B38",
+  ink: "#FBF1E4", // vs bg 15.6:1，vs surface 13.9:1，vs surface2 14.8:1，vs tint 10.8:1
+  ink2: "#D4C5B3", // vs bg 10.3:1，vs surface 9.2:1，vs surface2 9.8:1，vs tint 7.2:1
+  primary: "#5CC0B5", // vs bg 8.0:1，vs head 3.4:1
+  primaryEdge: "#2F857C", // vs bg 4.0:1
+  onPrimary: "#0F2725", // vs primary 7.2:1
+  primaryInk: "#7FD8CE", // vs bg 10.5:1，vs surface 9.3:1，vs tint 7.3:1
+  done: "#7FD1A6", // vs surface 8.5:1
+  mark: "#A8988A", // vs surface 5.5:1，vs bg 6.2:1
+  line: "#3A3029",
+  cardEdge: "#4A3E34",
+  danger: "#F0918A", // vs bg 7.6:1，vs surface 6.7:1
+  ok: "#7FD1A6", // vs surface 8.5:1
   overlay: "rgba(0, 0, 0, 0.55)",
   hi: "rgba(255, 255, 255, 0.06)",
   stage: "#1B2033",
-  kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
+  head: "#7A4A27", // 暗橙头卡
+  onHead: "#FBF1E4", // vs head 6.6:1
+  // 块上的字：ink vs 块 9.2–13.7:1，ink2 vs 块 6.1–9.1:1
+  kind: { class: "#2E3A55", must: "#2F4136", proj: "#553B27", flex: "#553136", life: "#2A241F" },
+  // 块边界 vs bg / vs surface：class 7.4 / 6.6，must 8.0 / 7.1，proj 7.7 / 6.8，flex 7.3 / 6.5，life 4.4 / 3.9
+  kindEdge: { class: "#8FA9E0", must: "#8DBB98", proj: "#D9A170", flex: "#DE939C", life: "#8C7E70" },
 };
 
 /** 新令牌加上旧名字（旧页面还在用，任务 2–4 换完再删）。clay 是卡片的整套厚度：内高光 + 实色底边。 */

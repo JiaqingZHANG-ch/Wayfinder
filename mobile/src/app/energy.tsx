@@ -214,7 +214,7 @@ function Cell({ n, lit, checked, disabled, onPress }: { n: number; lit: boolean;
     <Pressy onPress={onPress} disabled={disabled} scaleTo={0.94}
       accessibilityRole="radio" accessibilityState={{ checked, disabled }} accessibilityLabel={`电量 ${n} 格，${BATTERY_HINT[n]}`}
       style={{ flex: 1, height: 64, borderRadius: 6, backgroundColor: c.sunken, overflow: "hidden" }}>
-      <Animated.View pointerEvents="none" style={[{ flex: 1, backgroundColor: c.kind.must }, fill]} />
+      <Animated.View pointerEvents="none" style={[{ flex: 1, backgroundColor: c.kindEdge.must }, fill]} />
     </Pressy>
   );
 }

@@ -11,6 +11,21 @@ export type Block = {
   kind: "life" | "must" | "proj" | "flex" | "class"; // 生活 | 习惯 | 项目 | 可选 | 课
   task_id: string | null;
   pomodoros: number | null;
+  pinned?: boolean; // 手动改过的块
+  item_id?: string; // 来自当天事项的块：对应 DayItem.id
+};
+
+/** 说出来的一件当天事项。fixed 有 start / end，task 的是 null。source：说的 / 上次（用过的时长）/ 估的。 */
+export type DayItem = {
+  id: string;
+  title: string;
+  kind: "fixed" | "task";
+  start: string | null;
+  end: string | null;
+  minutes: number;
+  effort: "light" | "normal" | "heavy";
+  estimated: boolean;
+  source: "说的" | "上次" | "估的";
 };
 
 /** 一条本地提醒：at 是当天的 "HH:MM"，url 是点开后去的页面。 */
@@ -32,6 +47,7 @@ export type Plan = {
   tomorrow_task?: string | null; // 只有 GET /today 带：对账时写的「明天先做」
   checkin?: { items: Record<string, { status?: Status; vs_plan?: VsPlan }>; note: string | null; blocker: string | null } | null; // 只有 GET /today 带：今晚上次对账记的
   calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
+  items?: DayItem[]; // GET /today 和 POST /day/say 带：今天说过的事项
 };
 
 /** 近 7 天：每个习惯做了几天（含保底）；每个项目几天比预想少 / 差不多 / 多。 */
@@ -152,6 +168,8 @@ export const confirmProfile = (id: number, content?: string) =>
   send<{ confirmed: Profile[]; pending: Profile[] } | Crisis>("POST", "/profile/confirm", { id, content });
 /** preview：只算不存（version 是 0），面板里点「就这样」时再正式报一次。 */
 export const postEnergy = (level: number, preview = false) => send<Plan | Crisis>("POST", "/energy", { level, preview });
+/** 说一句今天要做什么：替换当天全部事项，返回还没确认的新一版计划。听不懂是 422。 */
+export const sayDay = (text: string) => send<Plan | Crisis>("POST", "/day/say", { text });
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
 export const getMe = () => send<Me>("GET", "/me");
 /** consent 不填 = 只改国家，不算同意。 */

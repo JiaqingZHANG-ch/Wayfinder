@@ -23,7 +23,7 @@ export function Dots({ label, from, to, value, onChange, ends }: {
               style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center" }}>
               <View style={{ width: value === n ? 20 : 14, height: value === n ? 20 : 14, borderRadius: radius.pill,
                 backgroundColor: lit ? c.primaryEdge : "transparent", borderWidth: lit ? 0 : 1.5,
-                borderColor: n === 0 && value === 0 ? c.primaryEdge : c.kind.life }} />
+                borderColor: n === 0 && value === 0 ? c.primaryEdge : c.kindEdge.life }} />
             </Pressy>
           );
         })}

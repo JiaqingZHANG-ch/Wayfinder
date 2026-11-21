@@ -274,7 +274,7 @@ export default function DeepTalk() {
           {st.steps.map((x) => (
             <View key={x.step} accessible accessibilityLabel={`${x.name}，${x.status === "done" ? "聊过了" : "还没聊"}`}
               style={{ alignItems: "center", gap: space.xs }}>
-              <Glyph name={x.name} color={c.kind.proj} size={28} fill={x.status === "done" ? "full" : "empty"} />
+              <Glyph name={x.name} color={c.kindEdge.proj} size={28} fill={x.status === "done" ? "full" : "empty"} />
               <Text style={[type.small, { color: c.muted }]}>{x.name}</Text>
             </View>
           ))}
@@ -417,7 +417,7 @@ export default function DeepTalk() {
     const filled = Object.fromEntries(Object.entries(follow).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()]));
     bottom = <Button label="下一步" busyLabel={busy ? "正在存……" : undefined} onPress={() => answer(step, s.id, filled)} />;
   } else if (s.kind === "energy") {
-    const look = { habit: c.kind.must, class: c.kind.class, project: c.kind.proj };
+    const look = { habit: c.kindEdge.must, class: c.kindEdge.class, project: c.kindEdge.proj };
     const value = (i: DeepTalkState["energy_items"][number]) => (i.id in energy ? energy[i.id] : i.energy);
     body = (
       <>
