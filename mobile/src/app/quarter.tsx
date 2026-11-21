@@ -33,9 +33,9 @@ export default function QuarterScreen() {
   const load = () => {
     getQuarter().then((r) => {
       setAreas(r.areas);
-      if (!r.available && r.last?.council_status) { // 做过「请几个视角看看」：直接回到那份结果页，不用重填表单
+      if (!r.available && r.last) { // 这一季做过了：直接回到那份结果页（视角也在那里），不用重填表单
         setSaved(r.last);
-        setView(r.last);
+        if (r.last.council_status) setView(r.last);
         // 后端重启过会停在 running：再 POST 一次（幂等，线程没了就重跑），不然一直转圈
         if (r.last.council_status === "running") startQuarterCouncil().catch((e) => setMessage(say(e)));
       }
