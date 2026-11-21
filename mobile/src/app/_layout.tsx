@@ -67,7 +67,8 @@ function Root() {
           animation: "slide_from_bottom", title: "每周复盘" }} />
         <Stack.Screen name="data" options={{ headerShown: false, title: "我的数据" }} />
         <Stack.Screen name="privacy" options={{ headerShown: false, title: "隐私说明" }} />
-        <Stack.Screen name="settings" options={{ headerShown: false, title: "设置" }} />
+        <Stack.Screen name="letter" options={{ headerShown: false, title: "给自己的信" }} />
+        <Stack.Screen name="settings"options={{ headerShown: false, title: "设置" }} />
       </Stack>
     </GestureHandlerRootView>
   );

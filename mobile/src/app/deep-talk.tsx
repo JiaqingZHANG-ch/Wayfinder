@@ -5,15 +5,15 @@ import Animated, { FadeIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
-  answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, Energy, getDeepTalk, getProfile, HabitProposal, isCrisis, OFFLINE,
-  pendingCount, Profile, say, startCouncil, TalkConfirm,
+  answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, declineLetter, dayText, Energy, getDeepTalk, getProfile, HabitProposal, isCrisis, OFFLINE,
+  pendingCount, postLetter, Profile, say, startCouncil, TalkConfirm,
 } from "@/api";
 import { Glyph } from "@/components/art";
 import { EnergyPick } from "@/components/chips";
 import { Changes } from "@/components/changes";
 import { CouncilView, VERSION } from "@/components/council-view";
 import { ahead, Bar, haptic, Pressy, Skeleton } from "@/components/motion";
-import { Body, Button, Card, Chip, CrisisCard, Display, Field, IconButton, Notice, Small, Title } from "@/components/ui";
+import { Body, Button, Card, Chip, CrisisCard, Display, Field, IconButton, Notice, Row, Small, Title } from "@/components/ui";
 import { motion, radius, space, type, useColors } from "@/theme";
 import { planDiff } from "@/diff";
 
@@ -297,6 +297,7 @@ export default function DeepTalk() {
           {step < 4 && <Body muted>下次对完账，我们接着聊第 {step + 1} 次。</Body>}
           {step === 4 && st.habits_full && <Body muted>习惯已经满 3 个了。想加新的，先在设置里换掉一个。</Body>}
           {step === 4 && a.choose === null && <Body muted>想好了，可以从「我」页回来选一个版本。</Body>}
+          {step === 4 && st.letter_ask && <LetterCard onState={setSt} onCrisis={setCrisis} />}
         </>
       );
     }
@@ -631,6 +632,51 @@ function HabitCard({ h, label, goal, yes, edits, setEdits, busy, decide }: {
       <Pair yes={yes} no="先不要" yesOff={!v.trim()} busy={busy}
         onYes={() => decide({ kind: "habit", key: h.key }, true, proto ? v.trim() : undefined)}
         onNo={() => decide({ kind: "habit", key: h.key }, false)} />
+    </Card>
+  );
+}
+
+/** 第 4 次小结里的回信卡：要不要给 30 天后的自己留几句话。封好以后留在原地显示日期（后端那边已经不再问了）。 */
+function LetterCard({ onState, onCrisis }: { onState: (s: DeepTalkState) => void; onCrisis: (m: string) => void }) {
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState("");
+  const [days, setDays] = useState<30 | 90>(30);
+  const [due, setDue] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run(req: () => Promise<void>) {
+    setBusy(true);
+    setMessage(null);
+    try { await req(); } catch (e) { setMessage(say(e)); } finally { setBusy(false); }
+  }
+  const seal = () => run(async () => {
+    const res = await postLetter(days, text.trim());
+    if (isCrisis(res)) return onCrisis(res.message);
+    setDue(res.letters.reduce((a, b) => (b.id > a.id ? b : a)).due);
+  });
+  const decline = () => run(async () => onState(await declineLetter()));
+
+  if (due) return <Card><Body>{`到 ${dayText(due)} 再打开`}</Body></Card>;
+  return (
+    <Card>
+      <Title>{`要不要给 ${days} 天后的自己留几句话？`}</Title>
+      {writing ? (
+        <>
+          <Field value={text} multiline accessibilityLabel="给自己的信" onChangeText={setText} />
+          <Row>
+            <Chip label="30 天" on={days === 30} onPress={() => setDays(30)} />
+            <Chip label="90 天" on={days === 90} onPress={() => setDays(90)} />
+          </Row>
+          <Button label="封好" disabled={busy || !text.trim()} onPress={seal} />
+        </>
+      ) : (
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          <View style={{ flex: 1 }}><Button label="要" disabled={busy} onPress={() => setWriting(true)} /></View>
+          <View style={{ flex: 1 }}><Button label="不用了" variant="neutral" disabled={busy} onPress={decline} /></View>
+        </View>
+      )}
+      {message && <Notice tone="error">{message}</Notice>}
     </Card>
   );
 }

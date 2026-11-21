@@ -14,7 +14,7 @@ export type Block = {
 };
 
 /** 一条本地提醒：at 是当天的 "HH:MM"，url 是点开后去的页面。 */
-export type Reminder = { kind: "after_class" | "evening"; at: string; title: string; body: string; url: string };
+export type Reminder = { kind: "after_class" | "evening" | "letter"; at: string; title: string; body: string; url: string };
 
 export type Plan = {
   day: string;
@@ -210,6 +210,7 @@ export type DeepTalkState = {
   tonight_task: string | null;
   can_set_tomorrow: boolean; // 今晚对过账才能定明天的一件事
   habits_full: boolean;
+  letter_ask: boolean; // 第 4 次做完、还没问过要不要给将来的自己写信
   energy_items: { id: string; title: string; kind: "habit" | "class" | "project"; energy: Energy | null }[];
   reply: string | null; // 只有答开放问题时有：导师的一句
   tomorrow_change?: { before: Block[]; after: Block[] }; // 只有第 3 次标完累不累、真改了时有：明天改前改后的计划
@@ -231,7 +232,17 @@ export const startCouncil = () => send<DeepTalkState>("POST", "/deep-talk/counci
 /** content 不填 = 原样。 */
 export const confirmDeepTalk = (what: TalkConfirm, accept: boolean, content?: string) =>
   send<DeepTalkState | Crisis>("POST", "/deep-talk/confirm", { ...what, accept, content });
-export const restartDeepTalk = () => send<DeepTalkState>("POST", "/deep-talk/restart", {});
+/** 给将来自己的信：sealed 没到期（只有日期）；open 到期了，带原文和这段时间的数字，done_days 是 null = 没有对应的习惯。 */
+export type Letter = {
+  id: number; written_on: string; due: string; days: 30 | 90; status: "sealed" | "open";
+  text?: string; prototype?: string | null; logged_days?: number; done_days?: number | null; span_days?: number;
+};
+export const getLetters = () => send<{ letters: Letter[] }>("GET", "/letters");
+export const postLetter = (days: 30 | 90, text: string) => send<{ letters: Letter[] } | Crisis>("POST", "/letters", { days, text });
+export const declineLetter = () => send<DeepTalkState>("POST", "/letters/decline", {});
+/** "2026-12-21" → "2026年12月21日" */
+export const dayText = (d: string) => `${d.slice(0, 4)}年${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`;
+export const restartDeepTalk =() => send<DeepTalkState>("POST", "/deep-talk/restart", {});
 
 /** 今晚要对账的事项：习惯和可选项按块 id，项目按任务 id 只算一次。和后端 api.py 的 _items 一致。 */
 export function checkinItems(plan: Plan): CheckinItem[] {

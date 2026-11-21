@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { DeepTalkState, getDeepTalk, getProfile, getSettings, getToday, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
+import { DeepTalkState, getDeepTalk, getLetters, getProfile, getSettings, getToday, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
 import { clayIcon } from "@/clay-icon";
 import { EventIcon, Figure } from "@/components/clay";
 import { enter, Skeleton } from "@/components/motion";
@@ -22,9 +22,11 @@ export default function MeScreen() {
   const [dir, setDir] = useState<{ talk: DeepTalkState; confirmed: Profile[] } | null>(null);
   const [level, setLevel] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
+  const [hasLetters, setHasLetters] = useState(false);
   const load = useCallback(() => {
     setFailed(false);
     getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就和今天页一样微笑
+    getLetters().then((r) => setHasLetters(r.letters.length > 0), () => {}); // 拿不到就不显示这一行
     getSettings().then(setS, () => setFailed(true));
     Promise.all([getDeepTalk(), getProfile()]).then(([talk, p]) => setDir({ talk, confirmed: p.confirmed }), () => setFailed(true));
   }, []);
@@ -116,6 +118,12 @@ export default function MeScreen() {
             ))}
           </ScrollView>
         </Animated.View>
+      )}
+
+      {hasLetters && (
+        <Card i={4} style={{ paddingVertical: space.xs }}>
+          <ListRow icon="mail-outline" title="给自己的信" onPress={() => router.push("/letter")} last />
+        </Card>
       )}
 
       <Text accessibilityRole="header" style={[label, { paddingHorizontal: space.xs }]}>计划</Text>
