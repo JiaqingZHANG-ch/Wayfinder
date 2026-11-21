@@ -216,6 +216,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     settings_lock = threading.Lock()
     # (用户, 轮) → 正在跑的智囊团线程。shortcut: 只在一个进程里有效；后端开多个进程时要换成数据库里的心跳
     council_threads: dict[tuple[int, int], threading.Thread] = {}
+    council_lock = threading.Lock()
     if db.plan_input(USER_ID) is None and template is not None:
         db.set_plan_input(USER_ID, template)  # 开发用：设了 PLAN_TEMPLATE 就跳过建档
 
@@ -709,7 +710,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                     x["energy"] = body.value.get(x["id"], x["energy"])
                 for c in form["timetable"]:
                     c["energy"] = body.value.get(f"class:{c['title']}", c["energy"])
-            if crisis := change_settings(mark):
+            with settings_lock:  # 和接受习惯排队：两边各读一份旧设置，后写的会盖掉先写的
+                crisis = change_settings(mark)
+            if crisis:
                 return crisis
         answers = {**answers, body.step: mine}
         fields: dict = {}
@@ -739,8 +742,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.upsert_deep_talk(USER_ID, rnd, step, snoozes=rows.get(step, {}).get("snoozes", 0) + 1)
         return talk_state()
 
-    @app.post("/deep-talk/council", summary="三个版本写完后请智囊团看：后台跑，马上返回；App 每 3 秒查 GET /deep-talk")
-    def post_deep_talk_council():
+    def start_council() -> dict:
         day = logical_date(clock())
         rnd, rows, answers = talk_rows()
         a4 = answers.get(4, {})
@@ -771,11 +773,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         thread.start()
         return state
 
+    @app.post("/deep-talk/council", summary="三个版本写完后请智囊团看：后台跑，马上返回；App 每 3 秒查 GET /deep-talk")
+    def post_deep_talk_council():
+        with council_lock:  # 查状态、写 running、开线程一起做完：连点不会开两次会
+            return start_council()
+
     @app.post("/deep-talk/confirm", summary="确认或不要一条提议：档案、习惯（走设置保存）、明天的一件事（并进今晚的对账）")
     def post_deep_talk_confirm(body: DeepTalkConfirmIn):
         day = logical_date(clock())
         if crisis := screen(body, day):
             return crisis
+        # 连点两条「好」：排队处理，不然两边各读一份旧的提议和设置，丢一条或重复加（save_settings 里不拿这把锁）
+        with settings_lock:
+            return confirm_proposal(body, day)
+
+    def confirm_proposal(body: DeepTalkConfirmIn, day) -> dict:
         rnd, _, answers = talk_rows()
         a4 = answers.get(4, {})
         if body.kind == "profile":
@@ -801,7 +813,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 ids = set(a4.get("profile_ids", []))
                 goal = next((x["id"] for x in db.profiles(USER_ID, confirmed=True)
                              if x["level"] == "目标" and x["id"] in ids), None) if p["source"] == "deep_talk" else None
-                new = {"title": body.content or p["title"], "minutes": p["minutes"], "floor_min": p["floor_min"],
+                new = {"title": (body.content or "").strip() or p["title"], "minutes": p["minutes"], "floor_min": p["floor_min"],
                        "source": p["source"], "goal_id": goal}
                 if crisis := change_settings(lambda form: form["habits"].append(new)):  # 排不下抛 422，提议保持 pending
                     return crisis
@@ -811,9 +823,15 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             if not a4.get("tomorrow") or a4.get("tomorrow_done"):
                 raise HTTPException(409, "没有待确认的明天的一件事")
             if body.accept:  # 只带 tomorrow_task 一项：今晚对账的其他内容原样保留
-                if not db.logs_between(USER_ID, day, day):  # 不能替他建一条今晚的对账
+                if not (log := db.logs_between(USER_ID, day, day)):  # 不能替他建一条今晚的对账
                     raise HTTPException(409, "先对完今晚的账，再定明天的一件事")
-                merge_log(day, validate_checkin({"tomorrow_task": body.content or a4["tomorrow"]}, day, {}), {"tomorrow_task"})
+                text = (body.content or "").strip() or a4["tomorrow"].strip()
+                if not text:
+                    raise HTTPException(422, "明天的一件事不能是空的")
+                result = validate_checkin({"tomorrow_task": text}, day, {})
+                # 带上今晚记过的电量：不带的话 merge_log 会拿今天最后一次报的电量盖掉它
+                result["energy_after_class"] = log[0]["energy_after_class"]
+                merge_log(day, result, {"tomorrow_task"})
             db.upsert_deep_talk(USER_ID, rnd, 4, answers={**a4, "tomorrow_done": True})
         return talk_state()
 

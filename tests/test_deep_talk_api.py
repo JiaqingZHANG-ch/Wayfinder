@@ -1,4 +1,5 @@
 import json
+import threading
 from datetime import datetime
 
 import pytest
@@ -269,3 +270,60 @@ def test_council_stuck_running_after_restart_runs_again(setup):
     assert client.post("/deep-talk/council").json()["council"]["status"] == "running"
     client.app.state.deep_talk_thread.join()
     assert client.get("/deep-talk").json()["council"]["status"] == "done"
+
+
+def test_two_habit_accepts_at_once_both_land_once(setup):
+    client, _, _ = setup
+    settings = client.get("/settings").json()
+    settings["habits"] = settings["habits"][1:]  # 只留「背单词」：再加两条也不超过 3 个，今天也排得下
+    assert client.put("/settings", json=settings).status_code == 200
+    s = walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "choose", None)])
+    keys = [h["key"] for h in s["proposals"]["habits"]]
+    assert keys == ["move", "sleep"]
+    barrier, codes = threading.Barrier(2), []
+
+    def accept(key):
+        barrier.wait()
+        codes.append(client.post("/deep-talk/confirm", json={"kind": "habit", "key": key, "accept": True}).status_code)
+    threads = [threading.Thread(target=accept, args=(k,)) for k in keys]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert codes == [200, 200]
+    titles = [h["title"] for h in client.get("/settings").json()["habits"]]
+    assert sorted(titles) == sorted(["背单词", "运动", "睡前放下手机"])
+    assert [h["status"] for h in client.get("/deep-talk").json()["proposals"]["habits"]] == ["accepted", "accepted"]
+
+
+def test_tomorrow_confirm_keeps_tonight_energy_and_ignores_blank_edit(setup):
+    client, db, model = setup
+    client.post("/checkin", json={"result": {"energy_after_class": 2, "items": {"english": {"status": "done"}}}})
+    client.post("/energy", json={"level": 4, "now": "18:00"})
+    finish_step4(client, model)
+    r = client.post("/deep-talk/confirm", json={"kind": "tomorrow", "content": "   ", "accept": True})
+    assert r.status_code == 200
+    [log] = db.logs_between(1, datetime(2026, 11, 20).date(), datetime(2026, 11, 20).date())
+    assert log["energy_after_class"] == 2 and log["tomorrow_task"] == "投一份实习申请"
+
+
+def test_habit_accept_that_cannot_be_saved_stays_pending(setup):
+    client, _, model = setup
+    finish_step4(client, model)
+    r = client.post("/deep-talk/confirm", json={"kind": "habit", "key": "prototype", "content": "名" * 21, "accept": True})
+    assert r.status_code == 422
+    assert next(h for h in client.get("/deep-talk").json()["proposals"]["habits"] if h["key"] == "prototype")["status"] == "pending"
+    assert len(client.get("/settings").json()["habits"]) == 2
+
+
+def test_follow_and_energy_bad_answers_store_nothing(setup):
+    client, db, _ = setup
+    walk(client, STEPS_1_3[:6])
+    assert answer(client, 3, "follow", {"在哪": "家", "和谁": "一个人", "用什么": "电脑"}).status_code == 422  # 最多 2 项
+    r = answer(client, 3, "follow", {"和谁": "一个人的时候我想死"}).json()
+    assert r["crisis"] is True and db.crisis_count(1) == 1
+    s = client.get("/deep-talk").json()
+    assert s["screen"] == "follow" and "follow" not in s["answers"]["3"]
+    walk(client, [(3, "follow", {})])
+    assert answer(client, 3, "energy", {"nope": "love"}).status_code == 422
+    assert client.get("/deep-talk").json()["screen"] == "energy"
