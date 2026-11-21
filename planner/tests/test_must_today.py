@@ -50,3 +50,10 @@ def test_full_day_evening_rule_does_not_block():
 def test_not_enough_time_names_the_task():
     with pytest.raises(PlanInfeasible, match=r"今天剩下的时间排不下：写报告（还差 \d+ 分钟）"):
         solve_day(student(remaining_min=1200))
+
+
+def test_one_block_when_it_fits():
+    # 说「健身一小时」：一块装得下就排成一整块，不拆两段；排不下时才退回拆开（上面满课日那条）
+    inp = student(title="健身", remaining_min=60, heavy=False)
+    blocks = [b for b in solve_day(inp).blocks if b.task_id == "say-1"]
+    assert len(blocks) == 1 and blocks[0].end - blocks[0].start == 60

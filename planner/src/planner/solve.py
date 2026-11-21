@@ -184,7 +184,7 @@ def free_blocks(inp: PlanInput, blocks: list[Block]) -> list[Block]:
 
 
 def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
-           tasks: list[Task] = (), flex: list[Flex] = (), relax: bool = False, hard_must: bool = True) -> DayPlan | None:
+           tasks: list[Task] = (), flex: list[Flex] = (), relax: bool = False, hard_must: bool = True, whole: bool = True) -> DayPlan | None:
     m = cp_model.CpModel()
     pad = inp.rules.min_gap_min
     lo, hi = inp.wake, inp.sleep
@@ -303,8 +303,12 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             if hard:
                 return None
             continue
-        # 今天必做的块数要够排完；不占「最多 3 块」的名额
-        nb = max(BLOCKS_PER_TASK, -(-need_min(t) // (POMODORO_MIN * N))) if t.must_today else BLOCKS_PER_TASK
+        # 今天必做的：一块装得下就只给一块（说「健身一小时」就排成一整块，不拆两段），
+        # 装不下才给够排完的块数；不占「最多 3 块」的名额
+        if t.must_today:
+            nb = 1 if whole and need_min(t) <= POMODORO_MIN * N else max(BLOCKS_PER_TASK, -(-need_min(t) // (POMODORO_MIN * N)))
+        else:
+            nb = BLOCKS_PER_TASK
         prev, progs, lasts, ps = None, [], [], []
         for k in range(nb):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
@@ -486,9 +490,11 @@ def solve_day(inp: PlanInput) -> DayPlan:
     if conflict:
         raise PlanInfeasible(conflict)
     plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
+    if plan is None and any(t.must_today for t in inp.tasks):  # 一整块放不下就允许拆开再排
+        plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, whole=False)
     if plan is None and any(t.must_today for t in inp.tasks):
         # 不强求今天必做的排完再排一次：排得出来就说明是它们放不下，按尽量排后的差额点名
-        soft = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, hard_must=False)
+        soft = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, hard_must=False, whole=False)
         short = [f"{t.title}（还差 {n} 分钟）" for t in inp.tasks if t.must_today and soft
                  and (n := need_min(t) - sum(b.progress_min or 0 for b in soft.blocks if b.task_id == t.id)) > 0]
         if short:
