@@ -19,7 +19,10 @@ const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 const OPEN = { duration: 380, easing: Easing.bezier(0.32, 0.72, 0, 1) }; // iOS 系统面板的曲线，不冲过头
 const SHUT = { duration: 220, easing: Easing.in(Easing.cubic) };
 
-export function Sheet({ children }: { children: (close: () => void) => ReactNode }) {
+/** header：标题那一行，和把手一起都能按住往下拖（系统面板就是按住顶部任何地方都能拖）。 */
+export function Sheet({ header, children }: {
+  header?: (close: () => void) => ReactNode; children: (close: () => void) => ReactNode;
+}) {
   const c = useColors();
   const bottom = useSafeAreaInsets().bottom;
   const { height } = useWindowDimensions();
@@ -67,8 +70,11 @@ export function Sheet({ children }: { children: (close: () => void) => ReactNode
             borderWidth: 1, borderBottomWidth: 0, borderColor: c.glassEdge, boxShadow: c.glassShadow,
             paddingHorizontal: space.lg, paddingBottom: bottom + space.lg }}>
         <GestureDetector gesture={drag}>
-          <View style={{ alignItems: "center", paddingTop: space.sm, paddingBottom: space.lg, marginHorizontal: -space.lg }}>
-            <View style={{ width: 40, height: 5, borderRadius: radius.pill, backgroundColor: c.line }} />
+          <View style={{ paddingBottom: header ? space.lg : 0 }}>
+            <View style={{ alignItems: "center", paddingTop: space.sm, paddingBottom: space.lg, marginHorizontal: -space.lg }}>
+              <View style={{ width: 40, height: 5, borderRadius: radius.pill, backgroundColor: c.line }} />
+            </View>
+            {header?.(close)}
           </View>
         </GestureDetector>
         {children(close)}

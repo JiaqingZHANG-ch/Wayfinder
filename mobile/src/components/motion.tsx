@@ -21,16 +21,17 @@ export const haptic = {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-type PressyProps = Omit<PressableProps, "style"> & { style?: StyleProp<ViewStyle>; scaleTo?: number };
+type PressyProps = Omit<PressableProps, "style"> & { style?: StyleProp<ViewStyle>; scaleTo?: number; fadeTo?: number };
 
 /** 按下轻轻缩一点、松开弹回。所有能点的块都用它，手感才一致。 */
-export function Pressy({ style, scaleTo = 0.97, onPressIn, onPressOut, ...rest }: PressyProps) {
+export function Pressy({ style, scaleTo = 0.97, fadeTo = 1, onPressIn, onPressOut, ...rest }: PressyProps) {
   const s = useSharedValue(1);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  const o = useSharedValue(1);
+  const a = useAnimatedStyle(() => (fadeTo < 1 ? { transform: [{ scale: s.value }], opacity: o.value } : { transform: [{ scale: s.value }] }));
   return (
     <AnimatedPressable {...rest} style={[style, a]}
-      onPressIn={(e) => { s.set(withSpring(scaleTo, motion.press)); onPressIn?.(e); }}
-      onPressOut={(e) => { s.set(withSpring(1, motion.press)); onPressOut?.(e); }} />
+      onPressIn={(e) => { s.set(withSpring(scaleTo, motion.press)); o.set(withTiming(fadeTo, { duration: 80 })); onPressIn?.(e); }}
+      onPressOut={(e) => { s.set(withSpring(1, motion.press)); o.set(withTiming(1, { duration: 160 })); onPressOut?.(e); }} />
   );
 }
 

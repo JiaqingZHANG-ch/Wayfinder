@@ -1,13 +1,13 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
-import Animated, { FadeInRight } from "react-native-reanimated";
+import Animated, { FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Adjustment, answerAdjustment, confirmProfile, getReview, getWeek, isCrisis, Review, Week } from "@/api";
-import { Bar, haptic, Skeleton } from "@/components/motion";
+import { ahead, Bar, haptic, Skeleton } from "@/components/motion";
 import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, IconButton, Notice, Small, Stat, Title } from "@/components/ui";
-import { motion, radius, space, useColors } from "@/theme";
+import { radius, space, useColors } from "@/theme";
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -35,6 +35,7 @@ export default function ReviewScreen() {
   const [edited, setEdited] = useState("");
   const [busy, setBusy] = useState(false); // 一次只答一条：连点也只发一个请求
   const [idx, setIdx] = useState(0);
+  const [back, setBack] = useState(false); // 刚才是往回翻：新的一屏从左边进来
 
   function load() {
     getWeek().then(setWeek, () => {}); // 瓷砖拿不到就只显示后端写的那段话
@@ -50,7 +51,7 @@ export default function ReviewScreen() {
   if (review && (review.last_question || review.still_right)) steps.push({ t: "last" });
   steps.push({ t: "next" });
   const step = steps[Math.min(idx, steps.length - 1)];
-  const go = (i: number) => { setMessage(null); setIdx(i); };
+  const go = (i: number) => { setMessage(null); setBack(i < idx); setIdx(i); };
 
   async function answer(index: number, accept: boolean) {
     if (!review || busy) return;
@@ -127,15 +128,18 @@ export default function ReviewScreen() {
           <View style={{ gap: space.md }}>
             <Stat size="big" label="记了几晚" value={week.logged_days} unit="/ 7 晚" />
             {week.habits.length > 0 && (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
-                {week.habits.map((h) => (
-                  <Stat key={h.id} label={h.title} value={h.done_days} unit="天" sub="含保底" style={{ flexBasis: "40%" }} />
-                ))}
-              </View>
+              <>
+                <Small muted>做了几天（含保底）</Small>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
+                  {week.habits.map((h) => (
+                    <Stat key={h.id} label={h.title} value={h.done_days} unit="天" style={{ flexBasis: "40%" }} />
+                  ))}
+                </View>
+              </>
             )}
           </View>
         )}
-        <Body muted>{review.summary}</Body>
+        {!week && <Body muted>{review.summary}</Body>}
       </>
     );
     bottom = <Button label="下一步" onPress={() => go(idx + 1)} />;
@@ -202,11 +206,12 @@ export default function ReviewScreen() {
         {idx > 0
           ? <IconButton name="chevron-back" label="上一步" onPress={() => go(idx - 1)} />
           : <IconButton name="close" label="关闭" onPress={leave} />}
-        <View style={{ flex: 1 }}><Bar value={(idx + 1) / steps.length} color={c.primary} height={6} /></View>
+        <View style={{ flex: 1 }}><Bar value={(idx + 1) / steps.length} color={c.primary} height={6} duration={300} /></View>
         {idx > 0 && <IconButton name="close" label="关闭" onPress={leave} />}
       </View>
       <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">
-        <Animated.View key={`${idx}-${step.t}`} entering={FadeInRight.duration(motion.base)} style={{ gap: space.lg }}>
+        <Animated.View key={`${idx}-${step.t}`} entering={ahead(back ? "left" : "right")}
+          exiting={Platform.OS === "web" ? undefined : FadeOut.duration(120)} style={{ gap: space.lg }}>
           {body}
         </Animated.View>
       </ScrollView>

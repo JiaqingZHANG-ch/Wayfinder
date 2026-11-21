@@ -4,7 +4,7 @@ import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
 import Animated, { Easing, FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { ApiError, Block, confirmPlan, getToday, isCrisis, Plan, postEnergy } from "@/api";
+import { ApiError, Block, confirmPlan, getToday, isCrisis, Plan, postEnergy, say } from "@/api";
 import { planDiff } from "@/diff";
 import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
 import { BATTERY_HINT } from "@/labels";
@@ -17,14 +17,26 @@ const nowHHMM = () => new Date().toTimeString().slice(0, 5);
 
 /** 下课后报电量：底部弹出的面板。点一格 → 后端只重排今晚 → 先列出改了哪几处，点「就这样」才算确认。 */
 export default function EnergyScreen() {
-  return <Sheet>{(close) => <EnergyPanel close={close} />}</Sheet>;
+  return (
+    <Sheet header={(close) => (
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <Title>现在电量几格？</Title>
+          <Small muted>只动现在之后的安排。</Small>
+        </View>
+        <IconButton name="close" label="关闭" onPress={close} />
+      </View>
+    )}>
+      {(close) => <EnergyPanel close={close} />}
+    </Sheet>
+  );
 }
 
 function EnergyPanel({ close }: { close: () => void }) {
   const c = useColors();
   const [level, setLevel] = useState<number | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [message, setMessage] = useState<{ text: string; error: boolean; retry?: number } | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -43,8 +55,7 @@ function EnergyPanel({ close }: { close: () => void }) {
     setBusy(true);
     setMessage(null);
     setCrisis(null);
-    setPlan(null);
-    setFull(false);
+    // 换一格时不清掉上一次的结果：旧的改动先变淡留在原地，新的回来再换，面板不塌下去再长回来
     try {
       // 面板刚打开就点、原来的安排还没拿到时，先拿到再报，不然比出来是「不用动」
       if (!before) await getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
@@ -52,8 +63,10 @@ function EnergyPanel({ close }: { close: () => void }) {
       if (isCrisis(res)) setCrisis(res.message);
       else setPlan(res);
     } catch (e) {
-      // 409「今天已经过完了」是状态说明，不是出错
-      setMessage({ text: (e as Error).message, error: !(e instanceof ApiError && e.status === 409) });
+      // 409「今天已经过完了」是状态说明，不是出错；真出错时电池熄掉，不留一个没报上的格数
+      const real = !(e instanceof ApiError && e.status === 409);
+      if (real) { setLevel(null); setPlan(null); }
+      setMessage({ text: say(e), error: real, retry: real ? n : undefined });
     } finally {
       setBusy(false);
     }
@@ -73,7 +86,7 @@ function EnergyPanel({ close }: { close: () => void }) {
         setMessage({ text: "计划确认好了，但这次没写进日历。", error: false });
       } else close();
     } catch (e) {
-      setMessage({ text: (e as Error).message, error: true });
+      setMessage({ text: say(e), error: true });
     } finally {
       setBusy(false);
     }
@@ -81,15 +94,7 @@ function EnergyPanel({ close }: { close: () => void }) {
 
   return (
     <View style={{ gap: space.lg, flexShrink: 1 }}>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
-        <View style={{ flex: 1, gap: space.xs }}>
-          <Title>现在电量几格？</Title>
-          <Small muted>只动现在之后的安排。</Small>
-        </View>
-        <IconButton name="close" label="关闭" onPress={close} />
-      </View>
-
-      <Battery level={level} disabled={busy || confirmed} onPick={report} />
+      <Battery level={level} disabled={(busy && !plan) || confirmed} onPick={report} />
 
       <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: space.md }} keyboardShouldPersistTaps="handled">
         {busy && !plan && (
@@ -101,8 +106,10 @@ function EnergyPanel({ close }: { close: () => void }) {
         )}
         {crisis && <CrisisCard message={crisis} />}
         {message && <Notice tone={message.error ? "error" : "info"}>{message.text}</Notice>}
+        {message?.retry && <Button label="再试一次" icon="refresh" variant="secondary" onPress={() => report(message.retry!)} />}
         {plan && (
-          <Animated.View entering={FadeIn.duration(260)} style={{ gap: space.md }}>
+          <Animated.View entering={FadeIn.duration(260)} pointerEvents={busy ? "none" : "auto"}
+            style={{ gap: space.md, opacity: busy ? 0.4 : 1, transitionProperty: "opacity", transitionDuration: "160ms" }}>
             {changes && <Changes changes={changes} />}
             {changes && (
               <Pressy onPress={() => setFull(!full)} accessibilityRole="button" accessibilityState={{ expanded: full }}
@@ -116,7 +123,7 @@ function EnergyPanel({ close }: { close: () => void }) {
         )}
       </ScrollView>
 
-      {plan && !confirmed && <Button label="就这样" icon="checkmark" busyLabel={busy ? "正在确认……" : undefined} onPress={confirm} />}
+      {plan && !confirmed && <Button label="就这样" icon="checkmark" disabled={busy} onPress={confirm} />}
       {confirmed && <Button label="好" variant="secondary" onPress={close} />}
     </View>
   );

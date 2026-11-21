@@ -9,6 +9,8 @@ import { Card, Display, ErrorState, Icon, Screen, Small, Stat, Title } from "@/c
 import { Status, STATUS_LABELS } from "@/labels";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
+const LEGEND: Record<Status, string> = { done: "做了", floor: "保底", skip: "没做" }; // 图例说的是过去的某天，不用对账按钮的「今天没做」
+
 /** 「2026-11-14」→「11/14」 */
 const md = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 /** start 起第 i 天是星期几：「一」…「日」 */
@@ -68,10 +70,10 @@ export default function WeekScreen() {
           <Text style={[type.label, { color: c.muted }]}>习惯</Text>
           {week.habits.map((h) => <HabitRow key={h.id} h={h} start={week.start} />)}
           <View style={{ flexDirection: "row", gap: space.md, flexWrap: "wrap" }}>
-            {(["done", "floor", "skip"] as Status[]).map((s) => (
-              <View key={s} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            {([...(["done", "floor", "skip"] as Status[]), null]).map((s) => (
+              <View key={s ?? "none"} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                 <Dot s={s} size={10} />
-                <Small muted>{STATUS_LABELS[s]}</Small>
+                <Small muted>{s ? LEGEND[s] : "没记"}</Small>
               </View>
             ))}
           </View>
@@ -108,7 +110,9 @@ function Days({ week }: { week: Week }) {
       style={{ gap: 4, marginTop: space.sm }}>
       <View style={{ flexDirection: "row", gap: 5 }}>
         {week.logged.map((x, i) => (
-          <View key={i} style={{ flex: 1, height: 20, borderRadius: 6, backgroundColor: x ? c.kind.must : c.hair }} />
+          // 最后一格是今天：还没记时只描边，和「那天没记」分开
+          <View key={i} style={{ flex: 1, height: 20, borderRadius: 6, backgroundColor: x ? c.kind.must : i === week.logged.length - 1 ? "transparent" : c.hair,
+            borderWidth: !x && i === week.logged.length - 1 ? 1.5 : 0, borderColor: c.line }} />
         ))}
       </View>
       <View style={{ flexDirection: "row", gap: 5 }}>

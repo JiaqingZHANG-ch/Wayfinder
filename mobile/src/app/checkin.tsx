@@ -153,8 +153,8 @@ export default function Checkin() {
         </Animated.View>
       </View>,
       <>
-        <Button label="晚安" icon="moon-outline" onPress={leave} />
-        <Button label="再改一下" variant="quiet" onPress={() => { setDone(null); go(0); }} />
+        <Button label="晚安" icon="moon-outline" variant="secondary" onPress={leave} />
+        <Button label="再改一下" variant="neutral" onPress={() => { setDone(null); go(0); }} />
       </>,
     );
   }
@@ -175,7 +175,7 @@ export default function Checkin() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 32, paddingHorizontal: space.md,
             borderRadius: radius.pill, borderWidth: 1, borderColor: c.line }}>
             <Icon name="sparkles-outline" size={14} color={c.text} />
-            <Text style={[type.small, { fontSize: 12, color: c.text, fontWeight: "600" }]}>一句话说完</Text>
+            <Text style={[type.small, { color: c.text, fontWeight: "600" }]}>一句话说完</Text>
           </View>
         </Pressy>
       )}

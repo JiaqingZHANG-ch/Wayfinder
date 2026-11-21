@@ -4,9 +4,10 @@ import { Pressable, Text, View } from "react-native";
 import Animated, { FadeIn, SlideInDown, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ClassItem, getSettings, Habit, isCrisis, Project, putSettings, Settings } from "@/api";
+import { ClassItem, getSettings, Habit, isCrisis, Project, putSettings, say, Settings } from "@/api";
 import { EnergyPick } from "@/components/chips";
 import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
+import { HALF, Num } from "@/components/fields";
 import { PickField } from "@/components/time-field";
 import {
   Body, Button, Card, Chip, CrisisCard, ErrorState, Field, Glass, Header, IconButton, Label, Notice, Row, Screen, Small, Title,
@@ -17,9 +18,9 @@ const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const MAX_HABITS = 3; // 和后端 mentor/review.py 的 MAX_HABITS 一致
 // 还没保存的新项先用临时 id 当 key（删掉中间一项时输入框不串）；后端不认识它，会发正式 id
 const tempId = () => `new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-const HALF = { flex: 1, minWidth: 130 };
-const BAR_SPACE = 96; // 页面底部给保存栏留的空
+const BAR_SPACE = 140; // 页面底部给保存栏留的空
 const UNDO_MS = 5000;
+const SAVED_MS = 1200; // 「存好了」停多久再滑下去
 
 type Message = { text: string; tone: "info" | "error" | "crisis" };
 type ListKey = "habits" | "timetable" | "projects";
@@ -49,6 +50,7 @@ export default function SettingsScreen() {
   const [attempt, setAttempt] = useState(0);
   const [message, setMessage] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [ask, setAsk] = useState<{ action?: Parameters<typeof navigation.dispatch>[0] } | null>(null);
 
@@ -69,6 +71,7 @@ export default function SettingsScreen() {
     return navigation.addListener("beforeRemove" as never, ((e: Leaving) => {
       if (leaving.current) return;
       e.preventDefault();
+      setMessage(null);
       setAsk({ action: e.data.action });
     }) as never);
   }, [dirty, navigation]);
@@ -80,11 +83,19 @@ export default function SettingsScreen() {
     return () => clearTimeout(t);
   }, [removed]);
 
-  // 保存栏：有改动才从下面滑上来
+  // 存好后让「存好了」停一会儿再收栏，同时把成功提示清掉
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => { setJustSaved(false); setMessage((m) => (m?.tone === "info" ? null : m)); }, SAVED_MS);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  // 保存栏：有改动（或刚存好）才从下面滑上来
+  const barShown = dirty || justSaved;
   const barY = useSharedValue(240);
   useEffect(() => {
-    barY.set(withTiming(dirty ? 0 : 240, { duration: 240, easing: EASE }));
-  }, [dirty, barY]);
+    barY.set(withTiming(barShown ? 0 : 240, { duration: 240, easing: EASE }));
+  }, [barShown, barY]);
   const barStyle = useAnimatedStyle(() => ({ transform: [{ translateY: barY.value }] }));
 
   if (!s) {
@@ -135,6 +146,7 @@ export default function SettingsScreen() {
   async function save(): Promise<boolean> {
     setBusy(true);
     setMessage(null);
+    setJustSaved(false);
     try {
       const res = await putSettings(s!);
       if (isCrisis(res)) { setMessage({ text: res.message, tone: "crisis" }); return false; }
@@ -144,9 +156,10 @@ export default function SettingsScreen() {
       setRemoved(null);
       haptic.success();
       setMessage({ text: "存好了，今天的计划已经按新设置重排。", tone: "info" });
+      setJustSaved(true);
       return true;
     } catch (e) {
-      setMessage({ text: (e as Error).message, tone: "error" });
+      setMessage({ text: say(e), tone: "error" });
       return false;
     } finally {
       setBusy(false);
@@ -160,17 +173,18 @@ export default function SettingsScreen() {
     else if (router.canGoBack()) router.back();
     else router.replace("/");
   };
-  // 面板里点「保存」：存成功就离开
+  // 面板里点「保存」：存成功才离开；失败面板不关，错误显示在面板里
   const saveAndLeave = async () => {
-    const a = ask?.action;
-    setAsk(null);
-    if (await save()) leave(a);
+    if (await save()) leave(ask?.action);
   };
+  const done = justSaved && !dirty;
+  const notice = message?.tone === "crisis" ? <CrisisCard message={message.text} />
+    : message && <Notice tone={message.tone === "error" ? "error" : "info"}>{message.text}</Notice>;
 
   return (
     <View style={{ flex: 1 }}>
       <Screen safeTop bottom={BAR_SPACE}>
-        <Header title={title} onBack={dirty ? () => setAsk({}) : undefined} />
+        <Header title={title} onBack={dirty ? () => { setMessage(null); setAsk({}); } : undefined} />
 
         {show("routine") && (
           <>
@@ -275,8 +289,7 @@ export default function SettingsScreen() {
           </Section>
         )}
 
-        {message?.tone === "crisis" ? <CrisisCard message={message.text} />
-          : message && <Notice tone={message.tone === "error" ? "error" : "info"}>{message.text}</Notice>}
+        {message?.tone === "crisis" && notice}
       </Screen>
 
       {removed && (
@@ -294,11 +307,13 @@ export default function SettingsScreen() {
         </Animated.View>
       )}
 
-      <Animated.View pointerEvents={dirty ? "auto" : "none"}
+      <Animated.View pointerEvents={barShown ? "auto" : "none"}
         style={[{ position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: c.card, borderTopWidth: 1, borderTopColor: c.edge,
           paddingTop: space.md, paddingHorizontal: space.lg, paddingBottom: space.md + insets.bottom }, barStyle]}>
-        <View style={{ maxWidth: 560, width: "100%", alignSelf: "center" }}>
-          <Button label="保存" busyLabel={busy ? "正在试排今天……" : undefined} onPress={() => { save(); }} />
+        <View style={{ maxWidth: 560, width: "100%", alignSelf: "center", gap: space.sm }}>
+          {message?.tone !== "crisis" && notice}
+          <Button label={done ? "存好了" : "保存"} variant={done ? "secondary" : "primary"} icon={done ? "checkmark" : undefined}
+            busyLabel={busy ? "正在试排今天……" : undefined} onPress={() => { if (!done) save(); }} />
         </View>
       </Animated.View>
 
@@ -308,14 +323,16 @@ export default function SettingsScreen() {
             <Pressable accessibilityLabel="关闭" onPress={() => setAsk(null)} style={{ flex: 1, backgroundColor: c.overlay }} />
           </Animated.View>
           <Animated.View entering={SlideInDown.duration(260).easing(EASE)} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
-            <Glass style={{ borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxWidth: 560, width: "100%", alignSelf: "center" }}>
+            <View style={{ backgroundColor: c.card, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, borderWidth: 1,
+              borderBottomWidth: 0, borderColor: c.glassEdge, boxShadow: c.glassShadow, maxWidth: 560, width: "100%", alignSelf: "center" }}>
               <View accessibilityViewIsModal style={{ padding: space.lg, gap: space.md, paddingBottom: space.lg + insets.bottom }}>
                 <Title>改动还没保存</Title>
                 <Body muted>现在离开，这些改动就没有了。</Body>
-                <Button label="保存" onPress={() => { saveAndLeave(); }} />
+                {message && message.tone !== "info" && notice}
+                <Button label="保存" busyLabel={busy ? "正在试排今天……" : undefined} onPress={() => { saveAndLeave(); }} />
                 <Button label="不要了" variant="quietDanger" onPress={() => leave(ask.action)} />
               </View>
-            </Glass>
+            </View>
           </Animated.View>
         </>
       )}
@@ -352,22 +369,5 @@ function Weekdays({ value, onChange }: { value: number; onChange: (v: number) =>
         );
       })}
     </View>
-  );
-}
-
-function Num({ label, value, onChange, decimal }: { label: string; value: number; onChange: (v: number) => void; decimal?: boolean }) {
-  const [text, setText] = useState(String(value));
-  const [prev, setPrev] = useState(value);
-  if (value !== prev) {  // 保存后服务器返回的值不一样（比如取整）时，框里跟着变；打字时不打断
-    setPrev(value);
-    if (Number(text) !== value) setText(String(value));
-  }
-  return (
-    <Field label={label} value={text} keyboardType={decimal ? "decimal-pad" : "number-pad"} style={HALF}
-      onChangeText={(t) => {
-        setText(t);
-        const n = Number(t);
-        if (t.trim() && !Number.isNaN(n)) onChange(n);
-      }} />
   );
 }

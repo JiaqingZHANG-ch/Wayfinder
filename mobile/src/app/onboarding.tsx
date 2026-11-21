@@ -1,14 +1,15 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Controller, useForm } from "react-hook-form";
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings } from "@/api";
+import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings, say } from "@/api";
 import { EnergyPick } from "@/components/chips";
 import { Consent } from "@/components/consent";
+import { HALF, Num } from "@/components/fields";
 import { Bar, Skeleton } from "@/components/motion";
-import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, Icon, Notice, Row, Small, Title } from "@/components/ui";
+import { PickField } from "@/components/time-field";
+import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, Icon, Notice, Row, Small } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 type Step = "welcome" | "consent" | "chat" | "confirm" | "form";
@@ -28,6 +29,7 @@ export default function Onboarding() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [form, setForm] = useState<FormValues>(FORM_DEFAULTS);
 
   function afterChat(pending: Profile[] = []) {
     setProposals(pending);
@@ -81,6 +83,23 @@ export default function Onboarding() {
       afterChat(res.pending);
     } catch {
       setError("没连上，网络好了再点一次。");
+    }
+  }
+
+  async function submitForm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await putSettings({
+        wake: form.wake, sleep: form.sleep,
+        habits: [{ title: form.title.trim(), minutes: form.minutes, floor_min: form.floor_min, energy: form.energy }],
+      });
+      if (isCrisis(res)) return setCrisis(res.message);
+      router.replace("/");
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -176,73 +195,36 @@ export default function Onboarding() {
   return shell(
     scroll(
       <>
-        <SettingsForm onError={setError} onCrisis={setCrisis} />
+        <SettingsForm v={form} setV={setForm} />
         {error && <Notice tone="error">{error}</Notice>}
       </>,
-    ), undefined, 0.9);
+    ),
+    <Button label="排第一张计划" busyLabel={busy ? "正在排……" : undefined} disabled={!form.title.trim()} onPress={submitForm} />,
+    0.9);
 }
 
-type FormValues = { wake: string; sleep: string; title: string; minutes: string; floor_min: string; energy: Energy | null };
+type FormValues = { wake: string; sleep: string; title: string; minutes: number; floor_min: number; energy: Energy | null };
+const FORM_DEFAULTS: FormValues = { wake: "07:30", sleep: "23:00", title: "", minutes: 30, floor_min: 10, energy: null };
 
-function SettingsForm({ onError, onCrisis }: { onError: (m: string) => void; onCrisis: (m: string) => void }) {
-  const { control, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
-    defaultValues: { wake: "07:30", sleep: "23:00", title: "", minutes: "30", floor_min: "10", energy: null },
-  });
-
-  async function onSubmit(v: FormValues) {
-    try {
-      const res = await putSettings({
-        wake: v.wake, sleep: v.sleep,
-        habits: [{ title: v.title, minutes: Number(v.minutes), floor_min: Number(v.floor_min), energy: v.energy }],
-      });
-      if (isCrisis(res)) return onCrisis(res.message);
-      router.replace("/");
-    } catch (e) {
-      onError((e as Error).message);
-    }
-  }
-
-  const time = { required: "要填", pattern: { value: /^([01]\d|2[0-3]):[0-5]\d$/, message: "写成 07:30 这样" } };
-  const minutes = { required: "要填", pattern: { value: /^\d+$/, message: "写分钟数" } };
-
+function SettingsForm({ v, setV }: { v: FormValues; setV: (v: FormValues) => void }) {
   return (
     <>
-      <Title>最后几样，排计划要用</Title>
+      <Display>最后几样，排计划要用</Display>
       <Card>
         <Row>
-          <Item control={control} name="wake" label="几点起床" rules={time} error={errors.wake?.message} short />
-          <Item control={control} name="sleep" label="几点上床" rules={time} error={errors.sleep?.message} short />
+          <PickField label="几点起床" mode="time" value={v.wake} style={HALF} onChange={(wake) => setV({ ...v, wake })} />
+          <PickField label="几点上床" mode="time" value={v.sleep} style={HALF} onChange={(sleep) => setV({ ...v, sleep })} />
         </Row>
       </Card>
       <Card>
-        <Item control={control} name="title" label="先养一个习惯，叫什么" rules={{ required: "要填" }}
-          error={errors.title?.message} />
+        <Field label="先养一个习惯，叫什么" value={v.title} onChangeText={(title) => setV({ ...v, title })} />
         <Row>
-          <Item control={control} name="minutes" label="精神好时做几分钟" rules={minutes} error={errors.minutes?.message} short />
-          <Item control={control} name="floor_min" label="没电时至少几分钟" rules={minutes} error={errors.floor_min?.message} short />
+          <Num label="精神好时做几分钟" value={v.minutes} onChange={(minutes) => setV({ ...v, minutes })} />
+          <Num label="没电时至少几分钟" value={v.floor_min} onChange={(floor_min) => setV({ ...v, floor_min })} />
         </Row>
         <Small muted>做这件事对你来说是（可不选）</Small>
-        <Controller control={control} name="energy"
-          render={({ field }) => <EnergyPick value={field.value} onChange={field.onChange} />} />
+        <EnergyPick value={v.energy} onChange={(energy) => setV({ ...v, energy })} />
       </Card>
-      <Button label="排第一张计划" busyLabel={isSubmitting ? "正在排……" : undefined} onPress={handleSubmit(onSubmit)} />
     </>
-  );
-}
-
-function Item({ control, name, label, rules, error, short }: {
-  control: ReturnType<typeof useForm<FormValues>>["control"];
-  name: Exclude<keyof FormValues, "energy">;
-  label: string;
-  rules: object;
-  error?: string;
-  short?: boolean;
-}) {
-  return (
-    <Controller control={control} name={name} rules={rules}
-      render={({ field }) => (
-        <Field label={label} error={error} value={field.value ?? ""} onChangeText={field.onChange} onBlur={field.onBlur}
-          style={short ? { flex: 1, minWidth: 130 } : undefined} />
-      )} />
   );
 }

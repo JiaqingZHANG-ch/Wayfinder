@@ -106,7 +106,8 @@ export default function Today() {
 
       {(phase === "day" || phase === "reported" || phase === "evening" || done) && (
         <Animated.View entering={enter(2)} style={{ gap: space.xs }}>
-          {phase === "day" && <Button label="下课了，报个电量" icon="battery-half-outline" onPress={energy} />}
+          {phase === "day" && <Button label={plan.blocks.some((b) => b.kind === "class" && toMin(b.end) <= now) ? "下课了，报个电量" : "报个电量"}
+            icon="battery-half-outline" onPress={energy} />}
           {phase === "evening" && <Button label="对个账" icon="moon-outline" onPress={checkin} />}
           {phase === "day" && <Button label={plan.checked_in ? "改一下今天的对账" : "提前对账"} variant="neutral" onPress={checkin} />}
           {(phase === "reported" || phase === "evening") && (

@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 
 import { Country, Me, putMe } from "@/api";
 import { haptic, Pressy } from "@/components/motion";
-import { Body, Button, Card, Chip, Display, Icon, IconName, Label, Notice, Row } from "@/components/ui";
+import { Body, Button, Card, Chip, Display, Icon, IconName, Label, Notice, Row, Small } from "@/components/ui";
 import { space, type, useColors } from "@/theme";
 
 export const COUNTRIES: [Country, string][] = [["CN", "中国"], ["FR", "法国"], ["", "别的国家 / 不想说"]];
@@ -38,11 +38,14 @@ export function Consent({ me, onDone }: { me: Me; onDone: (me: Me) => void }) {
 
   return (
     <>
-      <Display>{filledBefore ? "隐私说明更新了，请再看一遍" : "开始之前，看一下数据怎么用"}</Display>
+      <View style={{ gap: space.xs }}>
+        <Display>{filledBefore ? "隐私说明更新了" : "开始之前"}</Display>
+        <Small muted>{filledBefore ? "和上次不一样的地方，请再看一遍。" : "先看一下数据怎么用。"}</Small>
+      </View>
       <Card>
         {POINTS.map(([icon, text]) => (
           <View key={icon} style={{ flexDirection: "row", gap: space.md, alignItems: "flex-start" }}>
-            <Icon name={icon} size={20} color={c.primary} />
+            <Icon name={icon} size={20} color={c.muted} />
             <Text style={[type.label, { flex: 1, color: c.text }]}>{text}</Text>
           </View>
         ))}

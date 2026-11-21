@@ -21,7 +21,7 @@ if (Platform.OS === "web" && typeof document !== "undefined") {
   const css = document.createElement("style");
   css.textContent = "*{scrollbar-width:none}*::-webkit-scrollbar{display:none}"
     + "[role=button]:focus-visible,[role=tab]:focus-visible,[role=radio]:focus-visible,[role=checkbox]:focus-visible"
-    + "{outline:2px solid #B4573A;outline-offset:2px}";
+    + "{outline:2px solid var(--focus,#B4573A);outline-offset:2px}";
   document.head.appendChild(css);
 }
 
@@ -41,6 +41,8 @@ export default function RootLayout() {
 function Root() {
   const c = useColors();
   const dark = useDark();
+  // 网页焦点框跟着日夜换色
+  useEffect(() => { if (Platform.OS === "web") document.documentElement.style.setProperty("--focus", c.primary); }, [c.primary]);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style={dark ? "light" : "dark"} />

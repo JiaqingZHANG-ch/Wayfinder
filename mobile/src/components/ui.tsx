@@ -156,7 +156,7 @@ export function Button({ label, onPress, variant = "primary", disabled, busyLabe
   const fg = off ? c.muted
     : { primary: c.onPrimary, secondary: c.onSoft, quiet: c.primary, neutral: c.muted, quietDanger: c.danger, danger: c.onPrimary }[variant];
   return (
-    <Pressy onPress={onPress} disabled={off} accessibilityRole="button" accessibilityLabel={busyLabel ?? label}
+    <Pressy onPress={onPress} disabled={off} fadeTo={flat ? 0.6 : 1} accessibilityRole="button" accessibilityLabel={busyLabel ?? label}
       accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
       style={{ minHeight: TOUCH + 8, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
         paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1 }}>
@@ -189,7 +189,8 @@ export function Chip({ label, on, onPress, role = "radio" }: {
       style={{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.pill, flexDirection: "row",
         alignItems: "center", gap: space.xs, backgroundColor: on ? c.soft : c.sunken, borderWidth: 1.5,
         borderColor: on ? c.primary : "transparent" }}>
-      {on && <Icon name="checkmark" size={16} color={c.onSoft} />}
+      {/* 单选不加勾（加了会变宽、整排跳）；多选给勾留固定位置 */}
+      {role === "checkbox" && <Icon name="checkmark" size={16} color={on ? c.onSoft : "transparent"} />}
       <Text style={[type.label, { color: on ? c.onSoft : c.text }]}>{label}</Text>
     </Pressy>
   );

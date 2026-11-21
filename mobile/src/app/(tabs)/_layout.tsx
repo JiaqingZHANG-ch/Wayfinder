@@ -1,10 +1,10 @@
 import { Tabs, type BottomTabBarProps } from "expo-router/tabs";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import Animated, { useAnimatedStyle, withSpring } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { haptic, Pressy } from "@/components/motion";
+import { EASE, haptic, Pressy } from "@/components/motion";
 import { Glass, Icon, IconName } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
@@ -15,7 +15,7 @@ const TABS: Record<string, { title: string; icon: IconName; on: IconName }> = {
   me: { title: "我", icon: "person-circle-outline", on: "person-circle" },
 };
 const PAD = space.xs + 2; // 标签栏内边距
-const SLIDE = { damping: 26, stiffness: 320, overshootClamping: true }; // 选中底滑过去，不回弹
+const SLIDE = { duration: 240, easing: EASE }; // 选中底滑过去：定时长，不靠弹簧硬停
 
 export default function TabsLayout() {
   const c = useColors();
@@ -35,7 +35,7 @@ function TabBar({ state, emitter, navigateToTab }: BottomTabBarProps) {
   const routes = state.routes.filter((r) => TABS[r.name]);
   const step = routes.length ? (width - PAD * 2) / routes.length : 0;
   const at = routes.findIndex((r) => r.key === state.routes[state.index].key);
-  const pill = useAnimatedStyle(() => ({ transform: [{ translateX: withSpring(Math.max(at, 0) * step, SLIDE) }] }), [at, step]);
+  const pill = useAnimatedStyle(() => ({ transform: [{ translateX: withTiming(Math.max(at, 0) * step, SLIDE) }] }), [at, step]);
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
       {/* 渐隐：上面 45% 由透明到不透明分几层叠出来（不加渐变依赖），下面 55% 全不透明 */}
@@ -76,7 +76,7 @@ function TabItem({ title, icon, on, onPress }: { title: string; icon: IconName; 
     <Pressy onPress={onPress} accessibilityRole="tab" accessibilityLabel={title} accessibilityState={{ selected: on }}
       scaleTo={0.92} style={{ flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 2 }}>
       <Icon name={icon} size={22} color={on ? c.text : c.muted} />
-      <Text style={[type.small, { fontSize: 12, lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.text : c.muted }]}>
+      <Text style={[type.small, { lineHeight: 16, fontWeight: on ? "600" : "400", color: on ? c.text : c.muted }]}>
         {title}
       </Text>
     </Pressy>
