@@ -80,7 +80,9 @@ def _check_energy(inp: PlanInput, plan: DayPlan) -> list[str]:
     optional += sum((b.end - b.start) * cost.get(b.id, 0) for b in plan.blocks if b.kind == "flex")
     gym = any(b.id == inp.energy.gym_id for b in plan.blocks)
     cap = e.load * (e.base_min + e.gym_bonus_min * gym)
-    if optional > max(0, cap - fixed) + 1e-6:
+    must_ids = {t.id for t in inp.tasks if t.must_today}  # 今天必做的可以超上限（C28），超出的部分不算超
+    must = sum((b.end - b.start) * cost.get(b.task_id, cost["project"]) for b in proj if b.task_id in must_ids)
+    if optional - must > max(0, cap - fixed - must) + 1e-6:
         problems.append(f"精力超了：项目和健身要 {optional:.0f}，上限 {cap:.0f} 减固定 {fixed:.0f} 只剩 {max(0, cap - fixed):.0f}")
 
     # 消耗 0 的项目和课是热爱的事：不扣精力，前后也不要求放松

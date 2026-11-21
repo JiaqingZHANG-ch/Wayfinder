@@ -69,7 +69,8 @@ uv run python -m planner <输入.json> -o <输出.json>
 - `heavy`：费劲的事，排成大块；
 - `where`；
 - `steps`、`done_criteria`：给人看的步骤和完成标志；
-- `est_factor`：估时放大系数，默认 1.0。
+- `est_factor`：估时放大系数，默认 1.0；
+- `must_today`：今天必须做完，默认 `false`。为 `true` 时 `remaining_min` 今天全部排完，超出精力上限也照排，排不下就报错并点名（C28）。
 
 ## 只重排今晚
 

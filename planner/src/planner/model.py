@@ -120,6 +120,7 @@ class Task:
     steps: list[str] = field(default_factory=list)
     done_criteria: str = ""
     est_factor: float = 1.0
+    must_today: bool = False  # 用户说了今天要做：今天必须排完，不受精力上限和截止日提醒管（C28）
 
 
 @dataclass
@@ -230,6 +231,7 @@ def _load(raw: dict) -> PlanInput:
             steps=list(t.get("steps", [])),
             done_criteria=t.get("done_criteria", ""),
             est_factor=float(t.get("est_factor", 1.0)),
+            must_today=bool(t.get("must_today", False)),
         )
 
     return PlanInput(

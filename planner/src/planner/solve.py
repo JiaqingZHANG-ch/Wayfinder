@@ -163,7 +163,7 @@ def _why(t: Task, inp: PlanInput, cap: int) -> str:
 def _warnings(inp: PlanInput, cap: int) -> list[str]:
     out = []
     for t in inp.tasks:
-        if t.deadline is None:
+        if t.deadline is None or t.must_today:  # 今天必做的已经硬排进今天，不再提醒截止日
             continue
         days = (t.deadline - inp.day).days
         if days <= 0:
@@ -184,7 +184,7 @@ def free_blocks(inp: PlanInput, blocks: list[Block]) -> list[Block]:
 
 
 def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
-           tasks: list[Task] = (), flex: list[Flex] = (), relax: bool = False) -> DayPlan | None:
+           tasks: list[Task] = (), flex: list[Flex] = (), relax: bool = False, hard_must: bool = True) -> DayPlan | None:
     m = cp_model.CpModel()
     pad = inp.rules.min_gap_min
     lo, hi = inp.wake, inp.sleep
@@ -277,29 +277,38 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     cost = inp.energy.cost
     gym_p, flex_cost = 0, []
     full_day = class_minutes(inp) >= 360
-    durations, presences, proj_cost = [], [], []
+    presences, proj_cost, must_cost = [], [], []
     optional = []  # (block, start, dur, presence)
     fills = []  # (proj 块, [(效率, 番茄数, 选中变量)])
 
     period_starts = [0] + [end for end, _ in inp.energy.periods[:-1]]
     periods = [(st, end, eff) for st, (end, eff) in zip(period_starts, inp.energy.periods)]
     for t in tasks:
-        if t.where == "campus" and not campus:
-            continue
         if need_min(t) <= 0:
+            continue
+        hard = t.must_today and hard_must
+        if t.where == "campus" and not campus:
+            if hard:
+                return None
             continue
         w = weight(t, inp.day, cap)
         a, z = (campus if t.where == "campus" else (work_lo, hi))
         a = max(a, work_lo)  # 只重排今晚时 work_lo 是现在，学校的空档也不能排到过去
-        if t.heavy and full_day:
+        if t.heavy and full_day and not t.must_today:  # 满课日难事不排晚上；今天必做的不受这条管
             z = min(z, EVENING)
         decay = inp.energy.pomodoro_decay
         N = len(decay)  # 一块最多几个番茄
         lb_n = 2 if t.heavy and need_min(t) >= 2 * POMODORO_MIN else 1
         if z - a < POMODORO_MIN * lb_n:
+            if hard:
+                return None
             continue
-        prev, progs, lasts = None, [], []
-        for k in range(BLOCKS_PER_TASK):
+        nb = BLOCKS_PER_TASK
+        if t.must_today:  # 块数要够：就算全落在效率最低的时段，也能做完
+            worst = max(1, block_progress(min(eff for _, _, eff in periods), N, decay))
+            nb = max(nb, -(-need_min(t) // worst))
+        prev, progs, lasts, ps = None, [], [], []
+        for k in range(nb):
             p = m.NewBoolVar(f"{t.id}-{k}-on")
             d = m.NewIntVar(0, POMODORO_MIN * N, f"{t.id}-{k}-dur")
             s = m.NewIntVar(a, z - POMODORO_MIN * lb_n, f"{t.id}-{k}-start")
@@ -327,7 +336,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
                 focus_ivs.append(m.NewOptionalIntervalVar(s, d + rest, e + rest, p, f"{t.id}-{k}-f"))
                 if inp.focus_free_at:
                     m.Add(s >= inp.focus_free_at).OnlyEnforceIf(p)
-            proj_cost.append(round(100 * task_cost(inp, t.id)) * d)
+            (must_cost if t.must_today else proj_cost).append(round(100 * task_cost(inp, t.id)) * d)
             if t.where != "campus" and block_start is not None:  # 在家的项目等习惯块做完；落在学校空档里的不受限
                 in_gap = m.NewBoolVar(f"{t.id}-{k}-gap")
                 if campus and t.where == "any":
@@ -339,8 +348,7 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             if t.where == "home" and away_spans:
                 home_ivs.append(m.NewOptionalIntervalVar(s, d, e, p, f"{t.id}-{k}-home"))
             objective += [-w * s, -NEW_BLOCK_PENALTY * 1440 * p]
-            durations.append(d)
-            presences.append(p)
+            ps.append(p)
             blk = Block(f"{t.id}-{k}", t.title, 0, 0, "proj", task_id=t.id, why=_why(t, inp, cap))
             optional.append((blk, s, d, p))
             fills.append((blk, [(periods[j][2], n, v) for (j, n), v in y.items()]))
@@ -348,8 +356,12 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         credited = m.NewIntVar(0, need_min(t), f"{t.id}-credited")  # 超出还差的进度不算分，免得为凑分多排几块
         m.Add(credited <= total)
         objective.append(w * 1440 * credited)
-        for p, last in zip(presences[-BLOCKS_PER_TASK:], lasts):  # 去掉最后一个番茄就够了：不许多排
+        for p, last in zip(ps, lasts):  # 去掉最后一个番茄就够了：不许多排
             m.Add(total - last <= need_min(t) - 1).OnlyEnforceIf(p)
+        if hard:
+            m.Add(total >= need_min(t))  # 今天必做：今天全部做完
+        if not t.must_today:  # 今天必做的不占「最多 3 块」的名额
+            presences += ps
 
     for f in flex:
         clash = any(e.start < f.window_end and f.window_start < e.end for e in inp.fixed)
@@ -369,9 +381,13 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
         d = m.NewConstant(f.minutes)
         optional.append((Block(f.id, f.title, 0, 0, "flex"), s, d, p))
 
-    m.Add(sum(proj_cost) + sum(flex_cost)
-          <= allow[0] + (allow[1] - allow[0]) * gym_p)  # 精力总账：课和必做先扣，剩下的才给项目和健身
-    if durations:
+    budget = allow[0] + (allow[1] - allow[0]) * gym_p
+    if must_cost:  # 今天必做的项目接着扣，超了上限也照排；剩下的（可能是 0）才给别的项目和健身
+        left = m.NewIntVar(0, allow[1], "budget-left")
+        m.AddMaxEquality(left, [0, budget - sum(must_cost)])
+        budget = left
+    m.Add(sum(proj_cost) + sum(flex_cost) <= budget)  # 精力总账：课和必做先扣，剩下的才给项目和健身
+    if presences:
         m.Add(sum(presences) <= MAX_PROJECT_BLOCKS)
     if len(home_ivs) > 1:
         m.AddNoOverlap(home_ivs)
@@ -469,6 +485,13 @@ def solve_day(inp: PlanInput) -> DayPlan:
     if conflict:
         raise PlanInfeasible(conflict)
     plan = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex)
+    if plan is None and any(t.must_today for t in inp.tasks):
+        # 不强求今天必做的排完再排一次：排得出来就说明是它们放不下，按尽量排后的差额点名
+        soft = _solve(inp, c, inp.habits, inp.meals, inp.tasks, inp.flex, hard_must=False)
+        short = [f"{t.title}（还差 {n} 分钟）" for t in inp.tasks if t.must_today and soft
+                 and (n := need_min(t) - sum(b.progress_min or 0 for b in soft.blocks if b.task_id == t.id)) > 0]
+        if short:
+            raise PlanInfeasible("今天剩下的时间排不下：" + "、".join(short))
     if plan is None:
         raise PlanInfeasible(_diagnose(inp, c))
     plan.blocks = sorted(plan.blocks + free_blocks(inp, plan.blocks), key=lambda b: b.start)
