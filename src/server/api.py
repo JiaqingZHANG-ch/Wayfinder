@@ -83,6 +83,7 @@ class EditIn(BaseModel):
 
 MIN_BLOCK = 10  # 手动改的块最短几分钟
 MAX_REMEMBER = 480  # 记住的时长不超过解析时允许的上限，不然下次说同一件事会被拦下
+PIN = "pin:"  # 重排时钉住的块当固定事项喂求解器，id 加这个前缀
 
 
 class OnboardingIn(BaseModel):
@@ -363,7 +364,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 took[b["task_id"]] = took.get(b["task_id"], 0) + minutes(b)
         d = day_input(raw, day)
         d["fixed"] = [*(x for x in d.get("fixed", []) if x["id"] not in fresh),
-                      *({"id": b["id"], "title": b["title"], "start": b["start"], "end": b["end"],
+                      # id 加前缀：求解器（replan 时）会给撞名的块改名，靠前缀才认得出哪块是喂进去的钉住块
+                      *({"id": PIN + b["id"], "title": b["title"], "start": b["start"], "end": b["end"],
                          "where": "home", "kind": "meeting"} for b in fresh.values())]
         for k in ("habits", "flex"):  # 钉住的习惯、可选项已经有位置了，别再排一遍
             d[k] = [x for x in d.get(k, []) if x["id"] not in fresh]
@@ -381,12 +383,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         plan = solved(lambda: solve_day(inp, soft_must=True) if whole else replan_after(inp, before, now_min, done_ids))
         blocks, names = [], {b["id"] for b in plan["blocks"]} | set(pins)
         for b in plan["blocks"]:
-            p = pins.get(b["id"])
-            if p and (b["start"], b["end"]) == (p["start"], p["end"]):
-                continue  # 钉住的块本身（求解器输出成了 class）：下面原样加回
+            if PIN in b["id"]:
+                continue  # 喂进去的钉住块本身（求解器输出成了 class）：下面原样加回
             if b["id"].startswith("free-") and any(hits(b, x) for x in pins.values()):
                 continue
-            if p:  # 新排的块和钉住的撞了 id（同一个任务拆出来的 x-0）就改名
+            if b["id"] in pins:  # 新排的块和钉住的撞了 id（同一个任务拆出来的 x-0）就改名
                 while b["id"] in names:
                     b = {**b, "id": b["id"] + "-r"}
                 names.add(b["id"])

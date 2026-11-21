@@ -133,6 +133,24 @@ def test_reflow_keeps_pins_and_started_blocks(setup):
     assert len(by_id) == len(r["blocks"])  # id 不重复
 
 
+def test_split_task_pin_not_duplicated_after_reflows(tmp_path):
+    # 浏览器里实测出来的：两小时的事拆成两块，拖其中一块再重排，钉住的块被求解器改名后又加了一遍（显示成「课」）
+    db, model = Db(tmp_path / "app.db"), FakeModel()
+    client = TestClient(create_app(db, model, template=TEMPLATE, now=lambda tz: datetime(2026, 11, 20, 8, 0, tzinfo=tz)))
+    model.replies.append(reply(item("写报告", minutes=120, effort="heavy"), item("健身", minutes=60)))
+    plan = say(client).json()
+    first = next(b for b in plan["blocks"] if b["title"] == "写报告")
+    plan = edit(client, plan, first["id"], to_hhmm(to_min(first["start"]) + 60), to_hhmm(to_min(first["end"]) + 60)).json()
+    gym = next(b for b in plan["blocks"] if b["title"] == "健身")
+    plan = edit(client, plan, gym["id"], gym["start"], to_hhmm(to_min(gym["end"]) + 25)).json()
+    for _ in range(2):
+        plan = client.post("/plan/reflow", json={"version": plan["version"]}).json()
+        report = [b for b in plan["blocks"] if b["title"] == "写报告"]
+        assert all(b["kind"] == "proj" for b in report)
+        assert sum(to_min(b["end"]) - to_min(b["start"]) for b in report) <= 120  # 不会排两遍（排不下时有提醒）
+        assert sum(1 for b in report if b.get("pinned")) == 1
+
+
 def test_reflow_infeasible_is_422_with_reason(setup):
     client, _, _, plan = setup
     b = report_block(plan)
