@@ -1,3 +1,5 @@
+import type { Status } from "./labels";
+
 // 和后端（growth-mentor 的 serve.ps1，默认 http://127.0.0.1:8000）说话的地方。接口说明见后端的 /docs 页。
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -24,6 +26,8 @@ export type Plan = {
   energy_used: number;
   energy_cap: number;
   reminders?: Reminder[]; // 只有 GET /today 带
+  checked_in?: boolean; // 只有 GET /today 带：今晚对过账没有
+  tomorrow_task?: string | null; // 只有 GET /today 带：对账时写的「明天先做」
   calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
 };
 
@@ -32,7 +36,8 @@ export type Week = {
   start: string;
   end: string;
   logged_days: number;
-  habits: { id: string; title: string; done_days: number }[];
+  logged: boolean[]; // start 到 end 每天一格：那晚对过账没有
+  habits: { id: string; title: string; done_days: number; days: (Status | null)[] }[]; // days 同样按天
   projects: { id: string; title: string; less: number; same: number; more: number }[];
   review?: "due" | "today" | null;
 };
@@ -57,7 +62,7 @@ export type Review = {
   still_right: (Profile & { question: string }) | null; // 「还对吗」：回答用 confirmProfile
 };
 
-export type CheckinItem = { id: string; title: string; project: boolean };
+export type CheckinItem = { id: string; title: string; project: boolean; tag?: string }; // tag：标题上面那行小字
 
 export type Profile = { id: number; level: string; content: string; confirmed_at: string | null };
 
@@ -157,7 +162,7 @@ export function checkinItems(plan: Plan): CheckinItem[] {
   const items = new Map<string, CheckinItem>();
   for (const b of plan.blocks) {
     if (b.kind === "must" || b.kind === "flex") items.set(b.id, { id: b.id, title: b.title, project: false });
-    else if (b.task_id === "one-thing") items.set(b.task_id, { id: b.task_id, title: `昨晚定的一件事：${b.title}`, project: false });
+    else if (b.task_id === "one-thing") items.set(b.task_id, { id: b.task_id, title: b.title, project: false, tag: "昨晚定的一件事" });
     else if (b.kind === "proj" && b.task_id) items.set(b.task_id, { id: b.task_id, title: b.title, project: true });
   }
   return [...items.values()];

@@ -2,6 +2,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ReactNode, useState } from "react";
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
+import { router } from "expo-router";
 import { Platform, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -83,6 +84,32 @@ export const Body = make("body");
 export const Label = make("label");
 export const Small = make("small");
 
+/** 推进去的页面（设置、数据、复盘……）的页头：左上返回，下面大标题，和三个标签页的开头一个样子。 */
+export function Header({ title, sub, onBack }: { title: string; sub?: string; onBack?: () => void }) {
+  return (
+    <Animated.View entering={enter(0)} style={{ gap: space.md }}>
+      <IconButton name="chevron-back" label="返回" onPress={onBack ?? (() => (router.canGoBack() ? router.back() : router.replace("/")))} />
+      <View style={{ gap: 2 }}>
+        <Display>{title}</Display>
+        {sub && <Small muted>{sub}</Small>}
+      </View>
+    </Animated.View>
+  );
+}
+
+/** 整页没拿到数据：图标、一句人话、「再试一次」。原始错误不给用户看。 */
+export function ErrorState({ onRetry, text = "网络好了再试一次。" }: { onRetry: () => void; text?: string }) {
+  const c = useColors();
+  return (
+    <View aria-live="polite" style={{ alignItems: "center", gap: space.md, paddingTop: space.xxl }}>
+      <Icon name="cloud-offline-outline" size={40} color={c.muted} />
+      <Title>没连上</Title>
+      <Body muted center>{text}</Body>
+      <Button label="再试一次" icon="refresh" variant="secondary" onPress={onRetry} />
+    </View>
+  );
+}
+
 /** 一块数字瓷砖：小标题、一个数字加单位、一句话。size="big" 用于一页里最重要的那个数。 */
 export function Stat({ label, value, unit, sub, size = "stat", style, children }: {
   label: string; value: string | number; unit?: string; sub?: string; size?: "stat" | "big";
@@ -111,7 +138,8 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 type ButtonProps = {
   label: string;
   onPress: () => void;
-  variant?: "primary" | "secondary" | "quiet" | "danger";
+  // quiet：透明底陶土字；neutral：透明底灰字（次要入口，不抢主按钮）；quietDanger：透明底红字（删除这类）
+  variant?: "primary" | "secondary" | "quiet" | "neutral" | "quietDanger" | "danger";
   disabled?: boolean;
   busyLabel?: string; // 有它就表示正在忙：显示它并且不能再点
   accessibilityHint?: string;
@@ -121,13 +149,17 @@ type ButtonProps = {
 export function Button({ label, onPress, variant = "primary", disabled, busyLabel, accessibilityHint, icon }: ButtonProps) {
   const c = useColors();
   const off = disabled || !!busyLabel;
-  const bg = { primary: c.primary, secondary: c.soft, quiet: "transparent", danger: c.danger }[variant];
-  const fg = { primary: c.onPrimary, secondary: c.onSoft, quiet: c.primary, danger: c.onPrimary }[variant];
+  const flat = variant === "quiet" || variant === "neutral" || variant === "quietDanger";
+  // 不能点的实心按钮换成凹陷底灰字，不用半透明（深色里半透明的陶土色发脏）
+  const bg = off && !flat ? c.sunken
+    : { primary: c.primary, secondary: c.soft, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
+  const fg = off ? c.muted
+    : { primary: c.onPrimary, secondary: c.onSoft, quiet: c.primary, neutral: c.muted, quietDanger: c.danger, danger: c.onPrimary }[variant];
   return (
     <Pressy onPress={onPress} disabled={off} accessibilityRole="button" accessibilityLabel={busyLabel ?? label}
       accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
       style={{ minHeight: TOUCH + 8, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
-        paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off ? 0.5 : 1 }}>
+        paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1 }}>
       {icon && !busyLabel && <Icon name={icon} size={18} color={fg} />}
       <Text style={[type.label, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
     </Pressy>
@@ -176,9 +208,9 @@ export function ListRow({ icon, title, sub, onPress, last }: {
     <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={0.98}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm,
         borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
-      <View style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: c.soft,
+      <View style={{ width: 36, height: 36, borderRadius: radius.sm, backgroundColor: c.sunken,
         alignItems: "center", justifyContent: "center" }}>
-        <Icon name={icon} size={18} color={c.onSoft} />
+        <Icon name={icon} size={18} color={c.muted} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[type.label, { color: c.text }]}>{title}</Text>

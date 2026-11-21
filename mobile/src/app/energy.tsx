@@ -1,18 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import Animated, { FadeIn } from "react-native-reanimated";
+import { GestureDetector, usePanGesture } from "react-native-gesture-handler";
+import Animated, { Easing, FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withDelay, withTiming } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 import { ApiError, Block, confirmPlan, getToday, isCrisis, Plan, postEnergy } from "@/api";
 import { planDiff } from "@/diff";
-import { haptic, Pressy, Skeleton } from "@/components/motion";
+import { EASE, haptic, Pressy, Skeleton } from "@/components/motion";
 import { BATTERY_HINT } from "@/labels";
 import { PlanView } from "@/components/plan-view";
 import { Sheet } from "@/components/sheet";
-import { Button, Card, CrisisCard, Eyebrow, IconButton, Notice, Small, Title } from "@/components/ui";
+import { Button, Card, CrisisCard, Icon, IconButton, Notice, Small, Title } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const nowHHMM = () => new Date().toTimeString().slice(0, 5);
-
 
 /** 下课后报电量：底部弹出的面板。点一格 → 后端只重排今晚 → 先列出改了哪几处，点「就这样」才算确认。 */
 export default function EnergyScreen() {
@@ -20,6 +21,7 @@ export default function EnergyScreen() {
 }
 
 function EnergyPanel({ close }: { close: () => void }) {
+  const c = useColors();
   const [level, setLevel] = useState<number | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -28,6 +30,7 @@ function EnergyPanel({ close }: { close: () => void }) {
   const [confirmed, setConfirmed] = useState(false);
   const [from] = useState(nowHHMM);
   const [before, setBefore] = useState<Block[] | null>(null); // 报之前的安排，用来比出改了什么；拿不到就只显示新安排
+  const [full, setFull] = useState(false); // 今晚完整的安排默认收起：用户要看的是改了什么
 
   useEffect(() => {
     getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
@@ -41,6 +44,7 @@ function EnergyPanel({ close }: { close: () => void }) {
     setMessage(null);
     setCrisis(null);
     setPlan(null);
+    setFull(false);
     try {
       // 面板刚打开就点、原来的安排还没拿到时，先拿到再报，不然比出来是「不用动」
       if (!before) await getToday().then((p) => setBefore((b) => b ?? p.blocks), () => {});
@@ -80,7 +84,7 @@ function EnergyPanel({ close }: { close: () => void }) {
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
         <View style={{ flex: 1, gap: space.xs }}>
           <Title>现在电量几格？</Title>
-          <Small muted>只会动现在之后的安排。1–2 格时，习惯只排保底版。</Small>
+          <Small muted>只动现在之后的安排。</Small>
         </View>
         <IconButton name="close" label="关闭" onPress={close} />
       </View>
@@ -100,8 +104,14 @@ function EnergyPanel({ close }: { close: () => void }) {
         {plan && (
           <Animated.View entering={FadeIn.duration(260)} style={{ gap: space.md }}>
             {changes && <Changes changes={changes} />}
-            <Eyebrow>{changes ? "今晚完整的安排" : "今晚这样排"}</Eyebrow>
-            <PlanView plan={plan} from={from} />
+            {changes && (
+              <Pressy onPress={() => setFull(!full)} accessibilityRole="button" accessibilityState={{ expanded: full }}
+                scaleTo={0.98} style={{ flexDirection: "row", alignItems: "center", gap: space.xs, minHeight: 44 }}>
+                <Small muted>{full ? "收起今晚的安排" : "看今晚完整的安排"}</Small>
+                <Icon name={full ? "chevron-up" : "chevron-down"} size={14} color={c.muted} />
+              </Pressy>
+            )}
+            {(full || !changes) && <PlanView plan={plan} from={from} showEnergy={false} />}
           </Animated.View>
         )}
       </ScrollView>
@@ -112,58 +122,115 @@ function EnergyPanel({ close }: { close: () => void }) {
   );
 }
 
-/** 改了的几处：时长变了的划掉原来的；没改就说一句。 */
+/** 改了的几处，一行一句话：「看书　45 分 → 10 分（保底）」。新加的用绿色，今晚不排了的用灰色；一行接一行进场。 */
 function Changes({ changes }: { changes: ReturnType<typeof planDiff> }) {
   const c = useColors();
-  if (!changes.length) return <Small muted>今晚的安排不用动。</Small>;
+  if (!changes.length) return <Text style={[type.label, { color: c.text }]}>今晚不用动，照原来的来。</Text>;
+  const floors = changes.some((x) => x.title.endsWith("（保底）"));
   return (
     <Card style={{ gap: space.sm }}>
-      <Small muted>今晚这样排（改了 {changes.length} 处）</Small>
-      {changes.map((x) => (
-        <View key={`${x.time}${x.title}`} accessible style={{ flexDirection: "row", gap: space.md, alignItems: "baseline" }}
-          accessibilityLabel={`${x.time} ${x.title}，${x.was ? `从 ${x.was} 改成 ` : ""}${x.now}`}>
-          <Text style={[type.small, type.num, { width: 44, color: c.muted }]}>{x.time}</Text>
-          <Text style={[type.label, { flex: 1, color: c.text }]} numberOfLines={1}>{x.title}</Text>
-          {x.was && <Text style={[type.small, type.num, { color: c.muted, textDecorationLine: "line-through" }]}>{x.was}</Text>}
-          <Text style={[type.small, { color: c.ok, fontWeight: "600" }]}>{x.was ? "→ " : ""}{x.now}</Text>
-        </View>
-      ))}
+      <Text style={[type.label, { color: c.text }]}>帮你改了 {changes.length} 处</Text>
+      {changes.map((x, i) => {
+        const floor = x.title.endsWith("（保底）");
+        const name = floor ? x.title.slice(0, -4) : x.title;
+        const dropped = x.now === "今晚不排了";
+        const said = x.was ? `从 ${x.was} 改成 ${x.now}${floor ? "，保底" : ""}` : x.now;
+        return (
+          <Animated.View key={`${x.time}${x.title}`} entering={FadeInDown.delay(120 + i * 60).duration(240).easing(EASE)}
+            accessible accessibilityLabel={`${x.time} ${name}，${said}`}
+            style={{ flexDirection: "row", gap: space.sm, alignItems: "baseline", minHeight: 28 }}>
+            <Text style={[type.small, type.num, { width: 44, color: c.muted }]}>{x.time}</Text>
+            <Text style={[type.label, { flex: 1, color: dropped ? c.muted : c.text }]} numberOfLines={1}>{name}</Text>
+            {x.was && <Text style={[type.small, type.num, { color: c.muted, textDecorationLine: "line-through" }]}>{x.was}</Text>}
+            {x.was && <Small muted>→</Small>}
+            <Text style={[type.small, type.num, { fontWeight: dropped ? "400" : "600",
+              color: dropped ? c.muted : x.was ? c.text : c.ok }]}>{x.now}{floor ? "（保底）" : ""}</Text>
+          </Animated.View>
+        );
+      })}
+      {floors && <Small muted>累的时候，习惯只排保底的那几分钟。</Small>}
     </Card>
   );
 }
 
-/** 五格电池：点第几格就亮到第几格。1–2 格是琥珀色，3 格以上是绿色（字色都过 AA）。 */
+const CELLS = [1, 2, 3, 4, 5];
+
+/**
+ * 一节电池，五格连在一起：点一格，或者横着滑、松手才算选了。亮的格子从第 1 格依次亮到第 n 格，只用一个颜色。
+ * 格子里不写数字，选了几格写在电池上方。
+ */
 function Battery({ level, disabled, onPick }: { level: number | null; disabled: boolean; onPick: (n: number) => void }) {
   const c = useColors();
-  const low = level !== null && level <= 2;
-  const fill = low ? c.kind.flex : c.ok;
-  const ink = low ? c.onWarm : c.onPrimary;
+  const [hover, setHover] = useState<number | null>(null); // 滑动中指着的格数，松手前只是预览
+  const width = useSharedValue(0);
+  const last = useRef<number | null>(null);
+  const shown = hover ?? level;
+
+  const point = (n: number) => {
+    if (last.current === n) return;
+    last.current = n;
+    haptic.select();
+    setHover(n);
+  };
+  const release = () => {
+    const n = last.current;
+    last.current = null;
+    setHover(null);
+    if (n !== null) onPick(n);
+  };
+  const slide = usePanGesture({
+    enabled: !disabled,
+    activeOffsetX: [-8, 8],
+    failOffsetY: [-12, 12],
+    onUpdate: (e) => {
+      if (width.value > 0) scheduleOnRN(point, Math.max(1, Math.min(5, Math.ceil((e.x / width.value) * 5))));
+    },
+    onDeactivate: () => { scheduleOnRN(release); },
+  });
+
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel="电量" style={{ gap: space.sm }}>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <View style={{ flex: 1, flexDirection: "row", gap: 6, padding: 6, borderRadius: radius.lg,
-          borderWidth: 1.5, borderColor: c.line }}>
-          {[1, 2, 3, 4, 5].map((n) => {
-            const lit = level !== null && n <= level;
-            return (
-              <Pressy key={n} onPress={() => onPick(n)} disabled={disabled} scaleTo={0.92}
-                accessibilityRole="radio" accessibilityState={{ checked: level === n, disabled }}
-                accessibilityLabel={`电量 ${n} 格，${BATTERY_HINT[n]}`}
-                style={{ flex: 1, height: 56, borderRadius: radius.md - 6, backgroundColor: lit ? fill : c.sunken,
-                  alignItems: "center", justifyContent: "center" }}>
-                <Text style={[type.title, type.num, { color: lit ? ink : c.muted }]}>{n}</Text>
-              </Pressy>
-            );
-          })}
-        </View>
-        <View style={{ width: 6, height: 24, marginLeft: 3, borderRadius: 3, backgroundColor: c.line }} />
+    <View accessibilityRole="radiogroup" accessibilityLabel="电量" style={{ gap: space.md }}>
+      {/* 没选时是一句小字提示，选了是大字；高度固定，选的时候电池不往下跳 */}
+      <View style={{ height: 34, justifyContent: "center" }}>
+        <Text style={[shown ? type.stat : type.label, { textAlign: "center", color: shown ? c.text : c.muted, fontWeight: shown ? undefined : "400" }]}>
+          {shown ? `${shown} 格 · ${BATTERY_HINT[shown]}` : "点一格，或者横着滑"}
+        </Text>
       </View>
-      <View style={{ flexDirection: "row", paddingHorizontal: 8, paddingRight: 17 }}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <Text key={n} style={[type.small, { flex: 1, textAlign: "center", color: level === n ? c.text : c.muted,
-            fontWeight: level === n ? "600" : "400" }]}>{BATTERY_HINT[n]}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <GestureDetector gesture={slide}>
+          <View onLayout={(e) => width.set(e.nativeEvent.layout.width)}
+            style={{ flex: 1, flexDirection: "row", gap: 3, padding: 5, borderRadius: radius.lg, borderWidth: 2, borderColor: c.line }}>
+            {CELLS.map((n) => (
+              <Cell key={n} n={n} lit={shown !== null && n <= shown} checked={level === n} disabled={disabled}
+                onPress={() => onPick(n)} />
+            ))}
+          </View>
+        </GestureDetector>
+        <View style={{ width: 8, height: 28, marginLeft: 3, borderRadius: 4, backgroundColor: c.line }} />
+      </View>
+      <View style={{ flexDirection: "row", paddingLeft: 7, paddingRight: 18 }}>
+        {CELLS.map((n) => (
+          <Text key={n} style={[type.small, { flex: 1, textAlign: "center", color: shown === n ? c.text : c.muted,
+            fontWeight: shown === n ? "600" : "400" }]}>{BATTERY_HINT[n]}</Text>
         ))}
       </View>
     </View>
+  );
+}
+
+/** 一格：亮起来时从第 1 格往后依次亮，每格错开 40ms；熄灭不等。 */
+function Cell({ n, lit, checked, disabled, onPress }: { n: number; lit: boolean; checked: boolean; disabled: boolean; onPress: () => void }) {
+  const c = useColors();
+  const on = useSharedValue(lit ? 1 : 0);
+  useEffect(() => {
+    on.set(lit ? withDelay((n - 1) * 40, withTiming(1, { duration: 140, easing: Easing.out(Easing.cubic) })) : withTiming(0, { duration: 120 }));
+  }, [lit, n, on]);
+  const fill = useAnimatedStyle(() => ({ opacity: on.value }));
+  return (
+    <Pressy onPress={onPress} disabled={disabled} scaleTo={0.94}
+      accessibilityRole="radio" accessibilityState={{ checked, disabled }} accessibilityLabel={`电量 ${n} 格，${BATTERY_HINT[n]}`}
+      style={{ flex: 1, height: 64, borderRadius: 6, backgroundColor: c.sunken, overflow: "hidden" }}>
+      <Animated.View pointerEvents="none" style={[{ flex: 1, backgroundColor: c.kind.must }, fill]} />
+    </Pressy>
   );
 }

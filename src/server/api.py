@@ -190,7 +190,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         day = logical_date(clock())
         stored = today_plan(day)
         settings = (db.plan_input(USER_ID) or {}).get("reminders")
-        return {**out(day, stored), "reminders": todays_reminders(stored["plan"], settings)}
+        log = db.logs_between(USER_ID, day, day)  # 今晚对过账没有：首页据此换成「今天收好了」
+        return {**out(day, stored), "reminders": todays_reminders(stored["plan"], settings),
+                "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None}
 
     @app.post("/energy", summary="报电量 → 只重排今晚 → 返回新计划（未确认）")
     def post_energy(body: EnergyIn):
@@ -300,13 +302,21 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         def statuses(item_id):
             return [log["items"][item_id] for log in logs if item_id in log["items"]]
 
+        dates = [(start + timedelta(days=i)).isoformat() for i in range(7)]
+        by_date = {log["date"]: log for log in logs}
+
+        def per_day(item_id):  # 从 start 到 end 每天一格：done / floor / skip，没记就是 None
+            return [by_date[d]["items"].get(item_id, {}).get("status") if d in by_date else None for d in dates]
+
         habits = [{"id": h["id"], "title": h["title"],
-                   "done_days": sum(s["status"] in ("done", "floor") for s in statuses(h["id"]))}
+                   "done_days": sum(s["status"] in ("done", "floor") for s in statuses(h["id"])),
+                   "days": per_day(h["id"])}
                   for h in raw.get("habits", [])]
         projects = [{"id": t["id"], "title": t["title"],
                      **{v: sum(s.get("vs_plan") == v for s in statuses(t["id"])) for v in VS_PLAN}}
                     for t in raw.get("tasks", [])]
         return {"start": start.isoformat(), "end": end.isoformat(), "logged_days": len(logs),
+                "logged": [d in by_date for d in dates],
                 "habits": habits, "projects": projects, "review": review_state(end)}
 
     @app.post("/review", summary="每周复盘：生成这周的（数字由程序算），或回答一条调整（点了「好」才写进设置）")

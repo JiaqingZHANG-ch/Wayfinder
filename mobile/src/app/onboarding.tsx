@@ -1,53 +1,60 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { confirmProfile, Energy, getMe, isCrisis, Me, postOnboarding, Profile, putSettings } from "@/api";
 import { EnergyPick } from "@/components/chips";
 import { Consent } from "@/components/consent";
-import { Body, Button, Card, CrisisCard, Field, Notice, Row, Screen, Small, Title } from "@/components/ui";
+import { Bar, Skeleton } from "@/components/motion";
+import { Body, Button, Card, CrisisCard, Display, ErrorState, Field, Icon, Notice, Row, Small, Title } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
-type Step = "consent" | "chat" | "confirm" | "form";
+type Step = "welcome" | "consent" | "chat" | "confirm" | "form";
 
-/** 轻量建档：先看隐私说明并同意 → 聊方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯。 */
+/** 轻量建档：欢迎 → 看隐私说明并同意 → 聊方向（一次一问）→ 确认导师写的那句方向（可以改）→ 填作息和第一个习惯。外壳和晚间对账一样：全屏、顶部进度条。 */
 export default function Onboarding() {
   const c = useColors();
-  const [step, setStep] = useState<Step>("chat");
+  const insets = useSafeAreaInsets();
+  const [step, setStep] = useState<Step>("welcome");
   const [question, setQuestion] = useState<string | null>(null);
+  const [asked, setAsked] = useState(0); // 已经问到第几个问题，进度条用
   const [reply, setReply] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [proposals, setProposals] = useState<Profile[]>([]);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
 
   function afterChat(pending: Profile[] = []) {
     setProposals(pending);
     setStep(pending.length ? "confirm" : "form");
   }
 
-  const [me, setMe] = useState<Me | null>(null);
+  function ask(q: string | null) {
+    setQuestion(q);
+    setAsked((n) => n + 1);
+  }
 
   function startChat() {
     setStep("chat");
     postOnboarding().then((t) => {
       if (isCrisis(t)) return setCrisis(t.message);
       if (t.done) afterChat(t.proposals);
-      else setQuestion(t.question);
-    }, (e: Error) => setError(e.message));
+      else ask(t.question);
+    }, () => setFailed(true));
   }
 
-  useEffect(() => {
-    getMe().then((m) => {
-      if (m.consented) startChat();
-      else {
-        setMe(m);
-        setStep("consent");
-      }
-    }, (e: Error) => setError(e.message));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- 只在打开页面时问一次
+  function loadMe() {
+    getMe().then(setMe, () => setFailed(true));
+  }
+  useEffect(loadMe, []);
+
+  /** 欢迎页的「开始」：同意过就直接聊，没有就先过隐私这一关。 */
+  const start = () => (me?.consented ? startChat() : setStep("consent"));
 
   async function sendAnswer() {
     if (!answer.trim()) return;
@@ -59,9 +66,9 @@ export default function Onboarding() {
       setReply(t.reply);
       setAnswer("");
       if (t.done) afterChat(t.proposals);
-      else setQuestion(t.question);
-    } catch (e) {
-      setError((e as Error).message);
+      else ask(t.question);
+    } catch {
+      setError("没连上，网络好了再点一次「说完了」。");
     } finally {
       setBusy(false);
     }
@@ -72,53 +79,107 @@ export default function Onboarding() {
       const res = await confirmProfile(p.id, p.content);
       if (isCrisis(res)) return setCrisis(res.message);
       afterChat(res.pending);
-    } catch (e) {
-      setError((e as Error).message);
+    } catch {
+      setError("没连上，网络好了再点一次。");
     }
   }
 
+  const shell = (children: React.ReactNode, bottomBar?: React.ReactNode, progress?: number) => (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top + space.sm }}>
+      <View style={{ flex: 1, width: "100%", maxWidth: 560, alignSelf: "center" }}>
+        {progress !== undefined && (
+          <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.xs }}>
+            <Bar value={progress} color={c.primary} height={6} />
+            {step === "chat" && <Small muted>大概 3–4 个问题</Small>}
+          </View>
+        )}
+        {children}
+        {bottomBar && <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>{bottomBar}</View>}
+      </View>
+    </KeyboardAvoidingView>
+  );
+  const scroll = (children: React.ReactNode) => (
+    <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+  );
+  const chatProgress = 0.2 + 0.15 * Math.min(asked, 4);
+
   if (crisis) {
-    return (
-      <Screen>
-        <CrisisCard message={crisis} />
-        <Button label="继续" variant="secondary" onPress={() => setCrisis(null)} />
-      </Screen>
+    return shell(scroll(<CrisisCard message={crisis} />), <Button label="继续" variant="secondary" onPress={() => setCrisis(null)} />);
+  }
+
+  if (failed) {
+    return shell(<ErrorState onRetry={() => { setFailed(false); if (step === "chat") startChat(); else loadMe(); }} />);
+  }
+
+  if (step === "welcome") {
+    return shell(
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.md }}>
+        <Icon name="compass-outline" size={48} color={c.primary} />
+        <Text style={{ fontFamily: type.big.fontFamily, fontSize: 28, lineHeight: 36, fontWeight: "300", color: c.text }}>Wayfinder</Text>
+        <Body muted center>每天帮你排一张做得完的计划。累了就说，它只改今晚。</Body>
+      </View>,
+      <Button label="开始" busyLabel={me ? undefined : "……"} onPress={start} />,
     );
   }
 
-  return (
-    <Screen>
-      {reply && (
-        <View style={{ alignSelf: "flex-start", maxWidth: "90%", backgroundColor: c.soft, borderRadius: radius.lg,
-          borderTopLeftRadius: radius.sm, padding: space.lg }}>
-          <Text style={[type.body, { color: c.onSoft }]}>{reply}</Text>
-        </View>
-      )}
-      {error && <Notice tone="error">{error}</Notice>}
+  if (step === "consent") {
+    return shell(me && scroll(<Consent me={me} onDone={startChat} />), undefined, 0.1);
+  }
 
-      {step === "consent" && me && <Consent me={me} onDone={startChat} />}
-
-      {step === "chat" && !question && !error && <Body muted>……</Body>}
-      {step === "chat" && question && (
+  if (step === "chat") {
+    if (!question) {
+      return shell(
+        <View style={{ padding: space.lg, gap: space.md }}>
+          <Skeleton height={28} width="80%" />
+          <Skeleton height={28} width="60%" />
+          <Skeleton height={96} />
+        </View>, undefined, chatProgress);
+    }
+    return shell(
+      scroll(
         <>
-          <Title>{question}</Title>
+          {reply && (
+            <View style={{ alignSelf: "flex-start", maxWidth: "90%", backgroundColor: c.soft, borderRadius: radius.lg,
+              borderTopLeftRadius: radius.sm, padding: space.lg }}>
+              <Text style={[type.body, { color: c.onSoft }]}>{reply}</Text>
+            </View>
+          )}
+          <Display>{question}</Display>
           <Field value={answer} onChangeText={setAnswer} multiline placeholder="想到什么写什么，一两句就够" />
-          <Button label="说完了" busyLabel={busy ? "正在听……" : undefined} disabled={!answer.trim()} onPress={sendAnswer} />
-        </>
-      )}
+          {error && <Notice tone="error">{error}</Notice>}
+        </>,
+      ),
+      <Button label="说完了" busyLabel={busy ? "正在听……" : undefined} disabled={!answer.trim()} onPress={sendAnswer} />,
+      chatProgress,
+    );
+  }
 
-      {step === "confirm" && proposals.map((p) => (
-        <Card key={p.id}>
-          <Small muted>我听到的{p.level}（不对就直接改）</Small>
-          <Field value={p.content} multiline accessibilityLabel={`我听到的${p.level}`}
-            onChangeText={(content) => setProposals(proposals.map((x) => x.id === p.id ? { ...x, content } : x))} />
-          <Button label="对，记下" onPress={() => confirm(p)} />
-        </Card>
-      ))}
+  if (step === "confirm") {
+    return shell(
+      scroll(
+        <>
+          {reply && <Body muted>{reply}</Body>}
+          {proposals.map((p) => (
+            <Card key={p.id}>
+              <Small muted>我听到的{p.level}（不对就直接改）</Small>
+              <Field value={p.content} multiline accessibilityLabel={`我听到的${p.level}`}
+                onChangeText={(content) => setProposals(proposals.map((x) => x.id === p.id ? { ...x, content } : x))} />
+              <Button label="对，记下" onPress={() => confirm(p)} />
+            </Card>
+          ))}
+          {error && <Notice tone="error">{error}</Notice>}
+        </>,
+      ), undefined, 0.8);
+  }
 
-      {step === "form" && <SettingsForm onError={setError} onCrisis={setCrisis} />}
-    </Screen>
-  );
+  return shell(
+    scroll(
+      <>
+        <SettingsForm onError={setError} onCrisis={setCrisis} />
+        {error && <Notice tone="error">{error}</Notice>}
+      </>,
+    ), undefined, 0.9);
 }
 
 type FormValues = { wake: string; sleep: string; title: string; minutes: string; floor_min: string; energy: Energy | null };

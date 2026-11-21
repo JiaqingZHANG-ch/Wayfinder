@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
 import { Block, Plan } from "@/api";
-import { enter, Pressy } from "@/components/motion";
+import { EASE, Pressy } from "@/components/motion";
 import { Card, Icon, IconName, Notice, Small } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const KIND_NAME: Record<Block["kind"], string> = { class: "课", must: "习惯", proj: "项目", flex: "可选", life: "" };
 const KIND_ICON: Record<Block["kind"], IconName> = {
-  class: "school-outline", must: "repeat", proj: "construct-outline", flex: "sparkles-outline", life: "cafe-outline",
+  class: "school-outline", must: "repeat", proj: "layers-outline", flex: "sparkles-outline", life: "cafe-outline",
 };
 
 export const kindName = (b: Block) => (b.task_id === "one-thing" ? "昨晚定的" : KIND_NAME[b.kind]);
@@ -45,10 +45,11 @@ export function useNow() {
  * 一天的时间线：每块左边一个小圆点，颜色按种类；吃饭、路上、自由时间淡一些。
  * now：给了就把过去的块调淡、正在做的块高亮，空档处画一条「现在」线。
  * from：只看这个时间之后的（报电量面板用）。showEnergy：顶上显示精力条。
- * fold（要和 now 一起给）：已经过去的块收成一行「早些时候 · N 件」，点开才显示。
+ * fold（要和 now 一起给）：已经过去的块收成一行「早些时候 · N 件」，点开才显示。title：卡片顶上的小标题。
+ * 行不单独错峰入场（卡片整张入场一次）；展开、收起、计划变了，行平滑挪位，新出现的行淡入。
  */
-export function PlanView({ plan, from, now, showEnergy = true, fold }: {
-  plan: Plan; from?: string; now?: number; showEnergy?: boolean; fold?: boolean;
+export function PlanView({ plan, from, now, showEnergy = true, fold, title }: {
+  plan: Plan; from?: string; now?: number; showEnergy?: boolean; fold?: boolean; title?: string;
 }) {
   const c = useColors();
   const [open, setOpen] = useState(false);
@@ -60,8 +61,18 @@ export function PlanView({ plan, from, now, showEnergy = true, fold }: {
   const current = now === undefined ? -1 : blocks.findIndex((b) => toMin(b.start) <= now && now < toMin(b.end));
   const lineAt = now === undefined || current >= 0 ? -1 : blocks.findIndex((b) => toMin(b.start) > now);
   const lineAtEnd = now !== undefined && current < 0 && lineAt < 0 && blocks.length > 0;
+  // 「自由时间：刷视频、看动漫都行」第一次写整句，后面只写冒号前面那半
+  const seen = new Set<string>();
+  const titles = blocks.map((b) => {
+    const [head] = b.title.split("：");
+    if (b.kind !== "life" || head === b.title) return b.title;
+    if (seen.has(head)) return head;
+    seen.add(head);
+    return b.title;
+  });
   return (
-    <Card style={{ gap: space.lg }}>
+    <Card style={{ gap: space.lg, paddingBottom: space.md }}>
+      {title && <Text style={[type.label, { color: c.muted }]}>{title}</Text>}
       {showEnergy && (
         <View style={{ gap: space.sm }}>
           <Small muted>
@@ -86,9 +97,9 @@ export function PlanView({ plan, from, now, showEnergy = true, fold }: {
       )}
       {blocks.length > 0 && <View>
         {blocks.map((b, i) => (
-          <Animated.View key={b.id} entering={enter(i)}>
+          <Animated.View key={b.id} entering={FadeIn.duration(200)} layout={LinearTransition.duration(260).easing(EASE)}>
             {i === lineAt && now !== undefined && <NowLine now={now} />}
-            <BlockRow b={b} last={i === blocks.length - 1}
+            <BlockRow b={b} title={titles[i]} last={i === blocks.length - 1}
               state={now === undefined ? "plain" : i === current ? "now" : toMin(b.end) <= now ? "past" : "plain"} />
           </Animated.View>
         ))}
@@ -98,7 +109,12 @@ export function PlanView({ plan, from, now, showEnergy = true, fold }: {
   );
 }
 
-function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" | "now" | "past" }) {
+const span = (b: Block) => {
+  const m = toMin(b.end) - toMin(b.start), h = Math.floor(m / 60);
+  return m < 60 ? `${m} 分钟` : m % 60 ? `${h} 小时 ${m % 60} 分` : `${h} 小时`;
+};
+
+function BlockRow({ b, title, last, state }: { b: Block; title: string; last: boolean; state: "plain" | "now" | "past" }) {
   const c = useColors();
   const quiet = b.kind === "life";
   const live = state === "now";
@@ -116,16 +132,16 @@ function BlockRow({ b, last, state }: { b: Block; last: boolean; state: "plain" 
           borderWidth: live ? 3 : 0, borderColor: c.soft }} />
         {!last && <View style={{ flex: 1, width: 2, backgroundColor: c.line, marginVertical: 3 }} />}
       </View>
-      <View style={[{ flex: 1, marginBottom: space.sm, gap: 2 },
+      <View style={[{ flex: 1, marginBottom: last ? 0 : space.sm, gap: 2 },
         live && { backgroundColor: c.soft, borderRadius: radius.md, padding: space.sm, paddingHorizontal: space.md }]}>
         <Text style={quiet && !live ? [type.small, { color: c.muted, paddingTop: 1 }] : [type.label, { color: live ? c.onSoft : past ? c.muted : c.text }]}>
-          {b.title}
+          {title}
         </Text>
         {(!quiet || live) && (
           <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
             <Icon name={kindIcon(b)} size={13} color={live ? c.onSoft : c.muted} />
             <Small color={live ? c.onSoft : c.muted}>
-              {live ? "正在进行 · " : kindName(b) ? `${kindName(b)} · ` : ""}{b.start}–{b.end}{b.pomodoros ? ` · 番茄 ×${b.pomodoros}` : ""}
+              {live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · ")}
             </Small>
           </View>
         )}

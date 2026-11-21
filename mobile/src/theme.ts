@@ -4,7 +4,7 @@
  * 每对「字 / 底」的对比度都 ≥ 4.5:1（WCAG AA），改色后要重新核对。
  */
 import { createContext, useContext, useEffect, useState } from "react";
-import { Platform, TextStyle, useColorScheme } from "react-native";
+import { AppState, Platform, TextStyle, useColorScheme } from "react-native";
 
 const light = {
   bg: "#FAF6F0", // 暖纸色页面底
@@ -23,10 +23,10 @@ const light = {
   ok: "#4F7A55", // 完成的绿；白字 4.9:1
   onWarm: "#2E2A26", // 琥珀色（kind.flex）上的字 6.3:1
   primaryTrack: "rgba(255, 255, 255, 0.28)", // 陶土色底上的进度槽、图标圆
-  overlay: "rgba(46, 42, 38, 0.36)", // 底部面板后面的遮罩
+  overlay: "rgba(46, 42, 38, 0.5)", // 底部面板后面的遮罩
   shadow: "0 1px 2px rgba(90, 58, 40, 0.05)",
   glow: "0 6px 24px rgba(90, 58, 40, 0.07)", // 「此刻」主卡片；深色里换成一圈陶土微光
-  glass: "rgba(255, 252, 247, 0.9)", // 标签栏、底部面板在不支持液态玻璃时的半透明底
+  glass: "rgba(255, 252, 247, 0.94)", // 标签栏、底部面板在不支持液态玻璃时的半透明底
   glassEdge: "rgba(255, 255, 255, 0.75)",
   glassShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 30px rgba(60, 40, 25, 0.12)",
   // 计划里每类事情的颜色：课、习惯、项目、可选、生活
@@ -53,7 +53,7 @@ const dark: typeof light = {
   overlay: "rgba(0, 0, 0, 0.55)",
   shadow: "0 1px 2px rgba(0, 0, 0, 0.3)",
   glow: "0 0 0 1px rgba(227, 144, 111, 0.18), 0 0 40px rgba(227, 144, 111, 0.12)",
-  glass: "rgba(40, 34, 29, 0.82)",
+  glass: "rgba(40, 34, 29, 0.9)",
   glassEdge: "rgba(255, 240, 225, 0.12)",
   glassShadow: "inset 0 1px 0 rgba(255, 240, 225, 0.14), 0 10px 30px rgba(0, 0, 0, 0.4)",
   kind: { class: "#8C8379", must: "#8DAE90", proj: "#86A3C2", flex: "#E3B661", life: "#6A6058" },
@@ -81,7 +81,7 @@ const geist = (w: "300Light" | "400Regular" | "500Medium") =>
   Platform.select({ web: `Geist_${w}, ${stack}`, default: `Geist_${w}` });
 const tabular: TextStyle["fontVariant"] = ["tabular-nums"];
 
-// 字号阶梯 12 / 14 / 16 / 20 / 28 / 44 / 64，字重只用 400 / 500 / 600。中文正文行高约 1.6 倍，不用斜体、不加字距。
+// 字号阶梯 13 / 14 / 16 / 20 / 28 / 44 / 64，字重只用 400 / 500 / 600。中文正文行高约 1.6 倍，不用斜体、不加字距。
 // hero / big 是大号细字重的数字，一屏最多一个 hero。num 是给时间、计数用的数字字体（叠在别的字号上）。
 export const type = {
   hero: { fontFamily: geist("300Light"), fontSize: 64, lineHeight: 68, letterSpacing: -1.5, fontVariant: tabular },
@@ -91,7 +91,7 @@ export const type = {
   title: { fontFamily, fontSize: 20, lineHeight: 28, fontWeight: "600" },
   body: { fontFamily, fontSize: 16, lineHeight: 26, fontWeight: "400" },
   label: { fontFamily, fontSize: 14, lineHeight: 22, fontWeight: "500" },
-  small: { fontFamily, fontSize: 12, lineHeight: 18, fontWeight: "400" },
+  small: { fontFamily, fontSize: 13, lineHeight: 19, fontWeight: "400" }, // 中文 12 号在手机上偏小，说明文字最小 13
   num: { fontFamily: geist("400Regular"), fontVariant: tabular },
 } as const;
 
@@ -100,12 +100,12 @@ const isNight = (d = new Date()) => d.getHours() >= 21 || d.getHours() < 6;
 const Night = createContext(false);
 export const NightProvider = Night.Provider;
 
-/** 根布局用：每分钟看一次现在是不是夜里。 */
+/** 根布局用：打开 App、回到前台时看一次现在是不是夜里。正在用的时候不换，免得整屏突然闪一下。 */
 export function useNightClock() {
   const [night, setNight] = useState(isNight);
   useEffect(() => {
-    const t = setInterval(() => setNight(isNight()), 60_000);
-    return () => clearInterval(t);
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") setNight(isNight()); });
+    return () => sub.remove();
   }, []);
   return night;
 }

@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k != "reminders"} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "checked_in", "tomorrow_task")} == after
 
 
 @pytest.mark.parametrize("body", [{"level": 0}, {"level": 6}, {"level": 3, "now": "6pm"}, {}])
@@ -82,6 +82,10 @@ def test_checkin_with_buttons_saves_log_and_quote(setup):
     assert week["start"] == "2026-11-14" and week["end"] == "2026-11-20" and week["logged_days"] == 1
     assert {h["id"]: h["done_days"] for h in week["habits"]} == {"english": 1, "reading": 1}
     assert week["projects"] == [{"id": "exam-prep", "title": "高数期末复习", "less": 1, "same": 0, "more": 0}]
+    assert week["logged"] == [False] * 6 + [True]  # 按天：只有今天（最后一格）记了
+    assert {h["id"]: h["days"][-1] for h in week["habits"]} == {"english": "done", "reading": "floor"}
+    today = client.get("/today").json()
+    assert today["checked_in"] is True and today["tomorrow_task"] == "做一套往年卷"
 
 
 def test_checkin_takes_energy_reported_today(setup):
@@ -306,7 +310,9 @@ def test_confirm_unknown_profile_is_404(new_user):
 
 # ---- 第 5 周：两条本地提醒 ----
 def test_today_carries_two_reminders(setup):
-    r = setup[0].get("/today").json()["reminders"]
+    today = setup[0].get("/today").json()
+    assert today["checked_in"] is False and today["tomorrow_task"] is None  # 还没对账
+    r = today["reminders"]
     assert [(x["kind"], x["at"], x["url"]) for x in r] == [("after_class", "16:00", "/energy"), ("evening", "21:00", "/checkin")]
 
 

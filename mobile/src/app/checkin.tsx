@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
-import Animated, { FadeIn, FadeInRight, ZoomIn } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInLeft, FadeInRight, FadeOut, ZoomIn } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, postCheckin } from "@/api";
-import { Bar, haptic, Pressy } from "@/components/motion";
+import { ApiError, CheckinItem, checkinItems, CheckinResult, getToday, getWeek, isCrisis, postCheckin } from "@/api";
+import { Bar, EASE, from as start, haptic, Pressy, Skeleton } from "@/components/motion";
 import { Body, Button, Card, CrisisCard, Display, Field, Icon, IconButton, IconName, Notice, Small, Title } from "@/components/ui";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, radius, space, type, useColors } from "@/theme";
@@ -14,13 +14,18 @@ type Choice = { status?: Status; vs_plan?: VsPlan };
 type Step = { t: "status"; item: CheckinItem } | { t: "vs"; item: CheckinItem } | { t: "note" } | { t: "tomorrow" };
 
 const STATUS_LOOK: Record<Status, { icon: IconName; sub: string }> = {
-  done: { icon: "checkmark-circle", sub: "按计划做完了" },
-  floor: { icon: "leaf", sub: "做了最小的那一版，也算" },
-  skip: { icon: "moon", sub: "没关系，记下来就好" },
+  done: { icon: "ellipse", sub: "按计划做完了" },
+  floor: { icon: "contrast", sub: "做了最小的那一版，也算" },
+  skip: { icon: "ellipse-outline", sub: "没关系，记下来就好" },
 };
 const VS_LOOK: Record<VsPlan, IconName> = { less: "remove-circle-outline", same: "ellipse-outline", more: "add-circle-outline" };
 
 const leave = () => (router.canGoBack() ? router.back() : router.replace("/"));
+const OFFLINE = "没连上，网络好了再试一次。";
+/** 后端说的话（比如「请点按钮补上」）原样给人看；断网这类原始错误只说没连上。 */
+const say = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE);
+const ahead = (side: "left" | "right") => start((side === "right" ? FadeInRight : FadeInLeft).duration(220).easing(EASE),
+  { opacity: 0, transform: [{ translateX: side === "right" ? 16 : -16 }] });
 
 /**
  * 晚间对账：全屏，一屏一问。每件事一屏（点完自动到下一屏），项目再问一句和预想比，
@@ -37,17 +42,18 @@ export default function Checkin() {
   const [tomorrow, setTomorrow] = useState("");
   const [sentenceMode, setSentenceMode] = useState(false);
   const [sentence, setSentence] = useState("");
-  const [logged, setLogged] = useState<number | null>(null);
+  const [logged, setLogged] = useState<boolean[] | null>(null); // 这 7 天哪晚记了
   const [done, setDone] = useState<CheckinResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [crisis, setCrisis] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reader, setReader] = useState(false); // 开着读屏时不自动翻页，让人听完再点「下一步」
+  const [back, setBack] = useState(false); // 刚才是往回翻：新的一屏从左边进来
 
   useEffect(() => {
-    getToday().then((plan) => setItems(checkinItems(plan)), (e: Error) => setMessage(e.message));
-    getWeek().then((w) => setLogged(w.logged_days), () => {});
+    getToday().then((plan) => setItems(checkinItems(plan)), () => setMessage(OFFLINE));
+    getWeek().then((w) => setLogged(w.logged), () => {});
     AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
     return () => { if (advance.current) clearTimeout(advance.current); };
   }, []);
@@ -66,6 +72,7 @@ export default function Checkin() {
     if (advance.current) clearTimeout(advance.current);
     advance.current = null;
     setMessage(null);
+    setBack(i < idx);
     setIdx(i);
   }
 
@@ -86,10 +93,10 @@ export default function Checkin() {
       else {
         haptic.success();
         setDone(res);
-        getWeek().then((w) => setLogged(w.logged_days), () => {});
+        getWeek().then((w) => setLogged(w.logged), () => {});
       }
     } catch (e) {
-      setMessage((e as Error).message); // 一句话没整理出来时，后端会说「请点按钮补上」
+      setMessage(say(e)); // 一句话没整理出来时，后端会说「请点按钮补上」
     } finally {
       setBusy(false);
     }
@@ -123,20 +130,22 @@ export default function Checkin() {
   if (done) {
     return shell(
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: space.xl, gap: space.xl }}>
-        <Animated.View entering={ZoomIn.springify().damping(14)} style={{ width: 112, height: 112, borderRadius: radius.pill,
-          backgroundColor: c.soft, alignItems: "center", justifyContent: "center" }}>
-          <Icon name="checkmark" size={56} color={c.primary} />
+        <Animated.View entering={FadeIn.duration(360)}>
+          <Animated.View entering={start(ZoomIn.duration(360).easing(EASE), { transform: [{ scale: 0.9 }] })}
+            style={{ width: 112, height: 112, borderRadius: radius.pill, backgroundColor: c.soft, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="moon" size={40} color={c.primary} />
+          </Animated.View>
         </Animated.View>
         <Animated.View entering={FadeIn.delay(250).duration(motion.slow)} style={{ alignItems: "center", gap: space.md }}>
           <Display center>{done.closing}</Display>
           {logged !== null && (
             <View style={{ alignItems: "center", gap: space.sm }}>
               <View style={{ flexDirection: "row", gap: 6 }}>
-                {Array.from({ length: 7 }, (_, i) => (
-                  <View key={i} style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: i < logged ? c.primary : c.sunken }} />
+                {logged.map((x, i) => (
+                  <View key={i} style={{ width: 10, height: 10, borderRadius: radius.pill, backgroundColor: x ? c.kind.must : c.sunken }} />
                 ))}
               </View>
-              <Small muted>这 7 天记录了 {logged} 天</Small>
+              <Small muted>这 7 天记了 {logged.filter(Boolean).length} 晚</Small>
             </View>
           )}
           {!!done.saved.tomorrow_task?.trim() && (
@@ -149,7 +158,7 @@ export default function Checkin() {
         </Animated.View>
       </View>,
       <>
-        <Button label="回到今天" onPress={leave} />
+        <Button label="晚安" icon="moon-outline" onPress={leave} />
         <Button label="再改一下" variant="quiet" onPress={() => { setDone(null); go(0); }} />
       </>,
     );
@@ -163,12 +172,16 @@ export default function Checkin() {
           ? <IconButton name="chevron-back" label="回到逐项对账" onPress={() => { setMessage(null); setSentenceMode(false); }} />
           : <IconButton name="close" label="关闭" onPress={leave} />}
       <View style={{ flex: 1 }}>
-        {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} />}
+        {!sentenceMode && <Bar value={(idx + 1) / steps.length} color={c.primary} height={6} duration={300} />}
       </View>
       {!sentenceMode && (
         <Pressy onPress={() => { go(idx); setSentenceMode(true); }} accessibilityRole="button" accessibilityLabel="改成一句话说完"
-          style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm }}>
-          <Text style={[type.small, { color: c.primary, fontWeight: "600" }]}>一句话说完</Text>
+          style={{ minHeight: 44, justifyContent: "center" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 32, paddingHorizontal: space.md,
+            borderRadius: radius.pill, borderWidth: 1, borderColor: c.line }}>
+            <Icon name="sparkles-outline" size={14} color={c.text} />
+            <Text style={[type.small, { fontSize: 12, color: c.text, fontWeight: "600" }]}>一句话说完</Text>
+          </View>
         </Pressy>
       )}
     </View>
@@ -179,7 +192,7 @@ export default function Checkin() {
       <>
         {top}
         <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">
-          <Animated.View entering={FadeInRight.duration(motion.base)} style={{ gap: space.lg }}>
+          <Animated.View entering={ahead("right")} style={{ gap: space.lg }}>
             <Display>一句话说说今天</Display>
             <Body muted>我帮你整理成对账。整理不出来的，再回去点按钮补上。</Body>
             <Field placeholder="比如：英语背了，看书只看了十分钟，复习比预想花得多" value={sentence}
@@ -195,12 +208,15 @@ export default function Checkin() {
 
   if (!items) {
     return shell(
-      <>{top}<View style={{ padding: space.lg }}>{message ? <Notice tone="error">{message}</Notice> : <Small muted>正在读今天的计划……</Small>}</View></>,
+      <>{top}<View style={{ padding: space.lg, gap: space.md }}>{message ? <Notice tone="error">{message}</Notice> : (
+        <>
+          <Skeleton height={36} width="70%" />
+          <View style={{ flex: 1 }} />
+          {[0, 1, 2].map((i) => <Skeleton key={i} height={72} r={radius.lg} />)}
+        </>
+      )}</View></>,
     );
   }
-
-  const counter = items.length > 0 && (step.t === "status" || step.t === "vs")
-    ? `第 ${items.indexOf(step.item) + 1} / ${items.length} 件` : null;
 
   let body: React.ReactNode;
   let bottom: React.ReactNode = null;
@@ -208,8 +224,11 @@ export default function Checkin() {
     const cur = choices[step.item.id]?.status;
     body = (
       <>
-        <Display>{step.item.title}</Display>
-        <View style={{ gap: space.md }} accessibilityRole="radiogroup">
+        <View style={{ gap: 2 }}>
+          {step.item.tag && <Small muted>{step.item.tag}</Small>}
+          <Display>{step.item.title}</Display>
+        </View>
+        <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {(Object.keys(STATUS_LABELS) as Status[]).map((k) => (
             <Option key={k} icon={STATUS_LOOK[k].icon} title={STATUS_LABELS[k]} sub={STATUS_LOOK[k].sub}
               on={cur === k} onPress={() => pick(step.item.id, { status: k })} />
@@ -226,7 +245,7 @@ export default function Checkin() {
       <>
         <Display>和预想比，花的时间？</Display>
         <Body muted>{step.item.title}</Body>
-        <View style={{ gap: space.md }} accessibilityRole="radiogroup">
+        <View style={{ gap: space.md, marginTop: "auto" }} accessibilityRole="radiogroup">
           {(Object.keys(VS_PLAN_LABELS) as VsPlan[]).map((k) => (
             <Option key={k} icon={VS_LOOK[k]} title={VS_PLAN_LABELS[k]} on={cur === k}
               onPress={() => pick(step.item.id, { vs_plan: k })} />
@@ -240,7 +259,7 @@ export default function Checkin() {
       <>
         <Display>想说点什么吗？</Display>
         <Body muted>都可以不填。写下的那句话，会原样出现在今晚的结尾。</Body>
-        <Field label="今天的一句话" placeholder="不写也行" value={note} onChangeText={setNote} multiline />
+        <Field label="今天的一句话" placeholder="可不填" value={note} onChangeText={setNote} multiline />
         <Field label="今天卡在哪" placeholder="可不填" value={blocker} onChangeText={setBlocker} />
       </>
     );
@@ -261,9 +280,10 @@ export default function Checkin() {
   return shell(
     <>
       {top}
-      <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }} keyboardShouldPersistTaps="handled">
-        <Animated.View key={`${idx}-${step.t}`} entering={FadeInRight.duration(motion.base)} style={{ gap: space.lg }}>
-          {counter && <Small muted>{counter}</Small>}
+      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: space.lg }} keyboardShouldPersistTaps="handled">
+        {/* 选项贴在底部按钮上方，单手够得着；往前翻从右边进，往回翻从左边进 */}
+        <Animated.View key={`${idx}-${step.t}`} entering={ahead(back ? "left" : "right")} exiting={Platform.OS === "web" ? undefined : FadeOut.duration(120)}
+          style={{ flexGrow: 1, gap: space.lg }}>
           {body}
         </Animated.View>
       </ScrollView>
