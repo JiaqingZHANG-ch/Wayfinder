@@ -6,7 +6,7 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from mentor.tone import quote_is_verbatim
@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS model_calls (
 CREATE TABLE IF NOT EXISTS consents (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, kind TEXT NOT NULL, version TEXT NOT NULL,
     at TEXT NOT NULL, PRIMARY KEY (user_id, kind));
+-- 回信：用户写给将来的自己，到期前不显示原文；habit_id 是写信时那一轮接受的原型习惯（可能为空）
+CREATE TABLE IF NOT EXISTS letters (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    written_on TEXT NOT NULL, due TEXT NOT NULL, days INTEGER NOT NULL, text TEXT NOT NULL,
+    prototype TEXT, habit_id TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -65,7 +70,7 @@ CREATE TABLE IF NOT EXISTS crisis_events (
 
 # 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
 USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles", "deep_talks",
-               "weekly_reviews", "model_calls", "crisis_events")
+               "weekly_reviews", "model_calls", "crisis_events", "letters")
 JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
@@ -124,6 +129,21 @@ class Db:
                 cols = [d[0] for d in cur.description]
                 out[t] = [{k: json.loads(v) if k in JSON_COLUMNS and v is not None else v for k, v in zip(cols, row)} for row in cur]
             return out
+        return self._run(go)
+
+    def add_letter(self, user_id: int, written_on: date, days: int, text: str, prototype: str | None,
+                   habit_id: str | None) -> None:
+        self._run(lambda c: c.execute(
+            "INSERT INTO letters (user_id, written_on, due, days, text, prototype, habit_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, written_on.isoformat(), (written_on + timedelta(days=days)).isoformat(), days, text, prototype,
+             habit_id, _now())))
+
+    def letters(self, user_id: int) -> list[dict]:
+        def go(c):
+            cur = c.execute("SELECT * FROM letters WHERE user_id = ? ORDER BY due, id", (user_id,))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur]
         return self._run(go)
 
     def delete_user(self, user_id: int) -> None:

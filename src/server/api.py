@@ -26,7 +26,7 @@ from mentor.deep_talk import reply as talk_reply
 from mentor.mentor import MAX_INPUT, logical_date
 from mentor.model import ModelPort, RecordingModel, make_model
 from mentor.onboarding import QUESTIONS, run_round
-from mentor.reminders import todays_reminders
+from mentor.reminders import REMINDERS, todays_reminders
 from mentor.review import MAX_HABITS, apply_adjustments, week_stats, write_review
 from mentor.safety import all_strings, crisis_message, is_crisis
 from planner.errors import InputError, PlanInfeasible
@@ -98,6 +98,11 @@ class DeepTalkConfirmIn(BaseModel):
     key: str | None = Field(None, description="habit：提议的 key（prototype / read / move …）")
     content: str | None = Field(None, max_length=MAX_INPUT, description="改过的字；不填 = 原样")
     accept: bool
+
+
+class LetterIn(BaseModel):
+    days: Literal[30, 90]
+    text: str = Field(description="写给将来的自己，原样存")
 
 
 def _answer_ok(s: dict, v, energy_ids: set[str]) -> bool:
@@ -330,7 +335,11 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
                 # 往后 6 天的提醒也一起给：手机一次定好，那几天不打开 App 也会响
                 "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
-                                    for r in todays_reminders({"blocks": for_day(db.plan_input(USER_ID) or {}, d)["fixed"]}, settings)],
+                                    for r in todays_reminders({"blocks": for_day(db.plan_input(USER_ID) or {}, d)["fixed"]}, settings)]
+                # 还没到期的信各一条，那天早上 9 点响；只在手机上定时，不进日历
+                + [{"kind": "letter", "day": x["due"], "at": "09:00", "title": REMINDERS["letter"][0],
+                    "body": REMINDERS["letter"][1], "url": REMINDERS["letter"][2]}
+                   for x in db.letters(USER_ID) if x["due"] > day.isoformat()],
                 # 再改一下对账时，先把上次选的填好
                 "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None,
                 "goals": goals_map(db.plan_input(USER_ID) or {})}
@@ -649,6 +658,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                                         energy_level=latest and latest["energy_level"], today=day),
                 "snoozes": rows.get(step, {}).get("snoozes", 0),
                 "council": council,
+                "letter_ask": bool(row4.get("finished_at")) and not a4.get("letter_asked"),
                 "active_goal_ids": active_goal_ids(),
                 "proposals": {"profiles": [p for p in db.profiles(USER_ID, confirmed=False) if p["id"] in shown],
                               # 习惯满了：「投资自己」不再提（原型照样显示，接受时报「习惯满了」）
@@ -672,6 +682,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                   3: [("近期观察", out.get("formula"))],
                   4: [("使命", out.get("mission")), *(("目标", g) for g in out.get("goals", [])),
                       ("策略", proto and proto["title"])]}[step]
+        if step == 4 and isinstance(k := mine.get("choose"), int):  # 障碍：各视角对选中版本说的「最大的未知」，原文照取
+            council = talk_rows()[1].get(4, {}).get("council") or {}
+            levels += [("障碍", v["unknown"]) for lens in council.get("lenses", [])[:3]
+                       if isinstance(v := lens["versions"][k], dict) and isinstance(v.get("unknown"), str)]
         ids = [db.propose_profile(USER_ID, level, text, "深度长谈") for level, text in levels if text and text.strip()]
         extra: dict = {"profile_ids": [*mine.get("profile_ids", []), *ids]}
         if step == 4:
@@ -756,6 +770,49 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.upsert_deep_talk(USER_ID, rnd, body.step, answers=mine, **fields)
         state = talk_state(said)
         return {**state, "tomorrow_change": tomorrow_change} if tomorrow_change else state
+
+    def mark_letter_asked() -> None:
+        rnd, _, answers = talk_rows()
+        db.upsert_deep_talk(USER_ID, rnd, 4, answers={**answers.get(4, {}), "letter_asked": True})
+
+    @app.post("/letters", summary="写一封给将来自己的信：原样存，到期前不显示")
+    def post_letter(body: LetterIn):
+        day = logical_date(clock())
+        text = body.text.strip()
+        if not text or len(text) > MAX_INPUT:
+            raise HTTPException(422, f"信不能是空的，也不能超过 {MAX_INPUT} 字")
+        if crisis := screen(body, day):
+            return crisis
+        _, _, answers = talk_rows()
+        proto = next((p for p in answers.get(4, {}).get("proposals", [])
+                      if p["key"] == "prototype" and p["status"] == "accepted"), None)
+        raw = db.plan_input(USER_ID) or {}  # 习惯被用户改过名就对不上，存 null
+        habit = proto and next((h for h in raw.get("habits", []) if h["title"] == proto["title"]
+                                and raw.get("habit_meta", {}).get(h["id"], {}).get("source") == "deep_talk"), None)
+        db.add_letter(USER_ID, day, body.days, text, proto and proto["title"], habit and habit["id"])
+        mark_letter_asked()
+        return get_letters()
+
+    @app.post("/letters/decline", summary="不写信：以后不再问")
+    def post_letter_decline():
+        mark_letter_asked()
+        return talk_state()
+
+    @app.get("/letters", summary="信的列表：没到期只给日期，到期了给原文和这段时间的数字")
+    def get_letters():
+        today = logical_date(clock()).isoformat()
+        out = []
+        for x in db.letters(USER_ID):
+            item = {"id": x["id"], "written_on": x["written_on"], "due": x["due"], "days": x["days"],
+                    "status": "open" if today >= x["due"] else "sealed"}
+            if item["status"] == "open":
+                logs = db.logs_between(USER_ID, date.fromisoformat(x["written_on"]),
+                                       date.fromisoformat(min(x["due"], today)))
+                item.update(text=x["text"], prototype=x["prototype"], logged_days=len(logs), span_days=x["days"],
+                            done_days=None if x["habit_id"] is None else sum(
+                                g["items"].get(x["habit_id"], {}).get("status") in ("done", "floor") for g in logs))
+            out.append(item)
+        return {"letters": out}
 
     @app.post("/deep-talk/snooze", summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
     def post_deep_talk_snooze():

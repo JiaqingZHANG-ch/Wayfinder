@@ -31,6 +31,8 @@ TABLES = {
     "model_calls": {"id": "int", "created_at": "text", "model": "text", "request": "json", "reply": "text",
                     "error": "text", "ms": "int"},
     "crisis_events": {"id": "int", "day": "text", "text": "text", "resumed": "bool"},
+    "letters": {"id": "int", "written_on": "text", "due": "text", "days": "int", "text": "text", "prototype": "text",
+                "habit_id": "text", "created_at": "text"},
 }
 
 
