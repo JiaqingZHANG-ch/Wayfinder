@@ -1,7 +1,8 @@
 ﻿# 一键打开 Wayfinder：本机 Ollama（qwen3:14b）+ 后端 + 网页版，然后用浏览器打开 http://localhost:8081
 # 用法：在 PowerShell 里运行  .\wayfinder.ps1  。会开出三个窗口（Ollama、后端、网页），关掉窗口就停。
 # 换模型：先运行  $env:MODEL = 'fake'  （不用模型）或 'deepseek'（要先设 DEEPSEEK_API_KEY）再启动。
-. (Join-Path $PSScriptRoot '..\..\加载AI工作空间.ps1')
+$ws = Join-Path $PSScriptRoot '..\..\加载AI工作空间.ps1'  # 作者本机的工作空间设置；别的电脑上没有就跳过
+if (Test-Path -LiteralPath $ws) { . $ws }
 if (-not $env:MODEL) { $env:MODEL = 'ollama' }
 
 function Test-Port([int]$port) {
@@ -13,7 +14,10 @@ function Start-Window([string]$script) {
 }
 
 if ($env:MODEL -eq 'ollama' -and -not (Test-Port 11434)) {
-    Start-Window (Join-Path $PSScriptRoot '..\..\工具与运行环境\Ollama-启动.ps1')
+    $mine = Join-Path $PSScriptRoot '..\..\工具与运行环境\Ollama-启动.ps1'  # 作者本机的便携版 Ollama
+    if (Test-Path -LiteralPath $mine) { Start-Window $mine }
+    elseif (Get-Command ollama -ErrorAction SilentlyContinue) { Start-Process ollama -ArgumentList 'serve' }
+    else { throw '没找到 Ollama：先装 Ollama 并 ollama pull qwen3:14b，或者先运行 $env:MODEL = ''fake'' 不用模型。' }
 }
 if (-not (Test-Port 8000)) { Start-Window (Join-Path $PSScriptRoot 'serve.ps1') }  # 新窗口继承 $env:MODEL
 if (-not (Test-Port 8081)) { Start-Window (Join-Path $PSScriptRoot 'web.ps1') }
