@@ -161,7 +161,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
           gradientTransform={`translate(${cx} ${base}) scale(1 ${ry / rx}) translate(${-cx} ${-base})`}>
           <Stop offset="0" stopColor={c.primary} stopOpacity={0} />
           <Stop offset="0.75" stopColor={c.primary} stopOpacity={0} />
-          <Stop offset="1" stopColor={c.primary} stopOpacity={dark ? 0.2 : 0.14} />
+          <Stop offset="1" stopColor={c.primary} stopOpacity={dark ? 0.2 : 0.1} />
         </RadialGradient>
         <SvgLinearGradient id={`t${id}`} gradientUnits="userSpaceOnUse" x1={pad} y1="0" x2={Math.max(pad + 1, p.x)} y2="0">
           <Stop offset="0" stopColor={c.primary} stopOpacity={0.35} />

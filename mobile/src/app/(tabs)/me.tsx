@@ -19,7 +19,8 @@ export default function MeScreen() {
   useFocusEffect(useCallback(() => { getSettings().then(setS, () => {}); }, [])); // 拿不到就不写小结
 
   const classes = new Set((s?.timetable ?? []).map((x) => x.title)).size;
-  const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : ""]
+  const summary = s && [classes ? `${classes} 门课` : "", s.habits.length ? `${s.habits.length} 个习惯` : "",
+    s.projects?.length ? `${s.projects.length} 个项目` : ""]
     .filter(Boolean).join(" · ");
   const evening = s?.reminders?.evening;
   const [w, setW] = useState(0);
@@ -42,7 +43,7 @@ export default function MeScreen() {
               gap: marks.length > 3 ? 12 : 16 }}>
               {marks.map(([t, col]) => (
                 <View key={t} accessible accessibilityLabel={t} style={{ width: 56, height: 56, borderRadius: 28,
-                  alignItems: "center", justifyContent: "center", backgroundColor: `${col}29` }}>
+                  alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
                   <Glyph name={t} color={col} size={32} />
                 </View>
               ))}
@@ -75,7 +76,7 @@ export default function MeScreen() {
 
       <Eyebrow>计划</Eyebrow>
       <Card i={1} style={{ paddingVertical: space.xs }}>
-        <ListRow icon="alarm-outline" title="作息和习惯" sub={s ? `${s.wake} 起 · ${s.sleep} 睡` : "几点起、几点睡，每天想坚持的事"}
+        <ListRow icon="alarm-outline" title="作息和习惯" sub="几点起、几点睡，每天想坚持的事"
           onPress={() => router.push("/settings?part=routine")} />
         <ListRow icon="school-outline" title="课表和项目" sub="每周的课，手上在做的项目" onPress={() => router.push("/settings?part=classes")} />
         <ListRow icon="notifications-outline" title="提醒" sub={evening ? `晚上 ${evening} 提醒对账` : "下课提醒、晚间对账提醒"}
