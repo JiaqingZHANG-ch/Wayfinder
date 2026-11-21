@@ -1,5 +1,7 @@
 # Wayfinder
 
+[Version française](README.fr.md)
+
 给迷茫的年轻人用的 AI 成长导师：先弄清方向，再每天给一份马上能动手的计划，晚上对账，每周复盘。现在是本机单人版。
 
 ## 仓库里有什么
@@ -8,7 +10,7 @@
 |---|---|
 | `src/`、`tests/` | 后端（FastAPI + SQLite）和导师、智囊团、深度长谈 |
 | `mobile/` | App（Expo：网页版 + 手机） |
-| `planner/` | 排程求解器（CP-SAT），原来的 daily-planner 仓库，历史都在；自己的说明见 `planner/README.md` |
+| `planner/` | 排程求解器（CP-SAT），原来的 daily-planner 仓库，历史都在；自己的说明见 `planner/README.md`（法语版 `planner/README.fr.md`） |
 | `docs/` | 后端、界面、数据清单、设计和计划 |
 | `supabase/` | 云端数据库迁移（还没在真库上跑过） |
 
