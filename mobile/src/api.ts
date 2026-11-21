@@ -168,6 +168,60 @@ export type CheckinBody =
 export type CheckinResult = { crisis: false; saved: { tomorrow_task?: string; items?: Record<string, { status?: Status }> }; closing: string }; // saved 是存下的整份对账
 export const postCheckin = (body: CheckinBody) => send<CheckinResult | Crisis>("POST", "/checkin", body);
 
+/** 深度长谈的一屏：kind 决定怎么画；question / hint / items / options 按 kind 有。和后端 deep_talk.STEPS 一致。 */
+export type TalkScreen = {
+  id: string;
+  kind: "scores" | "open" | "follow" | "energy" | "version" | "council" | "rate" | "choose";
+  question?: string;
+  hint?: string;
+  items?: string[];
+  options?: string[]; // scores：可以跳过的项；follow：三个追问
+};
+export type CouncilResult = {
+  lenses: { title: string; versions: { sees: string; unknown: string; test: string }[] }[]; // versions 按三个版本的顺序
+  disagreement: string;
+};
+export type HabitProposal = {
+  key: string; // "prototype" = 第 4 次的原型习惯；其余是「投资自己」的候选
+  title: string;
+  minutes: number;
+  floor_min: number;
+  when: string | null;
+  why: string | null;
+  source: "deep_talk" | "invest";
+  status: "pending" | "accepted" | "declined";
+};
+/** GET /deep-talk 和其他长谈接口都回这个。step / screen 是 null = 这一轮聊完了。answers 的键是步数（字符串）。 */
+export type DeepTalkState = {
+  crisis: false;
+  round: number;
+  step: number | null;
+  screen: string | null;
+  steps: { step: number; name: string; status: "todo" | "doing" | "done" }[];
+  screens: Record<string, { name: string; screens: TalkScreen[] }>;
+  answers: Record<string, Record<string, unknown> & { profile_ids?: number[] }>;
+  invite: boolean;
+  snoozes: number;
+  council: { status: "running" | "done" | "failed"; result: CouncilResult | null } | null;
+  proposals: { profiles: Profile[]; habits: HabitProposal[]; tomorrow: string | null };
+  tonight_task: string | null;
+  can_set_tomorrow: boolean; // 今晚对过账才能定明天的一件事
+  habits_full: boolean;
+  energy_items: { id: string; title: string; kind: "habit" | "class" | "project"; energy: Energy | null }[];
+  reply: string | null; // 只有答开放问题时有：导师的一句
+};
+export type TalkConfirm = { kind: "profile"; id: number } | { kind: "habit"; key: string } | { kind: "tomorrow" };
+
+export const getDeepTalk = () => send<DeepTalkState>("GET", "/deep-talk");
+export const answerDeepTalk = (step: number, screen: string, value: unknown) =>
+  send<DeepTalkState | Crisis>("POST", "/deep-talk/answer", { step, screen, value });
+export const snoozeDeepTalk = () => send<DeepTalkState>("POST", "/deep-talk/snooze", {});
+export const startCouncil = () => send<DeepTalkState>("POST", "/deep-talk/council", {});
+/** content 不填 = 原样。 */
+export const confirmDeepTalk = (what: TalkConfirm, accept: boolean, content?: string) =>
+  send<DeepTalkState | Crisis>("POST", "/deep-talk/confirm", { ...what, accept, content });
+export const restartDeepTalk = () => send<DeepTalkState>("POST", "/deep-talk/restart", {});
+
 /** 今晚要对账的事项：习惯和可选项按块 id，项目按任务 id 只算一次。和后端 api.py 的 _items 一致。 */
 export function checkinItems(plan: Plan): CheckinItem[] {
   const items = new Map<string, CheckinItem>();

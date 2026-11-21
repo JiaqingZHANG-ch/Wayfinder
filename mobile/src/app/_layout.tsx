@@ -60,6 +60,8 @@ function Root() {
           contentStyle: { backgroundColor: "transparent" }, title: "报电量" }} />
         <Stack.Screen name="checkin" options={{ headerShown: false, presentation: "fullScreenModal",
           animation: "slide_from_bottom", title: "晚间对账" }} />
+        <Stack.Screen name="deep-talk" options={{ headerShown: false, presentation: "fullScreenModal",
+          animation: "slide_from_bottom", title: "深度长谈" }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, title: "认识一下" }} />
         <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false, title: "隐私说明" }} />
         <Stack.Screen name="review" options={{ headerShown: false, presentation: "fullScreenModal",
