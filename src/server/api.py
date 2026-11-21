@@ -867,7 +867,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return {"id": qid, "day": day.isoformat(), "scores": body.scores, "focus": focus, "start": start, "stop": stop,
                 "keep": keep, "goals": goals}
 
-    @app.post("/deep-talk/snooze",summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
+    @app.post("/deep-talk/snooze", summary="「明天再说」：这一步的次数加一，连着 3 次以后对账页不再邀请")
     def post_deep_talk_snooze():
         rnd, rows, _ = talk_rows()
         step = current_step(rows)
