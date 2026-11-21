@@ -112,14 +112,23 @@ export default function Today() {
     setSaid(null);
     if (mic === "rec") {
       setMic("send");
+      let uri: string | null = null;
       try {
         await recorder.stop();
-        await setAudioModeAsync({ allowsRecording: false });
-        const t = (await transcribe(recorder.uri!)).trim();
-        if (t) setText((x) => (x.trim() ? x.trimEnd() + " " : "") + t);
-        else setSaid("没听清，再说一次，或者直接打字。");
-      } catch (e) {
-        setSaid(e instanceof ApiError ? e.message : NO_MIC);
+        uri = recorder.uri;
+      } catch {
+        setSaid(NO_MIC);
+      } finally {
+        await setAudioModeAsync({ allowsRecording: false }).catch(() => {}); // stop 抛错也要复位录音模式
+      }
+      if (uri) {
+        try {
+          const t = (await transcribe(uri)).trim();
+          if (t) setText((x) => (x.trim() ? x.trimEnd() + " " : "") + t);
+          else setSaid("没听清，再说一次，或者直接打字。");
+        } catch (e) {
+          setSaid(say(e)); // 后端的话原样给；断网、超时是「没连上」
+        }
       }
       setMic(null);
       return;
@@ -135,6 +144,21 @@ export default function Today() {
       setSaid(NO_MIC);
     }
   }
+  // 页面失焦或切到后台：停掉并丢弃这段录音
+  const micRef = useRef(mic);
+  micRef.current = mic;
+  const discard = useCallback(async () => {
+    if (micRef.current !== "rec") return;
+    micRef.current = null;
+    setMic(null);
+    try { await recorder.stop(); } catch { /* 已经停了 */ }
+    setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+  }, [recorder]);
+  useFocusEffect(useCallback(() => () => { discard(); }, [discard]));
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => { if (s !== "active") discard(); });
+    return () => sub.remove();
+  }, [discard]);
   // 录满 60 秒自动停（走和点停止一样的路）
   useEffect(() => {
     if (mic !== "rec") return;
@@ -183,11 +207,11 @@ export default function Today() {
     }
   }
 
-  /** 409 = 计划在别处变过：重新拿一遍，让用户再来一次。 */
+  /** 409 = 计划变过或今天已过完：重新拿一遍；后端给了话就用它，没给才说「别处改过」。 */
   function stale(e: unknown) {
     if (e instanceof ApiError && e.status === 409) {
       load();
-      return "计划刚在别处改过，已经刷新，再试一次。";
+      return /^HTTP d+$/.test(e.message) ? "计划刚在别处改过，已经刷新，再试一次。" : e.message;
     }
     return say(e);
   }
@@ -319,7 +343,7 @@ export default function Today() {
       )}
 
       <Animated.View entering={enter(2)}>
-        <Timeline blocks={plan.blocks} items={plan.items} now={now} onEdit={edit} onDelete={remove} />
+        <Timeline blocks={plan.blocks} items={plan.items} now={now} onEdit={edit} onDelete={remove} onError={setSaid} />
       </Animated.View>
     </Screen>
   );

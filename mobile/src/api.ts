@@ -143,13 +143,14 @@ export const OFFLINE = "没连上，网络好了再试一次。";
 /** 给用户看的出错说明：后端说的人话原样给；断网这类原始错误（英文、系统的）只说没连上。 */
 export const say = (e: unknown) => (e instanceof ApiError ? e.message : OFFLINE);
 
-async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   // FormData（录音上传）原样发，Content-Type 让 fetch 自己带上 boundary
   const raw = body === undefined || body instanceof FormData;
   const res = await fetch(API_URL + path, {
     method,
     headers: raw ? undefined : { "Content-Type": "application/json" },
     body: raw ? (body as FormData | undefined) : JSON.stringify(body),
+    signal,
   });
   const data = await res.json().catch(() => {
     if (res.ok) throw new Error("bad json");
@@ -179,7 +180,14 @@ export async function transcribe(uri: string): Promise<string> {
   const form = new FormData();
   if (Platform.OS === "web") form.append("audio", await (await fetch(uri)).blob(), "say.webm");
   else form.append("audio", { uri, name: "say.m4a", type: "audio/m4a" } as unknown as Blob);
-  return (await send<{ text: string }>("POST", "/transcribe", form)).text;
+  // 比后端的 120 秒长一点；超时 fetch 会抛错，调用方当「没连上」处理
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 130_000);
+  try {
+    return (await send<{ text: string }>("POST", "/transcribe", form, ctl.signal)).text;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 /** 手动改一块的时间。overlaps：撞在一起的块 id。409 = 版本过期（别处改过），要重新拿 /today。 */
 export const editBlock = (version: number, block_id: string, start: string, end: string) =>

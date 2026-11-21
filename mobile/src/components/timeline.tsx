@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
@@ -23,8 +23,8 @@ const span = (m: number) => (m < 60 ? `${m} 分钟` : m % 60 ? `${Math.floor(m /
 
 /** 自由时间：不画成卡片，留空白（参考图只画事情本身）。后端把它标成 life 块、标题以「自由时间」开头。 */
 const isFree = (b: Block) => b.kind === "life" && b.title.startsWith("自由时间");
-/** 能拖的：习惯、项目、可选（含会议）。课和生活块不能动。 */
-const movable = (b: Block) => b.kind === "must" || b.kind === "proj" || b.kind === "flex";
+/** 能拖的：习惯、项目、可选（含会议），以及说出来的固定事项（kind 是 class 但带 item_id）。设置里的课和生活块不能动。 */
+const movable = (b: Block) => b.kind === "must" || b.kind === "proj" || b.kind === "flex" || !!b.item_id;
 
 /** 改完一块的结果：返回错误说明，成功是 null。 */
 export type EditBlock = (b: Block, start: number, end: number) => Promise<string | null>;
@@ -34,10 +34,17 @@ export type EditBlock = (b: Block, start: number, end: number) => Promise<string
  * 从第一块所在的整点画到最后一块结束后的整点；块之间不排列避让，时间撞在一起的块描一圈琥珀色边。
  * 可动的块：长按后上下拖改时间，拖底边小把手改时长，点一下开面板（时长、删除）。
  */
-export function Timeline({ blocks, items, now, onEdit, onDelete }: {
+export function Timeline({ blocks, items, now, onEdit, onDelete, onError }: {
   blocks: Block[]; items?: DayItem[]; now: number; onEdit: EditBlock; onDelete: (b: Block) => Promise<string | null>;
+  onError: (msg: string) => void; // 拖动、拉伸失败时把原因说在页面上
 }) {
   const c = useColors();
+  const saving = useRef(false); // 上一次改动的请求还没回来时，别的块先不让改（版本号还是旧的，会 409）
+  const guarded: EditBlock = async (b, s, e) => {
+    if (saving.current) return "上一处改动还没存好，稍等一下再拖。";
+    saving.current = true;
+    try { return await onEdit(b, s, e); } finally { saving.current = false; }
+  };
   const [open, setOpen] = useState<string | null>(null); // 面板里那一块的 id
   if (!blocks.length) return null;
   const from = Math.floor(Math.min(...blocks.map((b) => toMin(b.start))) / 60) * 60;
@@ -60,7 +67,7 @@ export function Timeline({ blocks, items, now, onEdit, onDelete }: {
       {shown.map((b) => (
         <TimelineBlock key={`${b.id}${b.start}${b.end}`} b={b} top={minToY(toMin(b.start) - from)}
           height={minToY(toMin(b.end) - toMin(b.start))} estimated={!!b.item_id && guess.has(b.item_id)}
-          drag={movable(b) ? { lo: from - toMin(b.start), hi: to - toMin(b.end), onEdit, onOpen: () => setOpen(b.id) } : undefined}
+          drag={movable(b) ? { lo: from - toMin(b.start), hi: to - toMin(b.end), onEdit: guarded, onFail: onError, onOpen: () => setOpen(b.id) } : undefined}
           clash={clash.has(b.id)} />
       ))}
       {now >= from && now <= to && (
@@ -80,7 +87,7 @@ export function Timeline({ blocks, items, now, onEdit, onDelete }: {
 
 type Drag = {
   lo: number; hi: number; // 往前、往后最多能挪几分钟（不出时间轴）
-  onEdit: EditBlock; onOpen: () => void;
+  onEdit: EditBlock; onFail: (msg: string) => void; onOpen: () => void;
 };
 
 /**
@@ -115,7 +122,7 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash }: {
   const finish = async (ds: number, de: number) => {
     if (!drag || (!ds && !de)) return reset();
     const err = await drag.onEdit(b, start + ds, start + minutes + de);
-    if (err) haptic.tap();
+    if (err) { haptic.tap(); drag.onFail(err); }
     reset();
   };
   const edit = (ds: number, de: number) => { haptic.tap(); finish(ds, de); }; // 读屏动作用
