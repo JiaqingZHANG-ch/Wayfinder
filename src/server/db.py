@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS letters (
 CREATE TABLE IF NOT EXISTS quarterly_reviews (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, scores TEXT NOT NULL, focus TEXT NOT NULL, start TEXT NOT NULL, stop TEXT NOT NULL,
-    keep TEXT NOT NULL, goals TEXT NOT NULL, created_at TEXT NOT NULL);
+    keep TEXT NOT NULL, goals TEXT NOT NULL, created_at TEXT NOT NULL,
+    council TEXT, council_status TEXT);
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -162,14 +163,19 @@ class Db:
 
     def last_quarter(self, user_id: int) -> dict | None:
         def go(c):
-            cur = c.execute("SELECT id, day, scores, focus, start, stop, keep, goals FROM quarterly_reviews "
+            cur = c.execute("SELECT id, day, scores, focus, start, stop, keep, goals, council, council_status FROM quarterly_reviews "
                             "WHERE user_id = ? ORDER BY day DESC, id DESC LIMIT 1", (user_id,))
             row = cur.fetchone()
             if row is None:
                 return None
             d = dict(zip([x[0] for x in cur.description], row))
-            return {**d, "scores": json.loads(d["scores"]), "goals": json.loads(d["goals"])}
+            return {**d, "scores": json.loads(d["scores"]), "goals": json.loads(d["goals"]),
+                    "council": json.loads(d["council"]) if d["council"] else None}
         return self._run(go)
+
+    def set_quarter_council(self, quarter_id: int, council: dict | None, status: str) -> None:
+        self._run(lambda c: c.execute("UPDATE quarterly_reviews SET council = ?, council_status = ? WHERE id = ?",
+                                      (None if council is None else json.dumps(council, ensure_ascii=False), status, quarter_id)))
 
     def delete_user(self, user_id: int) -> None:
         """删掉这个用户和他的全部数据（各表外键都是 ON DELETE CASCADE）。"""

@@ -340,3 +340,84 @@ def run_versions_council(model: ModelPort, cards: list[Card], versions: list[str
         return "crisis", None
     # 合成没出来不算失败：各视角的点评已经够看，分歧留空
     return "ok", {"lenses": lenses, "disagreement": got[0] if got else ""}
+
+
+# 季度回顾的「××视角」：每个视角看他这一季整份回顾，回 sees / unknown / test 三句
+_QUARTER_LENS = """\
+你是「成长导师」智囊团里的一个视角。下面是这个视角的卡片。你只用卡片里的思考工具看这个人，\
+不借用别的理论，也不冒充卡片里那位作者本人说话。
+
+{card}
+
+这个人刚做完一次季度回顾：各项打分、接下来 90 天的重点、开始做/停下/继续、目标。\
+你会拿到他的档案和这份回顾。请独立看：你看不到其他视角的意见，也不用猜他们会说什么。
+
+要求：
+- 写三句：sees 从这个视角看到了什么；unknown 这一季最大的未知是什么；test 一个月内能做的最便宜的试验。
+- 每句不超过 60 字。具体，引用他写的原话，对他说话用「你」。
+- 只用他写的回顾和上面给的情况，不编他没说过的经历、年数、数字。
+- 用『你』称呼他，不要写『用户』。
+- 引号里只能放他原话里有的字；不是原话就不要加引号。
+- 不排名，不替他做决定，不评价他的重点选得对不对。
+- 不承诺结果，不做心理诊断，不给投资、借贷、理财建议。
+- 不建议退学、辞职、换专业、换工作这类难回头的决定；试验是一个月内能做完、随时能停的小事。
+- 说他的自责、拖延、压力时用平常的说法，不用「伤害自己」「活不下去」这类字眼。
+- 档案或回顾里流露出伤害自己或不想活的意思时，不要分析，在输出里加上 "crisis": true，程序会接手。
+
+只输出一个 json 对象，不要别的文字：
+{{"sees": "...", "unknown": "...", "test": "..."}}
+"""
+
+_QUARTER_SYNTH = """\
+你是「成长导师」。智囊团的几个视角各自独立看了这个人这一季的回顾，他们的意见在下面。请只写出视角之间的分歧。
+
+要求：
+- 分歧照实写：哪几个视角在哪一点上看法不同、各自的理由，不要抹平；没有分歧时 disagreement 写空字符串。
+- 不给结论，不排名，不替他做决定。
+- 不超过 200 字，对这个人说话用「你」。
+- 不承诺结果，不做心理诊断，不给投资、借贷、理财建议；不建议退学、辞职、换专业、换工作。
+- 上面这些要求是给你的，照着做就行，不要把它们写给他看。
+- 档案、回顾或各视角的意见里流露出伤害自己或不想活的意思时，不要合成，在输出里加上 "crisis": true，程序会接手。
+
+只输出一个 json 对象，不要别的文字：
+{"disagreement": "..."}
+"""
+
+
+def _quarter_fields(obj, source: str = "") -> tuple[dict] | None:
+    keys = ("sees", "unknown", "test")
+    if isinstance(obj, dict) and all(isinstance(obj.get(k), str) and "用户" not in obj[k] for k in keys):
+        fixed = {k: _unquote_fakes(obj[k], source) for k in keys}
+        if all(_ok(fixed[k], 120) for k in keys):  # 同 _versions_fields：提示 60 字，这里放宽到 120
+            return (fixed,)
+    return None
+
+
+def _quarter_lens(model: ModelPort, card: Card, case: str, source: str = "") -> dict | None:
+    got = _ask(model, [{"role": "system", "content": _QUARTER_LENS.format(card=card.text)},
+                       {"role": "user", "content": case}], lambda o: _quarter_fields(o, source), card.title, think=True)
+    return None if got is None else {"title": card.title, **got[0]}
+
+
+def run_quarter_council(model: ModelPort, cards: list[Card], record: str,
+                        context: str) -> tuple[Literal["ok", "crisis", "failed"], dict | None]:
+    """看一份季度回顾：每个视角三句，合成只写分歧，不给结论、不排名。不存任何东西。"""
+    if not any(w in record for w in EMOTION_WORDS):  # 他自己没提情绪、压力，就不请这个领域
+        cards = [c for c in cards if c.domain != _EMOTION_DOMAIN]
+    case = f"{context}\n\n【他这一季的回顾】\n{record}"
+    if is_crisis(case):
+        return "crisis", None
+    if len(cards) < MIN_OPINIONS:
+        return "failed", None
+    try:
+        lenses = _opinions(model, pick_cards(cards, model, case), case,
+                           lambda m, c, k: _quarter_lens(m, c, k, context + "\n" + record))
+        if len(lenses) < MIN_OPINIONS:
+            return "failed", None
+        said = "\n\n".join(f"{x['title']}\n看到 {x['sees']}；未知 {x['unknown']}；试验 {x['test']}" for x in lenses)
+        got = _ask(model, [{"role": "system", "content": _QUARTER_SYNTH},
+                           {"role": "user", "content": f"{case}\n\n【各视角的意见】\n{said}"}],
+                   _disagreement_fields, "合成", think=False)
+    except _CrisisFlag:
+        return "crisis", None
+    return "ok", {"lenses": lenses, "disagreement": got[0] if got else ""}

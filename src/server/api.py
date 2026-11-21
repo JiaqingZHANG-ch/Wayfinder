@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, StrictInt, ValidationError
 
 from mentor.checkin import VS_PLAN, Item, closing_line, parse_sentence, validate_checkin
-from mentor.council import CARDS_DIR, Card, load_cards, run_versions_council
+from mentor.council import CARDS_DIR, Card, load_cards, run_quarter_council, run_versions_council
 from mentor.deep_talk import STEPS, invest_suggestions, next_screen, propose, should_invite
 from mentor.deep_talk import reply as talk_reply
 from mentor.mentor import MAX_INPUT, logical_date
@@ -856,7 +856,40 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         first, last = db.first_log_day(USER_ID), db.last_quarter(USER_ID)
         used = 0 if first is None else (today - first).days
         fresh = last is None or (today - date.fromisoformat(last["day"])).days >= 84
+        if last and last["council_status"] == "crisis":  # 同深度长谈：危机时只给固定话术
+            last["message"] = crisis_reply()["message"]
         return {"areas": list(AREAS), "available": used >= 90 and fresh, "days_used": used, "last": last}
+
+    @app.post("/quarter/council", summary="请几个视角看最近一次季度回顾：后台跑，马上返回；App 每 3 秒查 GET /quarter")
+    def post_quarter_council():
+        day = logical_date(clock())
+        with council_lock:  # 查状态、写 running、开线程一起做完：连点不会开两次会
+            q = db.last_quarter(USER_ID)
+            if q is None:
+                raise HTTPException(409, "还没有做过季度回顾")
+            live = council_threads.get((USER_ID, -q["id"]))  # 负数：和深度长谈的轮次分开
+            if q["council_status"] == "done" or (q["council_status"] == "running" and live and live.is_alive()):
+                return {"status": q["council_status"]}
+            db.set_quarter_council(q["id"], None, "running")
+            record = (f"各项打分：{'、'.join(f'{k} {v}' for k, v in q['scores'].items())}\n重点：{q['focus']}\n"
+                      f"开始做：{q['start']}\n停下：{q['stop']}\n继续：{q['keep']}\n"
+                      "目标：" + "；".join(f"{g['text']}（每周看：{g['check']}）" for g in q["goals"]))
+            context = "【档案】\n" + ("\n".join(f"{p['level']}：{p['content']}" for p in db.profiles(USER_ID, confirmed=True))
+                                     or "（还没有确认过的档案）")
+
+            def run():
+                try:
+                    outcome, result = run_quarter_council(model, cards or [], record, context)
+                except Exception:  # 不能让状态一直停在 running，App 会一直等
+                    _log.exception("智囊团看季度回顾出了意外")
+                    outcome, result = "failed", None
+                if outcome == "crisis":
+                    db.log_crisis(USER_ID, day, "（智囊团看季度回顾的模型输出）")
+                db.set_quarter_council(q["id"], result, {"ok": "done", "crisis": "crisis"}.get(outcome, "failed"))
+
+            thread = council_threads[(USER_ID, -q["id"])] = app.state.quarter_thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            return {"status": "running"}
 
     @app.post("/quarter", summary="存一次季度回顾：目标直接成为已确认的档案")
     def post_quarter(body: QuarterIn):

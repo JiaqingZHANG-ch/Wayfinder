@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 
 import pytest
@@ -14,7 +15,10 @@ from test_deep_talk_api import CARDS, TEMPLATE
 def setup(tmp_path):
     db, today = Db(tmp_path / "app.db"), [date(2026, 11, 20)]
     clock = lambda tz: datetime(today[0].year, today[0].month, today[0].day, 21, 0, tzinfo=tz)
-    return TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=clock, cards=CARDS)), db, today
+    model = FakeModel()
+    client = TestClient(create_app(db, model, template=TEMPLATE, now=clock, cards=CARDS))
+    client.model = model  # 测试里往它的 replies 里塞回答
+    return client, db, today
 
 
 def body(**over):
@@ -117,4 +121,49 @@ def test_new_review_replaces_old_quarter_goals(setup):
     assert [(p["content"], p["source"]) for p in db.profiles(1, confirmed=True)] == [
         ("长谈的目标", "深度长谈"), ("每周读书（每周看：读了几章）", "季度回顾")]
     assert len(db.export(1)["quarterly_reviews"]) == 2  # 原文都还在
-    assert set(client.get("/quarter").json()["last"]) == {"id", "day", "scores", "focus", "start", "stop", "keep", "goals"}
+    assert set(client.get("/quarter").json()["last"]) == {"id", "day", "scores", "focus", "start", "stop", "keep", "goals", "council", "council_status"}
+
+
+LENS = json.dumps({"sees": "你写得很具体", "unknown": "能不能坚持", "test": "这个月跑 3 次"}, ensure_ascii=False)
+SYNTH = json.dumps({"disagreement": "视角甲看重稳定，视角乙看重兴趣"}, ensure_ascii=False)
+
+
+def test_council_needs_a_review(setup):
+    assert setup[0].post("/quarter/council").status_code == 409
+
+
+def test_council_runs_in_background_and_shows_in_last(setup):
+    client, _, _ = setup
+    client.post("/quarter", json=body())
+    client.model.replies += [LENS, LENS, SYNTH]
+    assert client.post("/quarter/council").json() == {"status": "running"}
+    client.app.state.quarter_thread.join()
+    last = client.get("/quarter").json()["last"]
+    assert last["council_status"] == "done" and last["council"]["disagreement"] == "视角甲看重稳定，视角乙看重兴趣"
+    assert len(last["council"]["lenses"]) >= 2 and set(last["council"]["lenses"][0]) == {"title", "sees", "unknown", "test"}
+    calls = len(client.model.calls)
+    assert client.post("/quarter/council").json() == {"status": "done"}  # 开过了就不再开
+    assert len(client.model.calls) == calls
+
+
+def test_council_failed_can_retry(setup):
+    client, _, _ = setup
+    client.post("/quarter", json=body())
+    client.post("/quarter/council")
+    client.app.state.quarter_thread.join()
+    last = client.get("/quarter").json()["last"]
+    assert (last["council_status"], last["council"]) == ("failed", None)
+    client.model.replies += [LENS, LENS, SYNTH]
+    assert client.post("/quarter/council").json() == {"status": "running"}
+    client.app.state.quarter_thread.join()
+
+
+def test_council_crisis_shows_only_fixed_message(setup):
+    client, db, _ = setup
+    client.post("/quarter", json=body())
+    client.model.replies.append(json.dumps({"crisis": True}))
+    client.post("/quarter/council")
+    client.app.state.quarter_thread.join()
+    last = client.get("/quarter").json()["last"]
+    assert last["council_status"] == "crisis" and last["council"] is None and "请现在联系能帮到你的人" in last["message"]
+    assert db.crisis_count(1) == 1

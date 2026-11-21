@@ -34,7 +34,8 @@ TABLES = {
     "letters": {"id": "int", "written_on": "text", "due": "text", "days": "int", "text": "text", "prototype": "text",
                 "habit_id": "text", "created_at": "text"},
     "quarterly_reviews": {"id": "int", "day": "text", "scores": "json", "focus": "text", "start": "text",
-                          "stop": "text", "keep": "text", "goals": "json", "created_at": "text"},
+                          "stop": "text", "keep": "text", "goals": "json", "created_at": "text",
+                          "council": "json", "council_status": "text"},
 }
 
 

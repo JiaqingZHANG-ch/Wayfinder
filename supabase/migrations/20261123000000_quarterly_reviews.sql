@@ -9,6 +9,8 @@ create table public.quarterly_reviews (
   stop text not null,
   keep text not null,
   goals jsonb not null,
+  council jsonb,
+  council_status text,
   created_at timestamptz not null default now()
 );
 create index on public.quarterly_reviews (user_id);
