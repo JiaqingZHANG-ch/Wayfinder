@@ -5,7 +5,7 @@ import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { DeepTalkState, getDeepTalk, getProfile, getSettings, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
-import { Arc, Glyph } from "@/components/art";
+import { Glyph } from "@/components/art";
 import { enter, Pressy } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
 import { Body, Card, Display, Eyebrow, ListRow, Screen, Small } from "@/components/ui";
@@ -34,7 +34,7 @@ export default function MeScreen() {
   const owe = dir ? dir.talk.steps.reduce((n, x) => n + pendingCount(dir.talk, x.step), 0) : 0; // 关掉长谈时没确认完的提议
   const next = owe > 0 ? { label: `还有 ${owe} 条等你确认`, go: () => router.push("/deep-talk") }
     : needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
-    : doneN < 4 ? { label: `接着聊 · 长谈 ${doneN}/4`, go: () => router.push("/deep-talk") }
+    : doneN < 4 ? { label: doneN ? `接着聊第 ${doneN + 1} 次` : "开始第一次长谈", go: () => router.push("/deep-talk") }
     : sure ? { label: "从第 1 次重新开始，旧的会留着 · 再点一次确定", quiet: true,
       go: () => restartDeepTalk().then(() => { setSure(false); router.push("/deep-talk"); }, () => {}) }
     : { label: "重新聊一次", quiet: true, go: () => setSure(true) };
@@ -44,7 +44,6 @@ export default function MeScreen() {
     s.projects?.length ? `${s.projects.length} 个项目` : ""]
     .filter(Boolean).join(" · ");
   const evening = s?.reminders?.evening;
-  const [w, setW] = useState(0);
   const marks = s ? [...s.habits.map((h) => [h.title, c.kind.must] as const), ...(s.projects ?? []).map((p) => [p.title, c.kind.proj] as const)] : [];
 
   return (
@@ -57,7 +56,7 @@ export default function MeScreen() {
       {dir && (
         <Animated.View entering={enter(1)}>
           <Card style={{ gap: space.xs }}>
-            <Small muted>我的方向</Small>
+            <Eyebrow>我的方向</Eyebrow>
             {mission ? <Text style={[type.title, { color: c.text }]}>{mission.content}</Text> : <Body muted>聊完几次，这里会写下你想去的方向</Body>}
             {goals.map((g) => <Small key={g.id}>{`· ${g.content}`}</Small>)}
             <Pressy onPress={next.go} accessibilityRole="button" accessibilityLabel={next.label} style={{ paddingTop: space.sm }}>
@@ -67,33 +66,10 @@ export default function MeScreen() {
         </Animated.View>
       )}
 
-      {s && marks.length > 0 && marks.length <= 4 && (
-        // 我的一天：从起床到睡觉一道弧，弧下站着我的记号（和时间线、本周页里长一样）
-        <Animated.View entering={enter(1)}>
-          <View style={{ height: 130 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-            <Arc blocks={[{ id: "day", title: "", start: s.wake, end: s.sleep, kind: "life", task_id: null, pomodoros: null }]}
-              now={0} width={w} height={112} />
-            <View style={{ position: "absolute", left: 0, right: 0, top: 44, flexDirection: "row", justifyContent: "center",
-              gap: marks.length > 3 ? 12 : 16 }}>
-              {marks.map(([t, col]) => (
-                <View key={t} accessible accessibilityLabel={t} style={{ width: 56, height: 56, borderRadius: 28,
-                  alignItems: "center", justifyContent: "center", backgroundColor: c.surface }}>
-                  <Glyph name={t} color={col} size={32} />
-                </View>
-              ))}
-            </View>
-            <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, flexDirection: "row", justifyContent: "space-between" }}
-              accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-              <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{s.wake} 起</Text>
-              <Text style={[type.eyebrow, type.num, { color: c.muted }]}>{s.sleep} 睡</Text>
-            </View>
-          </View>
-        </Animated.View>
-      )}
-
-      {s && marks.length > 4 && (
-        // 记号多了一道弧站不下：横着一排，可以滑
-        <Animated.View entering={enter(1)}>
+      {s && marks.length > 0 && (
+        // 我的记号：每个习惯和项目一个，和时间线、本周页里长一样；多了可以横着滑
+        <Animated.View entering={enter(1)} style={{ gap: space.sm }}>
+          <Eyebrow>我的记号</Eyebrow>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ gap: space.md, paddingVertical: space.xs, flexGrow: 1, justifyContent: "space-around" }}>
             {marks.map(([t, col]) => (
@@ -101,7 +77,7 @@ export default function MeScreen() {
                   <View style={{ width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", backgroundColor: `${col}29` }}>
                     <Glyph name={t} color={col} size={40} />
                   </View>
-                  <Text style={[type.small, { fontSize: 12, lineHeight: 16, color: c.muted }]} numberOfLines={1}>{t}</Text>
+                  <Text style={[type.small, { color: c.muted }]} numberOfLines={1}>{t}</Text>
                 </View>
               ))}
           </ScrollView>

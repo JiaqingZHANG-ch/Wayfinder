@@ -159,7 +159,10 @@ export default function Today() {
           // 没报时不写「—」：画一节空电池，下面一句话
           <Stat label="电量" onPress={canReport ? energy : undefined}
             a11y={`报电量，${!canReport ? "今天没报" : ready ? "还没报" : "下课后报一下"}`}>
-            <Small muted>{!canReport ? "今天没报" : ready ? "还没报" : "下课后报一下"}</Small>
+            {/* 和旁边瓷砖的数字站同一行高 */}
+            <Text style={[type.title, { color: c.muted, lineHeight: type.stat.lineHeight }]}>
+              {!canReport ? "今天没报" : ready ? "还没报" : "下课后报"}
+            </Text>
             <Cells n={5} lit={0} color={c.kind.must} tall />
           </Stat>
         )}
@@ -203,8 +206,8 @@ function Cells({ n, lit, marks, color, round, tall }: { n: number; lit: number; 
         const today = round && i === n - 1 && !on; // 今天还没记：只描边，和「那天没记」分开（和本周页一个规矩）
         return (
           <View key={i} style={{ flex: round ? undefined : 1, width: round ? 10 : undefined, height: round ? 10 : tall ? 16 : 6,
-            borderRadius: tall ? 4 : radius.pill, backgroundColor: on ? color : today || tall ? "transparent" : c.sunken,
-            borderWidth: today || (tall && !on) ? 1.5 : 0, borderColor: c.line }} />
+            borderRadius: tall ? 4 : radius.pill, backgroundColor: on ? color : today ? "transparent" : c.sunken,
+            borderWidth: today ? 1.5 : 0, borderColor: c.line }} />
         );
       })}
     </View>
@@ -277,7 +280,9 @@ function NowCard({ blocks, now }: { blocks: Block[]; now: number }) {
       <Text style={[type.eyebrow, type.num, { color: c.primary, marginTop: space.sm }]}>
         {cur ? `现在 · 到 ${b.end}` : `接下来 · ${b.start} 开始`}{pomo}
       </Text>
-      <Text style={[type.display, { color: c.text, textAlign: "center" }]} numberOfLines={2}>
+      {/* 吃饭、路上这类生活块不当主角：小一号、淡一点（生活块画得更淡更小） */}
+      <Text style={[b.kind === "life" ? type.title : type.display, { color: b.kind === "life" ? c.muted : c.text, textAlign: "center" }]}
+        numberOfLines={2}>
         {b.kind === "life" ? b.title.split("：")[0] : b.title}
       </Text>
       {after && (
