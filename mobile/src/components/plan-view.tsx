@@ -128,7 +128,7 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
   const tint = c.kind[b.kind];
   return (
     <View style={{ flexDirection: "row", gap: space.md, minHeight: h }}
-      accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${goal && b.kind === "must" ? `，为了：${goal}` : ""}${live ? "，正在进行" : ""}`}>
+      accessible accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}${b.pomodoros ? `，番茄 ${b.pomodoros} 个` : ""}${goal ? `，为了：${goal}` : ""}${live ? "，正在进行" : ""}`}>
       <Text style={[type.small, type.num, { width: 44, color: live ? c.primary : c.muted, paddingTop: quiet ? 2 : 7 }]}>
         {b.start}
       </Text>
@@ -157,7 +157,7 @@ function BlockRow({ b, goal, last, state }: { b: Block; goal?: string; last: boo
         {(!quiet || live) && (
           <Small color={live && !quiet ? c.onSoft : c.muted} lines={goal ? 1 : undefined}>
             {(live ? `正在进行 · 到 ${b.end}` : [kindName(b), span(b), b.pomodoros ? `番茄 ×${b.pomodoros}` : ""].filter(Boolean).join(" · "))
-              + (goal && b.kind === "must" ? ` · 为了：${goal}` : "")}
+              + (goal ? ` · 为了：${goal}` : "")}
           </Small>
         )}
       </View>

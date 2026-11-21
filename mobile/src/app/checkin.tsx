@@ -99,6 +99,7 @@ export default function Checkin() {
 
   async function send(body: Parameters<typeof postCheckin>[0]) {
     setBusy(true);
+    setInvite(null); // 重新存一遍：旧的邀请卡先撤掉，存成功后再问一次
     setMessage(null);
     try {
       const res = await postCheckin(body);
@@ -201,7 +202,7 @@ export default function Checkin() {
               <Title>{invite.steps.find((s) => s.step === invite.step)?.name}</Title>
               <View style={{ flexDirection: "row", gap: space.sm, marginTop: space.sm }}>
                 <View style={{ flex: 1 }}><Button label="现在聊" onPress={() => router.replace("/deep-talk")} /></View>
-                <View style={{ flex: 1 }}><Button label="明天再说" variant="neutral" onPress={() => { snoozeDeepTalk().then(() => setInvite(null), () => {}); }} /></View>
+                <View style={{ flex: 1 }}><Button label="明天再说" variant="neutral" onPress={() => { snoozeDeepTalk().finally(() => setInvite(null)); }} /></View>
               </View>
             </Card>
           </Animated.View>
