@@ -21,7 +21,7 @@
   - `tasks`：要花多少分钟，用 `remaining_min`，有 `heavy`；
   - `habits`；
   - `energy.cost[id]`：耗能系数，`love` 0、`recharge` 0.5、`drain` 1。
-  
+
   只属于今天的任务已有先例：`api.py` 的 `day_raw`（约 260 行）把「明天的一件事」当 task 加进当天，`deadline` 写成当天，不进设置。
 - **一句话解析**：`src/mentor/checkin.py` 的 `parse_sentence` 是现成模板，流程是 schema、`complete_json`、先查危机（`model_output_is_crisis`）、再校验。所有字段都设成必填，因为 qwen3 会丢掉可选字段。重试写法照 `review.py:174`。
 - **排计划和版本**：
@@ -84,7 +84,7 @@
    - 任务块：桃 `#FBD9B5`、粉 `#F9CFD3`、蓝 `#CFDDF8`、灰绿 `#D7E6DA`；
    - 字是深棕；
    - 深色模式取同色系的暗版。
-   
+
    对比度要实测：文字 ≥ 4.5:1，块边界 ≥ 3:1，测出来的值写进注释。
 9. **今天页重做**（`(tabs)/index.tsx`）：
    - 头部：橙色圆角头卡，写「今天」和日期，加一行本周日期条，照参考图；
@@ -144,7 +144,7 @@
   4. 拉长；
   5. 出现重排提示，点「重排」；
   6. 「用这个计划」。
-  
+
   截图发给用户。用完删掉 `var/app.db`，关掉服务。
 - 真机（iPhone Expo Go）的录音和拖动手感要用户来试，汇报时说明。
 
