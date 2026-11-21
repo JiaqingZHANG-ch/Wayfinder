@@ -5,6 +5,7 @@ import { Platform, Share, Text } from "react-native";
 import { Country, deleteMe, exportData, getMe, Me, putMe } from "@/api";
 import { COUNTRIES } from "@/components/consent";
 import { Skeleton } from "@/components/motion";
+import { cancelReminders } from "@/notifications";
 import { Button, Card, Chip, ErrorState, Header, Notice, Row, Screen, Small } from "@/components/ui";
 import { radius, type, useColors } from "@/theme";
 
@@ -65,6 +66,7 @@ export default function DataScreen() {
   const doDelete = () =>
     run("delete", async () => {
       await deleteMe();
+      await cancelReminders().catch(() => {});
       router.dismissTo("/"); // 回到今天：首页会带你去建档
     });
 

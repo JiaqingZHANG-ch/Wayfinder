@@ -9,7 +9,7 @@ import { enter, Skeleton } from "@/components/motion";
 import { dayLabel, kindName, PlanView, toMin, useNow } from "@/components/plan-view";
 import { Body, Button, Card, Display, ErrorState, Icon, Notice, Screen, Small, Stat, Title } from "@/components/ui";
 import { BATTERY_HINT } from "@/labels";
-import { scheduleToday } from "@/notifications";
+import { scheduleReminders } from "@/notifications";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
 function greeting(h: number): string {
@@ -51,7 +51,8 @@ export default function Today() {
     return getToday().then((p) => {
       setPlan(p);
       setError(null);
-      scheduleToday(p.day, p.reminders ?? []).catch(() => {}); // 定不上提醒也不挡着看计划
+      // 定不上提醒也不挡着看计划
+      scheduleReminders([...(p.reminders ?? []).map((r) => ({ ...r, day: p.day })), ...(p.later_reminders ?? [])]).catch(() => {});
     }, setError);
   }, []);
 

@@ -127,7 +127,7 @@ export function Stat({ label, value, unit, sub, size = "stat", style, children, 
 }) {
   const c = useColors();
   return (
-    <Card style={[{ flex: 1, gap: 2 }, style]} onPress={onPress} label={a11y}>
+    <Card style={[{ flex: 1, gap: 2 }, style]} onPress={onPress} label={a11y && [a11y, sub].filter(Boolean).join("，")}>
       <Text style={[type.eyebrow, { color: c.muted }]}>{label}</Text>
       <Text accessibilityLabel={`${label} ${value}${unit ?? ""}`}>
         <Text style={[type[size], { color: c.text }]}>{value}</Text>

@@ -27,6 +27,7 @@ from mentor.safety import all_strings, crisis_message, is_crisis
 from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm, to_min
 from planner.solve import DayPlan, replan_from, solve_day
+from server.replan import replan_after
 
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
@@ -179,24 +180,23 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         """按新设置重排今天，只动「现在之后」：已经过去的和正在做的块，照存着的计划原样留下；
         那些块里已经排过的习惯、三餐不再排一遍。今天报过电量就沿用（和报电量一样）。"""
         latest, t = db.latest_plan(USER_ID, day), clock()
-        same_day = latest is not None and t.date() == day  # 凌晨还算昨天，昨天没有「之后」了
-        level = latest["energy_level"] if same_day else None
+        level = latest["energy_level"] if latest else None
         try:
             inp = input_from_dict({**day_raw(raw, day), **({"energy_level": level} if level else {})})
         except InputError as e:
             raise HTTPException(422, str(e)) from None
-        if not same_day:
+        if latest is None:
             return solved(lambda: solve_day(inp)), None
+        old = db.plan_input(USER_ID)
+        if old is not None and input_from_dict({**day_raw(old, day), **({"energy_level": level} if level else {})}) == inp:
+            return latest["plan"], level  # 改的东西不影响今天怎么排（比如只改了提醒时间）：今天的计划一点不动
         now_min = t.hour * 60 + t.minute
-        past = [b for b in latest["plan"]["blocks"] if to_min(b["start"]) < now_min]
-        if past and all(to_min(b["end"]) <= now_min for b in latest["plan"]["blocks"]):
-            solved(lambda: solve_day(inp))  # 今天已经走完：只检查新设置排得出来，今天的计划不动
+        blocks = latest["plan"]["blocks"]
+        # 凌晨还算昨天（昨天没有「之后」了），或者今天已经走完：只检查新设置排得出来，今天的计划和电量不动
+        if t.date() != day or (blocks and all(to_min(b["end"]) <= now_min for b in blocks)):
+            solved(lambda: solve_day(inp))
             return latest["plan"], level
-        cut = max([now_min] + [to_min(b["end"]) for b in past])
-        known = {x.id for x in [*inp.habits, *inp.meals, *inp.flex, *inp.tasks]}
-        done = [b["id"] for b in past if b["id"] in known]
-        plan = solved(lambda: replan_from(inp, to_hhmm(cut), done))
-        return {**plan, "blocks": past + [b for b in plan["blocks"] if to_min(b["start"]) >= cut]}, level
+        return solved(lambda: replan_after(inp, blocks, now_min)), level
 
     def check_week(raw: dict, day) -> None:
         """今天之外的六天也各试排一次：哪天排不下就不让存，免得到那天首页打不开。"""
@@ -262,6 +262,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                      if not (r["kind"] == "evening" and log) and not (r["kind"] == "after_class" and stored["energy_level"])]
         return {**out(day, stored), "reminders": reminders,
                 "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
+                # 往后 6 天的提醒也一起给：手机一次定好，那几天不打开 App 也会响
+                "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
+                                    for r in todays_reminders({"blocks": for_day(db.plan_input(USER_ID) or {}, d)["fixed"]}, settings)],
                 # 再改一下对账时，先把上次选的填好
                 "checkin": {k: log[0][k] for k in ("items", "note", "blocker")} if log else None}
 
@@ -325,12 +328,14 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 result = validate_checkin(body.result, day, items)
             except ValueError as e:
                 raise HTTPException(422, str(e)) from None
-            if not result["items"] and result["energy_after_class"] is None and \
+            clearing = set(body.result or {}) & {"note", "blocker", "tomorrow_task"} and db.logs_between(USER_ID, day, day)
+            if not result["items"] and result["energy_after_class"] is None and not clearing and \
                     not any(result[k] for k in ("note", "blocker", "tomorrow_task")):
                 raise HTTPException(422, "还什么都没记：点一下做没做，或者写一句")
             said = quote = result["note"]
         # 按按钮时明确带了的字段（哪怕是空的）就是要改成这样，可以清掉；一句话里没提到的不动
         explicit = set(body.result or {}) if body.sentence is None else set()
+        said_energy = result["energy_after_class"]
         if earlier := db.logs_between(USER_ID, day, day):  # 只补这次说到的，不冲掉今天之前记过的
             old = earlier[0]
             result = {**old, **{k: v for k, v in result.items() if v not in (None, "") or k in explicit},
@@ -338,7 +343,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
 
         if ONE_THING in result["items"]:  # 昨晚定的那件事今天做到没有
             result["yesterday_done"] = result["items"][ONE_THING]["status"] != "skip"
-        if result["energy_after_class"] is None:  # 没说电量就用今天报过的
+        if said_energy is None and stored["energy_level"] is not None:  # 这次没说电量：用今天最后一次报的
             result["energy_after_class"] = stored["energy_level"]
         db.save_log(USER_ID, result)
         if said:
@@ -356,6 +361,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         """满 7 天出现复盘入口：最早一条对账至少在 6 天前，而且最近 7 天里没复盘过。"""
         first, last = db.first_log_day(USER_ID), db.reviews(USER_ID)
         return (first is not None and first <= day - timedelta(days=6)
+                and bool(db.logs_between(USER_ID, day - timedelta(days=6), day))  # 这 7 天一晚都没记就不复盘
                 and not (last and date.fromisoformat(last[0]["week_end"]) > day - timedelta(days=7)))
 
     def review_view(review: dict) -> dict:
@@ -429,6 +435,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 if len(raw.get("habits", [])) > MAX_HABITS:
                     raise HTTPException(409, f"已经有 {MAX_HABITS} 个习惯了，先在设置里去掉一个")
                 plan, level = replan_today(day, raw)
+                check_week(raw, day)
             if not db.answer_adjustment(USER_ID, body.id, body.index, "好" if body.accept else "先不改"):
                 raise HTTPException(409, "这条已经回答过了")
             if raw is not None:

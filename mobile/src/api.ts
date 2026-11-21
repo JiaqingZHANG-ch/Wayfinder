@@ -26,6 +26,7 @@ export type Plan = {
   energy_used: number;
   energy_cap: number;
   reminders?: Reminder[]; // 只有 GET /today 带
+  later_reminders?: (Reminder & { day: string })[]; // 只有 GET /today 带：往后 6 天的
   checked_in?: boolean; // 只有 GET /today 带：今晚对过账没有
   tomorrow_task?: string | null; // 只有 GET /today 带：对账时写的「明天先做」
   checkin?: { items: Record<string, { status?: Status; vs_plan?: VsPlan }>; note: string | null; blocker: string | null } | null; // 只有 GET /today 带：今晚上次对账记的

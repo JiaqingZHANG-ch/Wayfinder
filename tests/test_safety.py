@@ -17,6 +17,7 @@ from mentor.safety import CRISIS_MESSAGE, is_crisis
     "难受得想死",
     "烦得想死",
     "今天不想活动，其实是不想活了",
+    "我好想死记得帮我照顾猫",  # 「想死」后面直接跟「记」也要拦
 ])
 def test_crisis_phrases_are_caught(text):
     assert is_crisis(text) is True

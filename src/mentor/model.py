@@ -134,7 +134,7 @@ class RecordingModel:
             error = str(e)
             raise
         finally:
-            self.record({"model": repr(self.inner), "messages": messages, "think": think, "schema": schema,
+            self.record({"model": repr(self.inner) if type(self.inner).__repr__ is not object.__repr__ else type(self.inner).__name__, "messages": messages, "think": think, "schema": schema,
                          "reply": reply, "error": error, "ms": round((time.monotonic() - start) * 1000)})
 
 

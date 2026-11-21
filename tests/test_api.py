@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k not in ("reminders", "checked_in", "tomorrow_task", "checkin")} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin")} == after
 
 
 @pytest.mark.parametrize("body", [{"level": 0}, {"level": 6}, {"level": 3, "now": "6pm"}, {}])
@@ -674,3 +674,57 @@ def test_today_returns_last_checkin_so_it_can_be_edited(setup):
     client.post("/checkin", json={"result": {"items": {"english": {"status": "floor"}}, "note": "挺顺"}})
     got = client.get("/today").json()["checkin"]
     assert got["items"] == {"english": {"status": "floor"}} and got["note"] == "挺顺"
+
+
+# ---- 代码评审 ui-polish-3 ----
+def _blocks_after(plan, t):
+    return sorted((b["id"] for b in plan["blocks"] if b["start"] >= t and not b["id"].startswith("free-")))
+
+
+def test_changing_only_the_reminder_keeps_tonight_as_it_was(tmp_path):
+    db = Db(tmp_path / "a.db")
+    early = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("05:00")))
+    early.put("/settings", json=SETTINGS)
+    early.put("/settings", json=early.get("/settings").json())  # 设置和计划先对上（模板里表单管不到的字段也转一遍）
+    client = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("17:00")))
+    before = client.get("/today").json()
+    cur = client.get("/settings").json()  # 和 App 一样：拿到的原样带回去（习惯带着 id）
+    client.put("/settings", json={**cur, "reminders": {"after_class": True, "evening": "21:30"}})
+    after = client.get("/today").json()
+    assert _blocks_after(after, "17:00") == _blocks_after(before, "17:00")  # 今晚的事一件不少
+    ids = [b["id"] for b in after["blocks"]]
+    assert len(ids) == len(set(ids))  # 块 id 不重复
+
+
+def test_new_habit_added_in_the_afternoon_is_planned_tonight(tmp_path):
+    db = Db(tmp_path / "a.db")
+    TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("05:00"))).put("/settings", json=SETTINGS)
+    client = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("17:00")))
+    cur = client.get("/settings").json()
+    r = client.put("/settings", json={**cur, "habits": cur["habits"] + [{"title": "冥想", "minutes": 15, "floor_min": 5}]})
+    assert r.status_code == 200
+    titles = [b["title"] for b in client.get("/today").json()["blocks"] if b["start"] >= "17:00"]
+    assert any("冥想" in t for t in titles)
+
+
+def test_settings_after_midnight_keep_the_day_and_its_energy(tmp_path):
+    db = Db(tmp_path / "a.db")
+    day = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=at("17:00")))
+    day.post("/energy", json={"level": 3, "now": "17:00"})
+    before = day.get("/today").json()
+    night = TestClient(create_app(db, FakeModel(), template=TEMPLATE, now=lambda tz: datetime(2026, 11, 21, 0, 30, tzinfo=tz)))
+    night.put("/settings", json={**SETTINGS, "wake": "07:00"})
+    after = night.get("/today").json()
+    assert after["blocks"] == before["blocks"] and after["energy_level"] == 3
+
+
+def test_checkin_can_clear_only_the_text(setup):
+    client, _, _ = setup
+    client.post("/checkin", json={"result": {"items": {"english": {"status": "done"}}, "note": "今天很顺"}})
+    r = client.post("/checkin", json={"result": {"items": {}, "note": ""}})
+    assert r.status_code == 200 and r.json()["saved"]["note"] == ""
+
+
+def test_today_gives_reminders_for_the_next_six_days(setup):
+    later = setup[0].get("/today").json()["later_reminders"]
+    assert len({r["day"] for r in later}) == 6 and all(r["kind"] in ("after_class", "evening") for r in later)

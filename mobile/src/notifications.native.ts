@@ -13,15 +13,15 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/** 把今天还没到点的提醒重新定一遍；没给通知权限就返回 false。 */
-export async function scheduleToday(day: string, reminders: Reminder[]): Promise<boolean> {
+/** 把今天和往后几天还没到点的提醒重新定一遍；没给通知权限就返回 false。 */
+export async function scheduleReminders(reminders: (Reminder & { day: string })[]): Promise<boolean> {
   let { granted } = await Notifications.getPermissionsAsync();
   if (!granted) granted = (await Notifications.requestPermissionsAsync()).granted;
   if (!granted) return false;
   await Notifications.cancelAllScheduledNotificationsAsync(); // 只有这里在定提醒，全清再定最简单
   const now = Date.now();
   for (const r of reminders) {
-    const date = new Date(`${day}T${r.at}:00`); // 手机本地时间
+    const date = new Date(`${r.day}T${r.at}:00`); // 手机本地时间
     if (date.getTime() <= now) continue;
     await Notifications.scheduleNotificationAsync({
       content: { title: r.title, body: r.body, data: { url: r.url } },
@@ -29,6 +29,11 @@ export async function scheduleToday(day: string, reminders: Reminder[]): Promise
     });
   }
   return true;
+}
+
+/** 删了全部数据：手机上排好的提醒也清掉。 */
+export async function cancelReminders(): Promise<void> {
+  await Notifications.cancelAllScheduledNotificationsAsync();
 }
 
 /** 点了通知就跳到它带的页面（/energy 或 /checkin）。放在根布局里调用一次。 */
