@@ -134,6 +134,8 @@ def _answer_ok(s: dict, v, energy_ids: set[str]) -> bool:
     kind = s["kind"]
     if kind in ("open", "version"):
         return text(v)
+    if kind == "line":  # 空串 =「跳过」
+        return isinstance(v, str) and len(v) <= MAX_INPUT
     if kind == "choose":  # null =「先不选」
         return v is None or num(v, 0, 2)
     if kind == "council":
@@ -470,7 +472,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def review_view(review: dict) -> dict:
         earlier = db.reviews(USER_ID, limit=2)[1:]
         profile = next((p for p in db.profiles(USER_ID, confirmed=True) if p["id"] == review["still_right"]), None)
-        return {"crisis": False, **review,
+        goals = [p["content"] for p in db.profiles(USER_ID, confirmed=True)
+                 if p["level"] == "目标" and p["source"] == "季度回顾"]  # 只列出来让他对照，不进模型
+        return {"crisis": False, **review, "quarter_goals": goals,
                 "last_question": earlier[0]["question"] if earlier else None,  # 上周带进来的问题，导师不回答
                 "still_right": profile and {**profile, "question": f"上次你说「{profile['content']}」，现在还对吗？"}}
 
@@ -704,6 +708,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             council = talk_rows()[1].get(4, {}).get("council") or {}
             levels += [("障碍", v["unknown"]) for lens in council.get("lenses", [])[:3]
                        if isinstance(v := lens["versions"][k], dict) and isinstance(v.get("unknown"), str)]
+        if step == 4 and "profile_ids" not in mine and (floor := str(mine.get("floor", "")).strip()):
+            levels.append(("障碍", f"止损：{floor}"))  # 止损底线：不选版本也提；回来选版本时（已有 profile_ids）不重复
         ids = [db.propose_profile(USER_ID, level, text, "深度长谈") for level, text in levels if text and text.strip()]
         extra: dict = {"profile_ids": [*mine.get("profile_ids", []), *ids]}
         if step == 4:
@@ -735,7 +741,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         items = _energy_items(db.plan_input(USER_ID))
         if not _answer_ok(s, body.value, {i["id"] for i in items}):
             raise HTTPException(422, f"回答不能是空的，也不能超过 {MAX_INPUT} 字"
-                                if s["kind"] in ("open", "version", "follow") else "这一屏的回答格式不对")
+                                if s["kind"] in ("open", "version", "follow", "line") else "这一屏的回答格式不对")
         mine = {**answers.get(body.step, {})}
         if s["kind"] == "council":
             mine["council_seen"] = True

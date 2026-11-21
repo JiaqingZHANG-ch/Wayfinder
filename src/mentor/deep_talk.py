@@ -36,6 +36,7 @@ STEPS: dict[int, dict] = {
         {"id": "v3", "kind": "version", "question": "不考虑钱和别人怎么看", "hint": "你会过什么样的日子？"},
         {"id": "council", "kind": "council"},
         {"id": "rate", "kind": "rate", "items": ["资源", "喜欢", "信心", "和自己一致"]},
+        {"id": "floor", "kind": "line", "question": "不管选哪条，到什么情况你会停下来换一条？", "hint": "可以跳过"},
         {"id": "choose", "kind": "choose"},
     ]},
 }

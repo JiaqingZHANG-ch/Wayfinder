@@ -51,7 +51,7 @@ def walk(client, steps):
 
 def finish_step4(client, model, choose=0):
     """写完三个版本、看过智囊团、打完分、选一个；step 4 的提议用 STEP4。"""
-    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE)])
+    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", "")])
     model.replies.append(STEP4)
     return walk(client, [(4, "choose", choose)])
 
@@ -149,7 +149,7 @@ def test_council_failed_flow_continues(setup):
     client.post("/deep-talk/council")
     client.app.state.deep_talk_thread.join()
     assert client.get("/deep-talk").json()["council"] == {"status": "failed", "result": None}
-    s = walk(client, [(4, "council", True), (4, "rate", RATE), (4, "choose", 1)])
+    s = walk(client, [(4, "council", True), (4, "rate", RATE), (4, "floor", ""), (4, "choose", 1)])
     assert s["step"] is None and s["steps"][3]["status"] == "done"
     # 模型没回答：使命用选中版本的原话
     assert [(p["level"], p["content"]) for p in s["proposals"]["profiles"] if p["level"] == "使命"] == [("使命", "去做数据分析")]
@@ -248,7 +248,7 @@ def test_restart_keeps_goals_until_new_step4_done(setup):
 
 def test_choose_later_after_not_choosing(setup):
     client, _, model = setup
-    s = walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "choose", None)])
+    s = walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", ""), (4, "choose", None)])
     assert s["step"] is None and not any(p["level"] == "使命" for p in s["proposals"]["profiles"])
     assert {h["source"] for h in s["proposals"]["habits"]} == {"invest"}
     model.replies.append(STEP4)
@@ -311,7 +311,7 @@ def test_two_habit_accepts_at_once_both_land_once(setup):
     settings = client.get("/settings").json()
     settings["habits"] = settings["habits"][1:]  # 只留「背单词」：再加两条也不超过 3 个，今天也排得下
     assert client.put("/settings", json=settings).status_code == 200
-    s = walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "choose", None)])
+    s = walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", ""), (4, "choose", None)])
     keys = [h["key"] for h in s["proposals"]["habits"]]
     assert keys == ["move", "sleep"]
     barrier, codes = threading.Barrier(2), []
@@ -370,3 +370,32 @@ def test_energy_screen_unchanged_says_so(setup):
     r = answer(client, 3, "energy", {i["id"]: i["energy"] for i in items}).json()
     assert r["answers"]["3"]["energy_changed"] is False  # 小结页就不说「按你标的排了」
     assert "tomorrow_change" not in r
+
+
+def floor_walk(client, floor, choose):
+    return walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", floor)]
+                + [(4, "choose", choose)])
+
+
+def test_floor_empty_or_text(setup):
+    client, db, model = setup
+    model.replies.append(STEP4)
+    floor_walk(client, "  ", 0)  # 空白 = 跳过：不提
+    assert [p for p in db.profiles(1, confirmed=False) if p["level"] == "障碍"] == []
+
+
+def test_floor_text_becomes_obstacle_even_without_choice(setup):
+    client, db, _ = setup
+    s = floor_walk(client, "连着三个月没进展", None)
+    assert [p["content"] for p in s["proposals"]["profiles"] if p["level"] == "障碍"] == ["止损：连着三个月没进展"]
+    walk(client, [(4, "choose", 0)])  # 回来选版本：不重复提
+    assert len([p for p in db.profiles(1, confirmed=False) if p["level"] == "障碍"]) == 1
+
+
+def test_floor_too_long_422_and_crisis(setup):
+    client, db, _ = setup
+    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE)])
+    assert answer(client, 4, "floor", "字" * 5000).status_code == 422
+    r = answer(client, 4, "floor", "我想自杀").json()
+    assert r["crisis"] is True
+    assert answer(client, 4, "choose", None).status_code == 409  # 什么都没存，还停在 floor

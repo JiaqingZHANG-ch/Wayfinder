@@ -23,7 +23,7 @@ def lenses(k):  # 每个视角、每个版本的 unknown 都不一样，才分�
 
 
 def with_obstacles(client, db, model, choose):
-    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE)])
+    walk(client, STEPS_1_3 + VERSIONS + [(4, "council", True), (4, "rate", RATE), (4, "floor", "")])
     db.upsert_deep_talk(1, 1, 4, council=lenses(0), council_status="done")
     model.replies.append(STEP4)
     return walk(client, [(4, "choose", choose)])

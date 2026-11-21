@@ -766,3 +766,12 @@ def test_removed_habit_drops_its_meta(setup):
     meta = db.plan_input(1)["habit_meta"]
     assert list(meta) == [s["habits"][0]["id"]] and meta[s["habits"][0]["id"]] == {"source": "invest", "goal_id": 1}
     assert client.get("/settings").json()["habits"][0]["goal_id"] == 1
+
+
+def test_review_lists_only_quarter_goals(setup):
+    client, db, model = setup
+    seed_week(db)
+    for level, text, src in [("目标", "读完两本书", "季度回顾"), ("目标", "别的目标", "深度长谈"), ("使命", "某使命", "季度回顾")]:
+        db.confirm_profile(1, db.propose_profile(1, level, text, src))
+    model.replies.append(REVIEW)
+    assert client.post("/review", json={}).json()["quarter_goals"] == ["读完两本书"]
