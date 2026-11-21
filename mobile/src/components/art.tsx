@@ -169,7 +169,7 @@ export function Arc({ blocks, now, width, height = 120, done, fills }: {
         </SvgLinearGradient>
       </Defs>
       {lit !== "" && <Path d={`${lit} L${cx} ${base} Z`} fill={`url(#f${id})`} /> /* 扇形：从弧底中点扫出来，边落在半径上，跟着渐变淡掉 */}
-      <Path d={full} stroke={dark ? c.line : c.kind.life} strokeWidth={1.5} strokeDasharray="2 5" strokeLinecap="round" fill="none" />
+      <Path d={full} stroke={c.kind.life} strokeWidth={1.5} strokeDasharray="2 5" strokeLinecap="round" fill="none" />
       {lit !== "" && <Path d={lit} stroke={`url(#t${id})`} strokeWidth={3} strokeLinecap="round" fill="none" />}
       {marks.map((b) => {
         const q = at(toMin(b.start));
