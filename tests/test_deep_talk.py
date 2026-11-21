@@ -129,3 +129,9 @@ def test_propose_step4_messy_output_reaches_fallback():
 def test_propose_step4_bad_choose_gives_empty_mission(choose):
     out = propose(FakeModel([]), 4, {4: {"v1": "x", "v2": "y", "v3": "z", "choose": choose}})
     assert out[1]["mission"] == ""
+
+
+def test_no_minutes_keeps_scores():
+    from mentor.deep_talk import _no_minutes
+    assert _no_minutes("冥想十分钟") == "冥想" and _no_minutes("跑步（30分钟）") == "跑步"
+    assert _no_minutes("考研数学 150 分") == "考研数学 150 分"  # 「分」在这里是分数

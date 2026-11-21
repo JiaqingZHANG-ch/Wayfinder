@@ -223,8 +223,6 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
     for e in tiring:  # 课表自己定的间隔照实际留，最多留 rest
         nxt = min((x for x in focus_starts if x >= e.end), default=e.end + rest)
         focus_ivs.append(m.NewFixedSizeIntervalVar(e.start, e.end + min(rest, nxt - e.end) - e.start, e.id + "-f"))
-    if inp.focus_free_at and inp.focus_free_at > inp.wake:
-        focus_ivs.append(m.NewFixedSizeIntervalVar(inp.wake, inp.focus_free_at - inp.wake, "rest-before-f"))
     extra = []
     if on_bus:
         extra.append(Block(on_bus.id, on_bus.title, c.out.leave_home, c.out.leave_home + on_bus.minutes, "must"))
@@ -235,6 +233,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
 
     def add(block: Block, minutes: int, ws: int, we: int, padded: bool, at_home: bool = False, focus: bool = False) -> bool:
         a, z = max(lo if block.kind == "life" else work_lo, ws), min(hi, we) - minutes
+        if focus and inp.focus_free_at:  # 刚做完的专注还没放松完：新的专注往后放（课和会照课表，不受这个限制）
+            a = max(a, inp.focus_free_at)
         if a > z:
             return False
         s = m.NewIntVar(a, z, block.id)
@@ -325,6 +325,8 @@ def _solve(inp: PlanInput, c: Commute, habits: list[Habit], meals: list[Meal],
             gapped.append(m.NewOptionalIntervalVar(s, d + pad, e + pad, p, f"{t.id}-{k}-g"))
             if task_cost(inp, t.id) > 0:
                 focus_ivs.append(m.NewOptionalIntervalVar(s, d + rest, e + rest, p, f"{t.id}-{k}-f"))
+                if inp.focus_free_at:
+                    m.Add(s >= inp.focus_free_at).OnlyEnforceIf(p)
             proj_cost.append(round(100 * task_cost(inp, t.id)) * d)
             if t.where != "campus" and block_start is not None:  # 在家的项目等习惯块做完；落在学校空档里的不受限
                 in_gap = m.NewBoolVar(f"{t.id}-{k}-gap")
@@ -523,11 +525,12 @@ def replan_from(inp: PlanInput, now: str, done_ids: list[str] = (), before: list
               for h in inp.habits if h.id not in drop]
     meals = [x for x in inp.meals if x.id not in drop]
 
-    def fits(x) -> bool:
-        return x.window_end - max(x.window_start, cutoff) >= x.minutes
+    def fits(x, start: int) -> bool:
+        return x.window_end - max(x.window_start, start) >= x.minutes
 
-    late = [x.title for x in habits + meals if not fits(x)]
-    habits, meals = [h for h in habits if fits(h)], [x for x in meals if fits(x)]
+    # 必做习惯是专注：要等刚做完的那块放松完才能开始；吃饭不用等
+    late = [x.title for x in habits if not fits(x, focus_free_at or cutoff)] + [x.title for x in meals if not fits(x, cutoff)]
+    habits, meals = [h for h in habits if fits(h, focus_free_at or cutoff)], [x for x in meals if fits(x, cutoff)]
 
     cost = inp.energy.cost
     past_cost = sum(_block_cost(inp, b) for b in keep)

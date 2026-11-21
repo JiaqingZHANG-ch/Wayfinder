@@ -117,7 +117,8 @@ def _dump(answers: dict, step: int) -> str:
 
 
 # 模型常把时长写进名字（「每天写 App 30分钟」），时间线上就成了「… 30分钟 · 30 分钟」
-_MINUTES = re.compile(r"[\s，,（(]*(\d+|半|一|两|二|三)\s*(分钟|分|min|小时|个小时)[)）]?\s*$")
+# 单个「分」不算：「考研数学 150 分」是分数
+_MINUTES = re.compile(r"[\s，,（(]*(\d+|半|一|两|二|三|五|十|十五|二十|三十|四十|四十五)\s*(分钟|min|小时|个小时)[)）]?\s*$")
 
 
 def _no_minutes(title: str) -> str:

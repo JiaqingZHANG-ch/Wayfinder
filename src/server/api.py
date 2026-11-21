@@ -344,8 +344,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         if body.now is None and t.date() != day:  # 凌晨 4 点前还算昨天，但昨天已经没有「今晚」可排了
             raise HTTPException(409, "今天已经过完了，早上再看新的计划")
         inp = plan_input(day, body.level)
-        # shortcut: 总是从当天的原始计划重排，不在上一次重排的结果上叠；一天报两次电量时，第二次之前的手动改动会丢
-        plan = solved(lambda: replan_from(inp, body.now or to_hhmm(t.hour * 60 + t.minute), body.done_ids))
+        at = body.now or to_hhmm(t.hour * 60 + t.minute)
+        stored = db.latest_plan(USER_ID, day)  # 「已经过去的」照存着的计划（他真看到的），不按设置假想一遍上午
+        plan = solved(lambda: replan_after(inp, stored["plan"]["blocks"], to_min(at), body.done_ids) if stored
+                      else replan_from(inp, at, body.done_ids))
         if body.preview:  # 预览不存：关掉面板，今天的计划和电量都不变；version 0 表示「还没存」
             return {"day": day.isoformat(), "version": 0, "confirmed": False, "energy_level": body.level, **plan}
         db.add_plan(USER_ID, day, plan, body.level)
@@ -725,13 +727,14 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             with settings_lock:  # 和接受习惯排队：两边各读一份旧设置，后写的会盖掉先写的
                 old_raw = db.plan_input(USER_ID)
                 crisis = change_settings(mark)
+                new_raw = db.plan_input(USER_ID)
             if crisis:
                 return crisis
             if mine["energy_changed"]:  # 小结页列「明天改了哪几处」：用改前、改后的设置各排一次明天
                 nxt = day + timedelta(days=1)
                 try:
                     tomorrow_change = {"before": _plan_json(solve_day(input_from_dict(day_raw(old_raw, nxt))))["blocks"],
-                                       "after": _plan_json(solve_day(input_from_dict(day_raw(db.plan_input(USER_ID), nxt))))["blocks"]}
+                                       "after": _plan_json(solve_day(input_from_dict(day_raw(new_raw, nxt))))["blocks"]}
                 except (InputError, PlanInfeasible):
                     tomorrow_change = None  # 存设置时已经试排过一周，到这里排不出来只是不列对比
         answers = {**answers, body.step: mine}

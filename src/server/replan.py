@@ -1,4 +1,4 @@
-"""改了设置（或复盘里点了「好」）时重排今天剩下的部分：「已经过去的」用存着的计划（用户真看到、真做了的）。"""
+"""改了设置、复盘里点了「好」、报了电量时重排今天剩下的部分：「已经过去的」用存着的计划（用户真看到、真做了的）。"""
 from dataclasses import fields
 
 from planner.model import PlanInput, to_hhmm, to_min
@@ -11,6 +11,6 @@ def _block(b: dict) -> Block:
     return Block(**{**{k: v for k, v in b.items() if k in _FIELDS}, "start": to_min(b["start"]), "end": to_min(b["end"])})
 
 
-def replan_after(inp: PlanInput, stored: list[dict], now: int) -> DayPlan:
-    """stored 是今天存着的计划块，now 是现在（分钟）。"""
-    return replan_from(inp, to_hhmm(now), before=[_block(b) for b in stored])
+def replan_after(inp: PlanInput, stored: list[dict], now: int, done_ids: list[str] = ()) -> DayPlan:
+    """stored 是今天存着的计划块，now 是现在（分钟），done_ids 是提前做完、不用再排的事。"""
+    return replan_from(inp, to_hhmm(now), done_ids, before=[_block(b) for b in stored])

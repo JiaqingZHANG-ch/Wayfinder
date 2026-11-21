@@ -48,3 +48,36 @@ def test_replan_still_rests_after_the_focus_block_in_progress():
     later = [b for b in plan.blocks if b.start >= doing.end and _block_cost(inp, b) > 0]
     assert later and min(b.start for b in later) >= doing.end + inp.energy.rest_after_focus_min
     assert check_plan(inp, plan) == []
+
+
+def _student():
+    return load_input(Path(__file__).parent.parent / "examples" / "users" / "学生.json")
+
+
+def test_replan_habit_after_late_focus_is_reported_not_infeasible():
+    """评审 A1：存着的计划里项目拖到 21:45、看书还没做，21:00 重排：看书放不下就说来不及，不能整个排不出来。"""
+    from dataclasses import replace
+    from planner.solve import replan_from
+    inp = _student()
+    stored = []
+    for b in solve_day(inp).blocks:
+        b = replace(b)
+        if b.id == "exam-prep-1":
+            b.start, b.end = to_min("20:45"), to_min("21:45")
+        if b.id == "reading":
+            b.start, b.end = to_min("22:00"), to_min("22:30")
+        if not (b.id.startswith("free-") and b.start >= to_min("20:00")):
+            stored.append(b)
+    plan = replan_from(inp, "21:00", before=stored)
+    assert any("看书" in w for w in plan.warnings) or any(b.id == "reading" for b in plan.blocks)
+
+
+def test_replan_meeting_right_after_focus_still_fits():
+    """评审 A2：17:20 正在复习（到 17:40），设置里加了 18:00 的会：会照课表开，不被「放松」挡住。"""
+    from dataclasses import replace
+    from planner.solve import replan_from
+    inp = _student()
+    before = solve_day(inp).blocks
+    meet = replace(inp.fixed[0], id="meet", title="组会", start=to_min("18:00"), end=to_min("18:30"), where="home", kind="meeting")
+    plan = replan_from(replace(inp, fixed=[*inp.fixed, meet]), "17:20", before=before)
+    assert any(b.id == "meet" for b in plan.blocks)
