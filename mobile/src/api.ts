@@ -203,7 +203,9 @@ export type DeepTalkState = {
   answers: Record<string, Record<string, unknown> & { profile_ids?: number[] }>;
   invite: boolean;
   snoozes: number;
-  council: { status: "running" | "done" | "failed"; result: CouncilResult | null } | null;
+  // crisis：智囊团的模型输出是危机，message 是固定的求助话术
+  council: { status: "running" | "done" | "failed" | "crisis"; result: CouncilResult | null; message?: string } | null;
+  active_goal_ids: number[]; // 「为了」和「我」页目标认的档案 id：第 4 次做完的最新一轮提出的
   proposals: { profiles: Profile[]; habits: HabitProposal[]; tomorrow: string | null };
   tonight_task: string | null;
   can_set_tomorrow: boolean; // 今晚对过账才能定明天的一件事
@@ -211,6 +213,12 @@ export type DeepTalkState = {
   energy_items: { id: string; title: string; kind: "habit" | "class" | "project"; energy: Energy | null }[];
   reply: string | null; // 只有答开放问题时有：导师的一句
 };
+/** 这一步还有几张待确认的卡片：档案提议（「不要」过的后端已经去掉），第 4 次再加习惯和明天的一件事。 */
+export function pendingCount(s: DeepTalkState, step: number) {
+  const ids = s.answers[step]?.profile_ids ?? [];
+  return s.proposals.profiles.filter((x) => ids.includes(x.id)).length
+    + (step === 4 ? s.proposals.habits.filter((h) => h.status === "pending").length + (s.can_set_tomorrow && s.proposals.tomorrow ? 1 : 0) : 0);
+}
 export type TalkConfirm = { kind: "profile"; id: number } | { kind: "habit"; key: string } | { kind: "tomorrow" };
 
 export const getProfile = () => send<{ confirmed: Profile[]; pending: Profile[] }>("GET", "/profile");

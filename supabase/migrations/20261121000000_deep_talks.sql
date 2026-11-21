@@ -8,8 +8,8 @@ create table public.deep_talks (
   council jsonb,
   council_status text,
   snoozes int not null default 0,
-  started_at timestamptz,
-  finished_at timestamptz,
+  started_at text, -- 逻辑日的本地时间，如 "2026-11-20T01:30"（凌晨 4 点前算前一晚），不是带时区的时刻
+  finished_at text,
   unique (user_id, round, step)
 );
 create index on public.deep_talks (user_id);

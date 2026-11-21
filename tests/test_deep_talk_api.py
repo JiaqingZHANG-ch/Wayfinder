@@ -153,6 +153,20 @@ def test_council_failed_flow_continues(setup):
     assert [(p["level"], p["content"]) for p in s["proposals"]["profiles"] if p["level"] == "使命"] == [("使命", "去做数据分析")]
 
 
+def test_council_crisis_shows_crisis_message(setup):
+    client, db, model = setup
+    walk(client, STEPS_1_3 + VERSIONS)
+    model.replies.append(json.dumps({"crisis": True}))
+    client.post("/deep-talk/council")
+    client.app.state.deep_talk_thread.join()
+    c = client.get("/deep-talk").json()["council"]
+    assert c["status"] == "crisis" and c["result"] is None and "请现在联系能帮到你的人" in c["message"]
+    assert db.crisis_count(1) == 1
+    model.replies += [LENS, LENS, SYNTH]  # 危机以后再进这一屏：像 failed 一样可以重跑
+    assert client.post("/deep-talk/council").json()["council"]["status"] == "running"
+    client.app.state.deep_talk_thread.join()
+
+
 def test_accept_habit_when_full_is_409(setup):
     client, _, model = setup
     settings = client.get("/settings").json()
@@ -208,8 +222,26 @@ def test_today_goals_map(setup):
     habit = next(h for h in client.get("/settings").json()["habits"] if h["source"] == "deep_talk")
     assert (habit["title"], habit["goal_id"]) == ("写一段代码", goal["id"])
     assert client.get("/today").json()["goals"] == {habit["id"]: "每周投出 2 份实习申请"}
-    client.post("/deep-talk/restart")
-    assert client.get("/today").json()["goals"] == {}  # 新的一轮还没有目标：旧目标不再显示
+    assert client.get("/deep-talk").json()["active_goal_ids"] == sorted(
+        i for a in s["answers"].values() for i in a.get("profile_ids", []))
+
+
+def test_restart_keeps_goals_until_new_step4_done(setup):
+    client, _, model = setup
+    s = finish_step4(client, model)
+    old = next(p for p in s["proposals"]["profiles"] if p["level"] == "目标")
+    client.post("/deep-talk/confirm", json={"kind": "profile", "id": old["id"], "accept": True})
+    client.post("/deep-talk/confirm", json={"kind": "habit", "key": "prototype", "accept": True})
+    habit = next(h for h in client.get("/settings").json()["habits"] if h["source"] == "deep_talk")
+    old_ids = client.get("/deep-talk").json()["active_goal_ids"]
+    s = client.post("/deep-talk/restart").json()
+    assert s["active_goal_ids"] == old_ids  # 新的一轮第 4 次还没做完：旧目标先留着
+    assert client.get("/today").json()["goals"] == {habit["id"]: "每周投出 2 份实习申请"}
+    s = finish_step4(client, model)
+    new = next(p for p in s["proposals"]["profiles"] if p["level"] == "目标")
+    client.post("/deep-talk/confirm", json={"kind": "profile", "id": new["id"], "accept": True})
+    assert old["id"] not in s["active_goal_ids"] and new["id"] in s["active_goal_ids"]
+    assert client.get("/today").json()["goals"] == {}  # 旧习惯服务的是上一轮的目标，换成新一轮的了
 
 
 def test_choose_later_after_not_choosing(setup):

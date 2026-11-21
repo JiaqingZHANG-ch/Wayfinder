@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { DeepTalkState, getDeepTalk, getProfile, getSettings, Profile, restartDeepTalk, Settings } from "@/api";
+import { DeepTalkState, getDeepTalk, getProfile, getSettings, pendingCount, Profile, restartDeepTalk, Settings } from "@/api";
 import { Arc, Glyph } from "@/components/art";
 import { enter, Pressy } from "@/components/motion";
 import { useNow } from "@/components/plan-view";
@@ -23,14 +23,17 @@ export default function MeScreen() {
   }, []));
   const latest = (level: string) => dir?.confirmed.filter((p) => p.level === level).sort((a, b) => b.id - a.id)[0];
   const mission = latest("使命") || latest("方向");
-  const roundIds = new Set(Object.values(dir?.talk.answers ?? {}).flatMap((a) => a.profile_ids ?? []));
+  // 和后端「为了」同一套：重新聊一次后，新一轮的第 4 次做完前还是旧目标
+  const roundIds = new Set(dir?.talk.active_goal_ids ?? []);
   const goals = (dir?.confirmed ?? []).filter((p) => p.level === "目标" && roundIds.has(p.id)).sort((a, b) => a.id - b.id).slice(0, 3);
   const doneN = dir?.talk.steps.filter((x) => x.status === "done").length ?? 0;
   const c4 = dir?.talk.answers["4"]?.choose;
   const needChoose = dir?.talk.steps.some((x) => x.step === 4 && x.status === "done") && (c4 === null || c4 === undefined);
   // 「重新聊一次」会开新的一轮、卡上的目标跟着换：第一下只问一句，第二下才真的开
   const [sure, setSure] = useState(false);
-  const next = needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
+  const owe = dir ? dir.talk.steps.reduce((n, x) => n + pendingCount(dir.talk, x.step), 0) : 0; // 关掉长谈时没确认完的提议
+  const next = owe > 0 ? { label: `还有 ${owe} 条等你确认`, go: () => router.push("/deep-talk") }
+    : needChoose ? { label: "选一个版本", go: () => router.push("/deep-talk?step=4&part=choose") }
     : doneN < 4 ? { label: `接着聊 · 长谈 ${doneN}/4`, go: () => router.push("/deep-talk") }
     : sure ? { label: "从第 1 次重新开始，旧的会留着 · 再点一次确定", quiet: true,
       go: () => restartDeepTalk().then(() => { setSure(false); router.push("/deep-talk"); }, () => {}) }

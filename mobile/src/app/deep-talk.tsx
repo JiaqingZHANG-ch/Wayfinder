@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   answerDeepTalk, ApiError, confirmDeepTalk, Crisis, DeepTalkState, Energy, getDeepTalk, getProfile, HabitProposal, isCrisis, OFFLINE,
-  Profile, say, startCouncil, TalkConfirm,
+  pendingCount, Profile, say, startCouncil, TalkConfirm,
 } from "@/api";
 import { Glyph, Sky } from "@/components/art";
 import { EnergyPick } from "@/components/chips";
@@ -56,7 +56,10 @@ export default function DeepTalk() {
 
   // 只有存着「先不选」时才回来选；别的情况照常从没答的那一屏走
   const choosing = rechoose && st?.answers[4]?.choose === null;
-  const onCouncil = !choosing && !said && summary === null && st?.step === 4 && st.screen === "council";
+  // 关掉时没确认完的提议：下次打开先回到那一步的小结，不然就再也找不到了
+  const owed = st ? st.steps.find((x) => x.status === "done" && pendingCount(st, x.step) > 0)?.step ?? null : null;
+  const shown = st ? summary ?? owed ?? (st.step === null ? 4 : null) : null; // 显示哪一步的小结，null = 显示问题屏
+  const onCouncil = !choosing && !said && shown === null && st?.step === 4 && st.screen === "council";
   // 智囊团开不起来或连着查不到：给「再试一次」，kick 加一就再 POST 一次
   const [councilErr, setCouncilErr] = useState<string | null>(null);
   const [kick, setKick] = useState(0);
@@ -135,8 +138,9 @@ export default function DeepTalk() {
   const markLand = (s: DeepTalkState, step: number) => setLandN((m) => (step in m ? m : { ...m, [step]: pendingCount(s, step) }));
   const decide = (what: TalkConfirm, accept: boolean, content?: string) => call(() => confirmDeepTalk(what, accept, content), () => {
     const text = content ?? (what.kind === "habit" ? st?.proposals.habits.find((h) => h.key === what.key)?.title : undefined);
-    if (st) markLand(st, summary ?? 4);
-    if (accept && text) setKept((k) => [...k, { step: summary ?? 4, text }]);
+    if (st) markLand(st, shown ?? 4);
+    if (accept && text) setKept((k) => [...k, { step: shown ?? 4, text }]);
+    setSummary(shown); // 回来补确认的：最后一张答完停在这一步的「聊完了」，不直接跳进下一步的问题
   });
 
   const shell = (children: React.ReactNode, bottomBar?: React.ReactNode) => (
@@ -193,8 +197,8 @@ export default function DeepTalk() {
   );
 
   // —— 小结：这一步待确认的提议，一张一张来；第 4 次是「落地」和「投资自己」 ——
-  if (!choosing && !said && (summary !== null || st.step === null)) { // 最后一屏是开放问题时，先看完导师的一句
-    const step = summary ?? 4;
+  if (!choosing && !said && shown !== null) { // 最后一屏是开放问题时，先看完导师的一句
+    const step = shown;
     const a = st.answers[step] ?? {};
     const ids = a.profile_ids ?? [];
     const p = st.proposals.profiles.find((x) => ids.includes(x.id));
@@ -455,6 +459,8 @@ export default function DeepTalk() {
             <Body muted>大概一两分钟。也可以先关掉，下次打开接着看。</Body>
             {[0, 1].map((i) => <Skeleton key={i} height={140} r={radius.lg} />)}
           </>
+        ) : status === "crisis" ? (
+          <CrisisCard message={st.council?.message ?? ""} />
         ) : status === "failed" || !st.council?.result ? (
           <Display>这次顾问们没能看完，你可以先自己打分</Display>
         ) : (
@@ -538,13 +544,6 @@ export default function DeepTalk() {
   }
 
   return page(`${step}-${id}`, progress, body, bottom);
-}
-
-/** 这一步还有几张待确认的卡片：档案提议，第 4 次再加习惯和明天的一件事。 */
-function pendingCount(s: DeepTalkState, step: number) {
-  const ids = s.answers[step]?.profile_ids ?? [];
-  return s.proposals.profiles.filter((x) => ids.includes(x.id)).length
-    + (step === 4 ? s.proposals.habits.filter((h) => h.status === "pending").length + (s.can_set_tomorrow && s.proposals.tomorrow ? 1 : 0) : 0);
 }
 
 /**

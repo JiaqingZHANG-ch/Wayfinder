@@ -610,10 +610,17 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     def current_step(rows: dict[int, dict]) -> int | None:
         return next((s for s in STEPS if not rows.get(s, {}).get("finished_at")), None)
 
+    def active_goal_ids() -> list[int]:
+        """「为了」认的那一轮提出的档案 id：第 4 次做完的最新一轮（重新聊时，新一轮的第 4 次做完前旧的先留着）。"""
+        for rnd in range(db.deep_talk_round(USER_ID), 0, -1):
+            rows = db.deep_talk_rows(USER_ID, rnd)
+            if any(r["step"] == 4 and r["finished_at"] for r in rows):
+                return sorted({i for r in rows for i in r["answers"].get("profile_ids", [])})
+        return []
+
     def goals_map(raw: dict) -> dict[str, str]:
-        """习惯 id → 它服务的目标原文；只认最新一轮里提出、已经确认的「目标」。"""
-        _, _, answers = talk_rows()
-        ids = {i for a in answers.values() for i in a.get("profile_ids", [])}
+        """习惯 id → 它服务的目标原文；只认 active_goal_ids 那一轮里提出、已经确认的「目标」。"""
+        ids = set(active_goal_ids())
         goals = {p["id"]: p["content"] for p in db.profiles(USER_ID, confirmed=True) if p["level"] == "目标" and p["id"] in ids}
         return {h: goals[m["goal_id"]] for h, m in raw.get("habit_meta", {}).items() if m.get("goal_id") in goals}
 
@@ -626,6 +633,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         shown = ({i for a in answers.values() for i in a.get("profile_ids", [])}
                  - {i for a in answers.values() for i in a.get("dismissed", [])})
         full = len((raw or {}).get("habits", [])) >= MAX_HABITS
+        council = {"status": row4["council_status"], "result": row4["council"]} if row4.get("council_status") else None
+        if council and council["status"] == "crisis":  # 智囊团的模型输出是危机：App 显示和 crisis_reply 一样的话术
+            council["message"] = crisis_reply()["message"]
 
         def status(s):
             r = rows.get(s, {})
@@ -636,7 +646,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 "invite": should_invite(list(rows.values()), checked_in=bool(log),
                                         energy_level=latest and latest["energy_level"], today=day),
                 "snoozes": rows.get(step, {}).get("snoozes", 0),
-                "council": {"status": row4["council_status"], "result": row4["council"]} if row4.get("council_status") else None,
+                "council": council,
+                "active_goal_ids": active_goal_ids(),
                 "proposals": {"profiles": [p for p in db.profiles(USER_ID, confirmed=False) if p["id"] in shown],
                               # 习惯满了：「投资自己」不再提（原型照样显示，接受时报「习惯满了」）
                               "habits": [h for h in a4.get("proposals", [])
@@ -766,7 +777,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 outcome, result = "failed", None
             if outcome == "crisis":
                 db.log_crisis(USER_ID, day, "（智囊团看三个版本的模型输出）")
-            db.upsert_deep_talk(USER_ID, rnd, 4, council=result, council_status="done" if outcome == "ok" else "failed")
+            db.upsert_deep_talk(USER_ID, rnd, 4, council=result, council_status={"ok": "done", "crisis": "crisis"}.get(outcome, "failed"))
 
         # 测试靠这个引用等线程跑完；Db 每次调用各开连接，后台线程里用是安全的
         thread = council_threads[(USER_ID, rnd)] = app.state.deep_talk_thread = threading.Thread(target=run, daemon=True)
