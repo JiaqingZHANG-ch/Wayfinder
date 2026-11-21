@@ -187,7 +187,7 @@ export default function Today() {
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
       {/* 舞台顶满：抵掉 Screen 的内边距，状态栏叠在场景上 */}
       <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg }}>
-        <Stage night={scene} stones={todo}>
+        <Stage night={scene} stones={todo} compact={!open}>
           <Bubble text={saying(phase, live ?? level, ready, plan.tomorrow_task ?? null)} top={Math.max(54, insets.top + 6)} hide={open}
             wide={!daytime} onPress={daytime ? () => openLadder(true) : phase === "done" ? undefined : () => router.push("/checkin")} />
           <Figure level={live ?? level} night={scene} onPress={daytime ? () => openLadder(true) : undefined} />

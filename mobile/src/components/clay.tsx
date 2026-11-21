@@ -56,14 +56,19 @@ const ICONS: Record<ClayIcon, ImageSource> = {
 const PATH = [[138, 244, 44], [172, 208, 38], [208, 173, 34], [244, 142, 30], [274, 114, 26]] as const;
 
 /** 舞台：白天、夜里两张场景交叉淡入；stones 颗石子，一颗一件还没做的事，做完一件淡出一颗。children 叠在场景上（画布坐标）。 */
-export function Stage({ night, stones, children }: { night: boolean; stones: number; children?: ReactNode }) {
+export function Stage({ night, stones, compact, children }: { night: boolean; stones: number; compact?: boolean; children?: ReactNode }) {
   const c = useColors();
-  const s = Math.min(useWindowDimensions().width, MAX_WIDTH) / W;
+  const { width, height } = useWindowDimensions();
+  const full = Math.min(width, MAX_WIDTH);
+  // compact 且屏矮（< 740）：整块（场景、石子、小人、电池、气泡）一起等比缩小，缩到场景图刚好铺满屏宽为止，左右不露底，
+  // 画布居中对着场景图（场景图在画布 -70 到 390）。阶梯开着时页面不传 compact，回到原尺寸，每级仍是 44
+  const s = compact && height < 740 ? Math.max(full / SCENE.width, 220 / H) : full / W;
+  const left = s === full / W ? 0 : full / 2 - (SCENE.left + SCENE.width / 2) * s;
   const nightIn = useAnimatedStyle(() => ({ opacity: withTiming(night ? 1 : 0, { duration: 800 }) }), [night]);
   return (
     <View style={{ height: H * s, overflow: "hidden", borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card,
       backgroundColor: c.stage }}>
-      <View style={{ position: "absolute", left: 0, top: 0, width: W, height: H, transformOrigin: "0 0", transform: [{ scale: s }] }}>
+      <View style={{ position: "absolute", left, top: 0, width: W, height: H, transformOrigin: "0 0", transform: [{ scale: s }] }}>
         <Image source={IMG.day} style={SCENE} />
         <Animated.View style={[SCENE, nightIn]}><Image source={IMG.night} style={FILL} /></Animated.View>
         {PATH.map(([x, y, w], i) => <Stone key={i} x={x} y={y} w={w} on={i < stones} night={night} />)}
@@ -315,12 +320,12 @@ function Rung({ n, on, open, reduced, onPress }: { n: number; on: boolean; open:
     transform: [{ translateX: reduced ? 0 : withSpring(open ? 0 : 14, SPRING) }],
   }), [open, reduced]);
   return (
-    <Animated.View pointerEvents={open ? "auto" : "none"} style={[{ position: "absolute", right: 78, top: 224 - (n - 1) * 44, height: 44,
+    <Animated.View pointerEvents={open ? "auto" : "none"} style={[{ position: "absolute", right: 78, top: 223 - (n - 1) * 44, height: 46,
       justifyContent: "center", zIndex: 6 }, a]}>
-      {/* 可点区域是整级 44 高，看得见的药丸 32 高（每级之间留出缝） */}
+      {/* 可点区域 46 高（画布按 375 宽缩小后仍 ≥ 44，相邻两级重叠 2），看得见的药丸 32 高 */}
       <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: on }}
         accessibilityLabel={`${n} 格，${BATTERY_HINT[n]}`} accessibilityElementsHidden={!open}
-        style={{ height: 44, justifyContent: "center" }}>
+        style={{ height: 46, justifyContent: "center" }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 7, height: 32, paddingHorizontal: 12, borderRadius: radius.pill,
           backgroundColor: on ? c.primary : c.surface, boxShadow: `0 4px 0 ${on ? c.primaryEdge : c.cardEdge}` }}>
           <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 16, color: on ? c.onPrimary : c.primaryInk }]}>{n}</Text>
