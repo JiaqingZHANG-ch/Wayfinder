@@ -118,8 +118,8 @@ def test_energy_screen_rewrites_settings_and_replans(setup):
                                                                   ("exam-prep", "project")}
     before = client.get("/today").json()["version"]
     r = answer(client, 3, "energy", {"reading": "drain", "english": "love"}).json()
-    assert r["step"] == 4 and r["answers"]["3"]["loved"] == ["背单词"]
-    habits = {h["id"]: h["energy"] for h in client.get("/settings").json()["habits"]}
+    assert r["step"] == 4 and r["answers"]["3"]["loved"] == ["背单词"] and r["answers"]["3"]["energy_changed"] is True
+    habits ={h["id"]: h["energy"] for h in client.get("/settings").json()["habits"]}
     assert habits == {"reading": "drain", "english": "love"}
     assert client.get("/today").json()["version"] == before + 1
     assert answer(client, 4, "v1", "x").status_code == 200
@@ -359,3 +359,11 @@ def test_follow_and_energy_bad_answers_store_nothing(setup):
     walk(client, [(3, "follow", {})])
     assert answer(client, 3, "energy", {"nope": "love"}).status_code == 422
     assert client.get("/deep-talk").json()["screen"] == "energy"
+
+
+def test_energy_screen_unchanged_says_so(setup):
+    client, _, _ = setup
+    walk(client, STEPS_1_3[:7])
+    items = client.get("/deep-talk").json()["energy_items"]
+    r = answer(client, 3, "energy", {i["id"]: i["energy"] for i in items}).json()
+    assert r["answers"]["3"]["energy_changed"] is False  # 小结页就不说「按你标的排了」

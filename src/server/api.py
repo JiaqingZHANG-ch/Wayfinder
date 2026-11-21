@@ -715,6 +715,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                 return crisis_reply()
         if s["kind"] == "energy":  # 标的结果马上写进设置、重排今天
             mine["loved"] = [i["title"] for i in items if body.value.get(i["id"]) == "love"]
+            mine["energy_changed"] = any(body.value.get(i["id"], i["energy"]) != i["energy"] for i in items)
 
             def mark(form):
                 for x in form["habits"] + form["projects"]:

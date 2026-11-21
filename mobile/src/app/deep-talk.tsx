@@ -304,7 +304,7 @@ export default function DeepTalk() {
         {head}
         {eyebrow(step, progress)}
         <Display>{title}</Display>
-        {step === 3 && <Body>明天的安排按你刚才说的累不累重排了</Body>}
+        {step === 3 && a.energy_changed === true && <Body>接下来的安排，按你刚才标的累不累来排了</Body>}
         {body}
       </>
     ), !open && <Button label="好" variant="secondary" onPress={leave} />, true);
@@ -417,7 +417,7 @@ export default function DeepTalk() {
       <>
         {eyebrow(step)}
         <Display>这几件事，做起来是什么感觉？</Display>
-        <Body muted>可以不标。标了，明天的安排按这个重排。</Body>
+        <Body muted>可以不标。标了，接下来的安排按这个排。</Body>
         {st.energy_items.length === 0 && <Notice>还没有习惯、课或项目可以标。</Notice>}
         {st.energy_items.map((i) => (
           <Card key={i.id} style={{ gap: space.sm }}>
