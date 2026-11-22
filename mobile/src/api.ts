@@ -31,7 +31,10 @@ export type DayItem = {
 };
 
 /** 一条本地提醒：at 是当天的 "HH:MM"，url 是点开后去的页面。 */
-export type Reminder = { kind: "after_class" | "evening" | "letter"; at: string; title: string; body: string; url: string };
+export type Reminder = { kind: "after_class" | "evening" | "letter" | "block" | "pomodoro"; at: string; title: string; body: string; url: string };
+
+/** 今天一块的做事记录：开始（计划开始时刻）、各段暂停 [从, 到|null]、做完的时间；actual_min 只有做完了才有。 */
+export type Run = { started_at: string; pauses: [string, string | null][]; done_at: string | null; actual_min: number | null };
 
 export type Plan = {
   day: string;
@@ -50,6 +53,7 @@ export type Plan = {
   checkin?: { items: Record<string, { status?: Status; vs_plan?: VsPlan }>; note: string | null; blocker: string | null } | null; // 只有 GET /today 带：今晚上次对账记的
   calendar?: "off" | "written" | "reconnect" | "failed"; // 只有确认计划时带：写「Wayfinder 计划」日历的结果
   items?: DayItem[]; // GET /today 和 POST /day/say 带：今天说过的事项
+  runs?: Record<string, Run>; // 和 /today 同形状的返回都带：块 id → 今天的做事记录（点过按钮的才有）
 };
 
 /** 近 7 天：每个习惯做了几天（含保底）；每个项目几天比预想少 / 差不多 / 多。 */
@@ -195,6 +199,11 @@ export const editBlock = (version: number, block_id: string, start: string, end:
 export const deleteBlock = (id: string, version: number) => send<Plan>("DELETE", `/plan/block/${encodeURIComponent(id)}?version=${version}`);
 /** 把其余的按精力重新排：before 是重排前那一版的块，给 planDiff 用。 */
 export const reflow = (version: number) => send<Plan & { before: Block[] }>("POST", "/plan/reflow", { version });
+const blockPath = (id: string, what: string) => `/block/${encodeURIComponent(id)}/${what}`;
+/** 被打断了 / 继续 / 做完了：不带版本，后端按今天最新的计划办。继续时 ask_reflow = 停太久或推不开，要问要不要重排。 */
+export const pauseBlock = (id: string) => send<Plan>("POST", blockPath(id, "pause"));
+export const resumeBlock = (id: string) => send<Plan & { ask_reflow: boolean; overlaps: string[] }>("POST", blockPath(id, "resume"));
+export const doneBlock = (id: string) => send<Plan>("POST", blockPath(id, "done"));
 export const confirmPlan = (version: number) => send<Plan>("POST", "/plan/confirm", { version });
 export const getMe = () => send<Me>("GET", "/me");
 /** consent 不填 = 只改国家，不算同意。 */

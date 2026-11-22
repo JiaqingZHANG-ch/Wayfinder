@@ -4,7 +4,7 @@ import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } f
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
-import { Block, DayItem } from "@/api";
+import { Block, DayItem, Run } from "@/api";
 import { BlockSheet } from "@/components/block-sheet";
 import { haptic } from "@/components/motion";
 import { fromMin, kindName, toMin } from "@/components/plan-view";
@@ -34,8 +34,8 @@ export type EditBlock = (b: Block, start: number, end: number) => Promise<string
  * 从第一块所在的整点画到最后一块结束后的整点；块之间不排列避让，时间撞在一起的块描一圈琥珀色边。
  * 可动的块：长按后上下拖改时间，拖底边小把手改时长，点一下开面板（时长、删除）。
  */
-export function Timeline({ blocks, items, now, onEdit, onDelete, onError }: {
-  blocks: Block[]; items?: DayItem[]; now: number; onEdit: EditBlock; onDelete: (b: Block) => Promise<string | null>;
+export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }: {
+  blocks: Block[]; items?: DayItem[]; runs?: Record<string, Run>; now: number; onEdit: EditBlock; onDelete: (b: Block) => Promise<string | null>;
   onError: (msg: string) => void; // 拖动、拉伸失败时把原因说在页面上
 }) {
   const c = useColors();
@@ -68,7 +68,7 @@ export function Timeline({ blocks, items, now, onEdit, onDelete, onError }: {
         <TimelineBlock key={`${b.id}${b.start}${b.end}`} b={b} top={minToY(toMin(b.start) - from)}
           height={minToY(toMin(b.end) - toMin(b.start))} estimated={!!b.item_id && guess.has(b.item_id)}
           drag={movable(b) ? { lo: from - toMin(b.start), hi: to - toMin(b.end), onEdit: guarded, onFail: onError, onOpen: () => setOpen(b.id) } : undefined}
-          clash={clash.has(b.id)} />
+          clash={clash.has(b.id)} done={!!runs?.[b.id]?.done_at} />
       ))}
       {now >= from && now <= to && (
         <View accessible accessibilityLabel={`现在 ${fromMin(now)}`} pointerEvents="none"
@@ -95,8 +95,8 @@ type Drag = {
  * 有 drag 就能动：长按 200ms 再上下拖（不长按是滚页面），底边把手一碰就拉；都吸附到 5 分钟、每换一格一下触感。
  * 松手调 onEdit；失败就弹回原位。「减少动态效果」打开时跟手和弹回都直接落位。
  */
-export function TimelineBlock({ b, top, height, estimated, drag, clash }: {
-  b: Block; top: number; height: number; estimated: boolean; drag?: Drag; clash?: boolean;
+export function TimelineBlock({ b, top, height, estimated, drag, clash, done }: {
+  b: Block; top: number; height: number; estimated: boolean; drag?: Drag; clash?: boolean; done?: boolean; // done：白天点过「做完了」
 }) {
   const c = useColors();
   const reduced = useReducedMotion();
@@ -153,7 +153,7 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash }: {
 
   const card = (
     <View accessible accessibilityRole={drag ? "button" : undefined}
-      accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}，${span(minutes)}${estimated ? "，时长是估的" : ""}${clash ? "，和别的事时间重叠" : ""}`}
+      accessibilityLabel={`${b.start} 到 ${b.end}，${kindName(b)}${b.title}，${span(minutes)}${estimated ? "，时长是估的" : ""}${done ? "，已做完" : ""}${clash ? "，和别的事时间重叠" : ""}`}
       accessibilityActions={drag ? [
         { name: "activate", label: "打开，改时长或删除" },
         { name: "earlier", label: "提前 5 分钟" }, { name: "later", label: "推后 5 分钟" },
@@ -171,10 +171,11 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash }: {
       style={{ flex: 1, borderRadius: tall ? radius.btn : radius.in, backgroundColor: c.kind[b.kind],
         borderWidth: clash ? 3 : 1.5, borderColor: clash ? c.warn : c.kindEdge[b.kind],
         paddingHorizontal: space.md, paddingVertical: tall ? space.sm : 0, justifyContent: tall ? "flex-start" : "center",
-        flexDirection: tall ? "column" : "row", alignItems: tall ? "stretch" : "center", gap: tall ? 0 : space.sm, overflow: "hidden" }}>
+        flexDirection: tall ? "column" : "row", alignItems: tall ? "stretch" : "center", gap: tall ? 0 : space.sm, overflow: "hidden",
+        opacity: done ? 0.55 : 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, flexShrink: 1 }}>
         <Text numberOfLines={1} style={[type.label, { flexShrink: 1, lineHeight: 18, fontWeight: life ? "500" : "700",
-          color: life ? c.muted : c.text }]}>{title}</Text>
+          color: life ? c.muted : c.text }]}>{done ? "✓ " : ""}{title}</Text>
         {estimated && (
           <View style={{ paddingHorizontal: 6, borderRadius: radius.pill, backgroundColor: c.surface }}>
             <Text style={[type.small, { lineHeight: 17, color: c.muted }]}>估</Text>

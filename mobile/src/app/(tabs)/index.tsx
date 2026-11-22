@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, Block, confirmPlan, deleteBlock, editBlock, getMe, getToday, isCrisis, Me, Plan, reflow, say, sayDay, transcribe } from "@/api";
 import { Changes } from "@/components/changes";
+import { NowCard } from "@/components/now-card";
 import { planDiff } from "@/diff";
 import { enter, haptic, Pressy, Skeleton } from "@/components/motion";
 import { dayLabel, fromMin, toMin, useNow } from "@/components/plan-view";
@@ -20,6 +21,11 @@ const EXAMPLE = "9 点到 11 点上课，下午写报告，晚上健身一小时
 const TOUCH = 44;
 const MAX_REC = 60; // 最长录这么多秒，到了自动停
 const NO_MIC = "录不了音，用键盘上的话筒说也行。";
+
+/** 手机上的本地提醒全清再按这份计划重定（定不上也不挡着看计划）。 */
+function remind(p: Plan) {
+  scheduleReminders([...(p.reminders ?? []).map((r) => ({ ...r, day: p.day })), ...(p.later_reminders ?? [])]).catch(() => {});
+}
 
 /** 「2026-11-21」所在那一周（星期一到星期日）：每天的星期几和几号。 */
 function weekOf(day: string) {
@@ -65,7 +71,7 @@ export default function Today() {
       setPlan(p);
       setError(null);
       // 定不上提醒也不挡着看计划
-      scheduleReminders([...(p.reminders ?? []).map((r) => ({ ...r, day: p.day })), ...(p.later_reminders ?? [])]).catch(() => {});
+      remind(p);
     }, setError);
   }, []);
 
@@ -342,8 +348,11 @@ export default function Today() {
         </View>
       )}
 
+      <NowCard plan={plan} onPlan={(p) => { setPlan(p); remind(p); }} onAsk={() => { setAsk(true); setMoved(null); }}
+        onError={(e) => setSaid(stale(e))} />
+
       <Animated.View entering={enter(2)}>
-        <Timeline blocks={plan.blocks} items={plan.items} now={now} onEdit={edit} onDelete={remove} onError={setSaid} />
+        <Timeline blocks={plan.blocks} items={plan.items} runs={plan.runs} now={now} onEdit={edit} onDelete={remove} onError={setSaid} />
       </Animated.View>
     </Screen>
   );
