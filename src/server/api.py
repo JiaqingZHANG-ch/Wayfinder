@@ -678,8 +678,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return datetime.combine(day, time(h, m), tzinfo=clock().tzinfo)
 
     def run_of(block_id: str):
-        """三个做事接口共用：按今天最新的计划找块、查能不能计时，返回 (现在, 逻辑日, 最新版, 块, 这块的记录)。
-        做事中途不带 version：版本过期弹 409 太打扰。还没有记录就按计划开始时间新建一条（不存）。"""
+        """做事接口共用：按今天最新的计划找块、查能不能计时，返回 (现在, 逻辑日, 最新版, 块, 这块的记录或 None)。
+        做事中途不带 version：版本过期弹 409 太打扰。"""
         t = clock()
         day = logical_date(t)
         stored = db.latest_plan(USER_ID, day)
@@ -693,9 +693,28 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(409, "这一块已经做完了")
         if planned_at(day, b) > t:
             raise HTTPException(409, "这一块还没开始")
-        run = run or {"started_at": planned_at(day, b).isoformat(), "pauses": [], "done_at": None,
-                      "planned_start": b["start"], "planned_end": b["end"]}
         return t, day, stored, b, run
+
+    def new_run(b: dict, started: datetime) -> dict:
+        """一块的第一条记录：planned_start / planned_end 记下这时块的计划起止（番茄个数、以后学精力曲线用）。"""
+        return {"started_at": started.isoformat(), "pauses": [], "done_at": None,
+                "planned_start": b["start"], "planned_end": b["end"]}
+
+    def started(run: dict | None) -> dict:
+        if run is None:
+            raise HTTPException(409, "先点开始")
+        return run
+
+    def push_later(day, stored: dict, block_id: str, late: datetime, t: datetime, start: str | None = None) -> dict:
+        """从 late 到 t 停了（或晚开始了）g 分钟：这一块延长 g 取整到 5 分钟；g ≤ 15 后面的往后推，不然只延长、问重排。
+        start 给了就把这一块的开始改成它（晚开始：时间轴照实显示几点开始的）。"""
+        g = -(-int((t - late).total_seconds()) // 60)
+        blocks, ok = extend(stored["plan"]["blocks"], block_id, -(-g // 5) * 5, plan_input(day).sleep, g <= SMALL_BREAK)
+        if start:
+            blocks = [{**x, "start": start} if x["id"] == block_id else x for x in blocks]
+        if blocks != stored["plan"]["blocks"]:
+            save_blocks(day, stored, blocks)
+        return {**today_body(day), "ask_reflow": not ok, "overlaps": [] if ok else clashes(blocks, block_id)}
 
     def paused(run: dict) -> bool:
         return bool(run["pauses"]) and run["pauses"][-1][1] is None
@@ -705,9 +724,22 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"],
                     confirmed=stored["confirmed_at"] is not None)
 
-    @app.post("/block/{block_id}/pause", summary="被打断了：这一块的计时停下（第一次点就从计划开始时间算起）；不改计划")
+    @app.post("/block/{block_id}/start", summary="开始：从现在计时；晚开始和被打断一样——晚 15 分钟以内后面的块往后推，更久（或推不开）就 ask_reflow")
+    def post_block_start(block_id: str):
+        t, day, stored, b, run = run_of(block_id)
+        if run is not None:
+            raise HTTPException(409, "这一块已经开始了")
+        if to_min(b["end"]) <= t.hour * 60 + t.minute:
+            raise HTTPException(409, "这一块的时间已经过了")
+        db.save_block_run(USER_ID, day, block_id, new_run(b, t))
+        if (planned := planned_at(day, b)) > t - timedelta(minutes=1):  # 准点（同一分钟里）：只记录
+            return {**today_body(day), "ask_reflow": False, "overlaps": []}
+        return push_later(day, stored, block_id, planned, t, start=t.strftime("%H:%M"))
+
+    @app.post("/block/{block_id}/pause", summary="被打断了：这一块的计时停下；要先点开始；不改计划")
     def post_block_pause(block_id: str):
         t, day, _, _, run = run_of(block_id)
+        run = started(run)
         if paused(run):
             raise HTTPException(409, "这一块已经停着了")
         db.save_block_run(USER_ID, day, block_id, {**run, "pauses": [*run["pauses"], [t.isoformat(), None]]})
@@ -716,19 +748,17 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     @app.post("/block/{block_id}/resume", summary="继续：停了 15 分钟以内，后面的块往后推；更久（或推不开）就 ask_reflow，App 问要不要重排")
     def post_block_resume(block_id: str):
         t, day, stored, _, run = run_of(block_id)
+        run = started(run)
         if not paused(run):
             raise HTTPException(409, "这一块没在暂停")
         start = run["pauses"][-1][0]
         db.save_block_run(USER_ID, day, block_id, {**run, "pauses": [*run["pauses"][:-1], [start, t.isoformat()]]})
-        g = -(-int((t - datetime.fromisoformat(start)).total_seconds()) // 60)
-        blocks, ok = extend(stored["plan"]["blocks"], block_id, -(-g // 5) * 5, plan_input(day).sleep, g <= SMALL_BREAK)
-        if blocks != stored["plan"]["blocks"]:
-            save_blocks(day, stored, blocks)
-        return {**today_body(day), "ask_reflow": not ok, "overlaps": [] if ok else clashes(blocks, block_id)}
+        return push_later(day, stored, block_id, datetime.fromisoformat(start), t)
 
-    @app.post("/block/{block_id}/done", summary="做完了：记下做完的时间；提前做完就把这一块截到现在，后面的不动")
+    @app.post("/block/{block_id}/done", summary="做完了：记下做完的时间；没点开始也行（按计划开始补记录）；提前做完就把这一块截到现在，后面的不动")
     def post_block_done(block_id: str):
-        t, day, stored, _, run = run_of(block_id)
+        t, day, stored, b, run = run_of(block_id)
+        run = run or new_run(b, planned_at(day, b))  # 做了但忘了点开始
         pauses = [*run["pauses"][:-1], [run["pauses"][-1][0], t.isoformat()]] if paused(run) else run["pauses"]
         db.save_block_run(USER_ID, day, block_id, {**run, "pauses": pauses, "done_at": t.isoformat()})
         if cut := cut_at(stored["plan"]["blocks"], block_id, t.hour * 60 + t.minute):

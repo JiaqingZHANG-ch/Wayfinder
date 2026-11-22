@@ -98,9 +98,9 @@ def test_pomodoro_reminders_skip_pauses():
     assert not [r for r in run_reminders([A], {"a": paused}, {"a"}, at("15:20"), started) if r["kind"] == "pomodoro"]
 
 
-def test_pomodoro_without_run_uses_planned_start():
-    out = [(r["at"], r["title"]) for r in run_reminders([A], {}, {"a"}, at("15:20"), started) if r["kind"] == "pomodoro"]
-    assert out[0] == ("15:25", "休息 5 分钟")
+def test_no_pomodoro_reminders_before_start():
+    # 每块点「开始」才计时：正在进行、还没点开始的块不响番茄（只有到点提醒，它已经响过了）
+    assert run_reminders([A], {}, {"a"}, at("15:20"), started) == []
 
 
 def test_pomodoro_count_ignores_pause_extension():

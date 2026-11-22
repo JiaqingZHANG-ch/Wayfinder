@@ -92,26 +92,23 @@ def focus_seconds(run: dict, now: datetime) -> int:
 
 def run_reminders(blocks: list[dict], runs: dict[str, dict], operable: set[str], now: datetime,
                   started_at: Callable[[dict], datetime]) -> list[dict]:
-    """今天还要响的提醒：能计时的块到点提醒；正在走的那块按番茄提醒小歇和回来（扣掉暂停，暂停中不提醒）。
+    """今天还要响的提醒：没点开始的块到点提醒；点了开始的按番茄提醒小歇和回来（扣掉暂停，暂停中不提醒）。
     started_at(b) 是这一块计划开始的时刻（逻辑日和时区只有调用方知道）。"""
     out = []
-    now_min = now.hour * 60 + now.minute
     for b in _sorted(blocks):
         run = runs.get(b["id"])
         if b["id"] not in operable or (run and run["done_at"]):
             continue
-        if run is None and started_at(b) > now:
-            out.append({"kind": "block", "at": b["start"], "title": f"到点了：{b['title']}",
-                        "body": f"{b['start']}–{b['end']}", "url": "/"})
+        if run is None:  # 没点开始：到点提醒（将来的），不响番茄
+            if started_at(b) > now:
+                out.append({"kind": "block", "at": b["start"], "title": f"到点了：{b['title']}",
+                            "body": f"{b['start']}–{b['end']}", "url": "/"})
             continue
-        if run and run["pauses"] and run["pauses"][-1][1] is None:
+        if run["pauses"] and run["pauses"][-1][1] is None:
             continue  # 暂停中
-        if run is None and not to_min(b["start"]) <= now_min < to_min(b["end"]):
-            continue  # 没点过、也已经过去了
-        r = run or {"started_at": started_at(b).isoformat(), "pauses": []}
-        done = focus_seconds(r, now)
+        done = focus_seconds(run, now)
         # 继续时块往后延长过（暂停按 5 分钟取整）：番茄个数按第一次点按钮时的计划起止算，不把停的那段也算成番茄
-        span = to_min(r.get("planned_end", b["end"])) - to_min(r.get("planned_start", b["start"]))
+        span = to_min(run.get("planned_end", b["end"])) - to_min(run.get("planned_start", b["start"]))
         n = max(1, -(-span // POMODORO_MIN))
         marks = [((POMODORO_MIN * (k - 1) + BREAK_AT) * 60, "休息 5 分钟") for k in range(1, n + 1)] + \
                 [(POMODORO_MIN * k * 60, "回来接着做") for k in range(1, n)]
