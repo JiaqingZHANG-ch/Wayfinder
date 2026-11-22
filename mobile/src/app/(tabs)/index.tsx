@@ -331,6 +331,7 @@ export default function Today() {
           </Pressy>
           <Button hug label="排一下" busyLabel={busy === "say" ? "正在排……" : undefined} disabled={!canSay} onPress={arrange} />
         </View>
+        {!empty && !!text.trim() && <Small muted>点「排一下」会替换今天已经排好的安排。</Small>}
         {empty && (
           <View style={{ gap: space.xs, paddingHorizontal: space.xs }}>
             <Small muted>还没说今天要做的事。可以这样说：</Small>

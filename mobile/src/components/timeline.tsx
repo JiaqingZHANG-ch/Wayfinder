@@ -58,7 +58,7 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
   const panel = shown.find((b) => b.id === open);
   return (
     <View style={{ height: minToY(to - from) + 10, marginTop: space.xs }}>
-      {hours.map((h) => (
+      {hours.filter((h) => !(now >= from && now <= to && Math.abs(h - now) < 15)).map((h) => (
         <View key={h} pointerEvents="none" style={{ position: "absolute", top: minToY(h - from), left: 0, right: 0,
           marginTop: -9 }}>
           <Text style={[type.small, type.num, { width: GUTTER - space.sm, fontSize: 12, lineHeight: 18, color: c.muted }]}>{fromMin(h)}</Text>
@@ -66,9 +66,11 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
       ))}
       {now >= from && now <= to && (
         <View accessible accessibilityLabel={`现在 ${fromMin(now)}`} pointerEvents="none"
-          style={{ position: "absolute", top: minToY(now - from) - 4, left: GUTTER - 4, right: 0, flexDirection: "row", alignItems: "center" }}>
-          <View style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: c.primaryEdge }} />
-          <View style={{ flex: 1, height: 2, backgroundColor: c.primaryEdge }} />
+          style={{ position: "absolute", top: minToY(now - from) - 10, left: 0, right: 0, flexDirection: "row", alignItems: "center" }}>
+          <View style={{ width: GUTTER - 6, height: 20, borderRadius: radius.pill, backgroundColor: c.primary, alignItems: "center", justifyContent: "center" }}>
+            <Text style={[type.small, type.num, { fontSize: 12, lineHeight: 16, fontWeight: "700", color: c.onPrimary }]}>{fromMin(now)}</Text>
+          </View>
+          <View style={{ flex: 1, height: 2, backgroundColor: c.primary }} />
         </View>
       )}
       {shown.map((b) => (
@@ -175,7 +177,7 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash, done }: 
         flexDirection: tall ? "column" : "row", alignItems: tall ? "stretch" : "center", gap: tall ? 0 : space.sm, overflow: "hidden",
         opacity: done ? 0.55 : 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, flexShrink: 1 }}>
-        <Text numberOfLines={1} style={[type.label, { flexShrink: 1, lineHeight: 18, fontWeight: life ? "500" : "700",
+        <Text numberOfLines={1} style={[h < 32 ? type.small : type.label, { flexShrink: 1, lineHeight: 18, fontWeight: life ? "500" : "700",
           color: life ? c.muted : c.text }]}>{done ? "✓ " : ""}{title}</Text>
         {estimated && (
           <View style={{ paddingHorizontal: 6, borderRadius: radius.pill, backgroundColor: c.surface }}>

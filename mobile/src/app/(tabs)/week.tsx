@@ -112,7 +112,7 @@ export default function WeekScreen() {
         {/* 图例：记号的意思直接写出来 */}
         <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md,
           paddingTop: space.md, marginTop: space.sm, borderTopWidth: 1, borderTopColor: c.line }}>
-          {([["done", "做了"], ["floor", "保底"], ["skip", "没做 / 今天"], [null, "没记"]] as const).map(([s, t]) => (
+          {([["done", "做了"], ["floor", "保底"], ["skip", "没做（今天：还没记）"], [null, "没记"]] as const).map(([s, t]) => (
             <View key={t} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
               <Mark s={s} size={14} />
               <Text style={[type.small, { color: c.muted }]}>{t}</Text>

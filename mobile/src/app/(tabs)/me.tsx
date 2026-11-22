@@ -54,7 +54,7 @@ export default function MeScreen() {
     .filter(Boolean).join("，");
   const evening = s?.reminders?.evening;
   const marks = s ? [...s.habits.map((h) => [h.title, "must"] as const), ...(s.projects ?? []).map((p) => [p.title, "proj"] as const)] : [];
-  const label = [type.label, { fontSize: 13, color: c.muted }] as const;
+  const label = [type.label, { fontSize: 13, fontWeight: "600", color: c.muted }] as const;
 
   if (failed && !s && !dir) return <Screen safeTop bottom={TAB_SPACE}><ErrorState onRetry={load} /></Screen>;
 
@@ -115,7 +115,7 @@ export default function MeScreen() {
       {s && marks.length > 0 && (
         // 我的记号：参考图 Active Projects 那种两列浅色瓷砖，习惯和项目用时间轴上同一种颜色
         <Animated.View entering={enter(3)} style={{ gap: space.sm }}>
-          <Text accessibilityRole="header" style={[label, { paddingHorizontal: space.xs }]}>我的记号</Text>
+          <Text accessibilityRole="header" style={label}>我的记号</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             {marks.map(([t, kind]) => (
               <View key={t} accessible accessibilityLabel={`${kind === "must" ? "习惯" : "项目"}：${t}`}
@@ -138,7 +138,7 @@ export default function MeScreen() {
         </Card>
       )}
 
-      <Text accessibilityRole="header" style={[label, { paddingHorizontal: space.xs }]}>计划</Text>
+      <Text accessibilityRole="header" style={label}>计划</Text>
       <Card i={4} style={{ paddingVertical: space.xs }}>
         <ListRow icon="alarm-outline" title="作息和习惯" sub="几点起、几点睡，每天想坚持的事"
           onPress={() => router.push("/settings?part=routine")} />
@@ -147,7 +147,7 @@ export default function MeScreen() {
           onPress={() => router.push("/settings?part=reminders")} last />
       </Card>
 
-      <Text accessibilityRole="header" style={[label, { paddingHorizontal: space.xs }]}>隐私和数据</Text>
+      <Text accessibilityRole="header" style={label}>隐私和数据</Text>
       <Card i={5} style={{ paddingVertical: space.xs }}>
         <ListRow icon="shield-checkmark-outline" title="我的数据" sub="所在国家、导出、删除" onPress={() => router.push("/data")} />
         <ListRow icon="document-text-outline" title="隐私说明" sub="数据存在哪、发给谁" onPress={() => router.push("/privacy")} last />
