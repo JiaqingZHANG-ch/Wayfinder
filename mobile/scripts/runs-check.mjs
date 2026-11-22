@@ -34,4 +34,6 @@ const two = [read, report, b("report-1", "18:00", "18:30", "proj", { task_id: "r
 assert.deepEqual([...doneItems(items, two, { read: run("15:00", [], "15:50"), report: run("16:00", [], "16:50") })], ["read"]);
 assert.deepEqual([...doneItems(items, [read, report], { read: run("15:00", [], "15:50"), report: run("16:00", [], "16:50") })].sort(), ["r", "read"]);
 assert.deepEqual([...doneItems(items, two, {})], []);
+// 延长过（停了 10 分钟，15:00–16:10）：番茄个数按专注时长算，还是 2 个
+assert.equal(pomodoro(b("read", "15:00", "16:10"), run("15:00", [["15:10", "15:20"]]), ms("15:30"), ms("15:00")).total, 2);
 console.log("runs-check ok");

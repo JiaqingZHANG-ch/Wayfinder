@@ -26,7 +26,8 @@ export function pickNow(blocks: Block[], runs: Record<string, Run>, nowMin: numb
 export function pomodoro(b: Block, run: Run | undefined, nowMs: number, startMs: number) {
   const pausedMs = (run?.pauses ?? []).reduce((s, [f, t]) => s + ((t ? Date.parse(t) : nowMs) - Date.parse(f)), 0);
   const open = isPaused(run) ? nowMs - Date.parse(run!.pauses[run!.pauses.length - 1][0]) : 0;
-  const total = Math.max(1, Math.ceil((toMin(b.end) - toMin(b.start)) / 30));
+  // 继续时块往后延长过暂停的时长：番茄个数按专注时长（块长减去已经停完的那几段）算
+  const total = Math.max(1, Math.ceil(((toMin(b.end) - toMin(b.start)) * 60_000 - (pausedMs - open)) / (POMODORO * 1000)));
   const focus = Math.max(0, Math.floor((nowMs - (run ? Date.parse(run.started_at) : startMs) - pausedMs) / 1000));
   const paused = isPaused(run);
   const pausedSec = Math.floor(open / 1000);

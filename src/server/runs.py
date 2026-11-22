@@ -108,8 +108,10 @@ def run_reminders(blocks: list[dict], runs: dict[str, dict], operable: set[str],
             continue  # 暂停中
         if run is None and not to_min(b["start"]) <= now_min < to_min(b["end"]):
             continue  # 没点过、也已经过去了
-        done = focus_seconds(run or {"started_at": started_at(b).isoformat(), "pauses": []}, now)
-        n = -(-(to_min(b["end"]) - to_min(b["start"])) // POMODORO_MIN)
+        r = run or {"started_at": started_at(b).isoformat(), "pauses": []}
+        done = focus_seconds(r, now)
+        # 继续时块往后延长过暂停的时长：番茄个数按专注时长（块长减去暂停）算，不把停的那段也算成番茄
+        n = max(1, -(-((to_min(b["end"]) - to_min(b["start"])) * 60 - paused_seconds(r, now)) // (POMODORO_MIN * 60)))
         marks = [((POMODORO_MIN * (k - 1) + BREAK_AT) * 60, "休息 5 分钟") for k in range(1, n + 1)] + \
                 [(POMODORO_MIN * k * 60, "回来接着做") for k in range(1, n)]
         out += [{"kind": "pomodoro", "at": (now + timedelta(seconds=t - done)).strftime("%H:%M"), "title": title,

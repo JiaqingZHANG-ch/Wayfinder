@@ -101,3 +101,11 @@ def test_pomodoro_reminders_skip_pauses():
 def test_pomodoro_without_run_uses_planned_start():
     out = [(r["at"], r["title"]) for r in run_reminders([A], {}, {"a"}, at("15:20"), started) if r["kind"] == "pomodoro"]
     assert out[0] == ("15:25", "休息 5 分钟")
+
+
+def test_pomodoro_count_ignores_pause_extension():
+    # 看书本来 15:00–16:00（2 个番茄），停了 10 分钟、继续时延长到 16:10：专注还是 60 分钟，仍是 2 个，最后一个不提醒回来
+    run = {"started_at": iso("15:00"), "pauses": [[iso("15:10"), iso("15:20")]], "done_at": None}
+    out = [(r["at"], r["title"]) for r in run_reminders([{**A, "end": "16:10"}], {"a": run}, {"a"}, at("15:21"), started)
+           if r["kind"] == "pomodoro"]
+    assert out == [("15:35", "休息 5 分钟"), ("15:40", "回来接着做"), ("16:05", "休息 5 分钟")]
