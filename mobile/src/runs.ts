@@ -14,13 +14,13 @@ export function operable(b: Block): boolean {
 
 const isPaused = (run: Run | undefined) => !!run && run.pauses.length > 0 && run.pauses[run.pauses.length - 1][1] === null;
 
-/** 「现在」卡显示哪一块：暂停着没做完的优先（你是从它那里被打断的）；否则现在所在、没做完的那块；
- * 再没有，就是点过按钮、已经过了结束时间还没点做完的最后一块（比如继续时被课截住，让人还能点「做完了」）；都没有就 null。 */
+/** 「现在」卡显示哪一块：暂停着的优先（你是从它那里被打断的）；再是点过开始、还没点做完的最后一块（不管过没过结束时间：
+ * 过了结束才点「做完了」也记在它身上，不会记到下一块）；再是现在所在、还没开始的那块；都没有就 null。 */
 export function pickNow(blocks: Block[], runs: Record<string, Run>, nowMin: number): Block | null {
   const open = blocks.filter((b) => operable(b) && !runs[b.id]?.done_at);
   return open.find((b) => isPaused(runs[b.id]))
+    ?? open.filter((b) => runs[b.id]).at(-1)
     ?? open.find((b) => toMin(b.start) <= nowMin && nowMin < toMin(b.end))
-    ?? open.filter((b) => runs[b.id] && toMin(b.end) <= nowMin).at(-1)
     ?? null;
 }
 
@@ -30,14 +30,14 @@ export function laterPreVs(steps: { item: { id: string }; vs?: boolean }[], at: 
   return steps.findIndex((x, i) => i > at && !!x.vs && pre.has(x.item.id) && !all[x.item.id]?.vs_plan);
 }
 
-/** 番茄走到哪了。没点过按钮（run 为空）就从计划开始时刻 startMs 算。专注时长超过整块后停在最后一个番茄的小歇末尾。 */
-export function pomodoro(b: Block, run: Run | undefined, nowMs: number, startMs: number) {
-  const pausedMs = (run?.pauses ?? []).reduce((s, [f, t]) => s + ((t ? Date.parse(t) : nowMs) - Date.parse(f)), 0);
-  const open = isPaused(run) ? nowMs - Date.parse(run!.pauses[run!.pauses.length - 1][0]) : 0;
-  // 继续时块往后延长过（暂停按 5 分钟取整）：番茄个数按第一次点按钮时的计划起止算（和后端提醒一致）
-  const span = toMin(run?.planned_end ?? b.end) - toMin(run?.planned_start ?? b.start);
+/** 番茄走到哪了（点过开始的块）。专注时长超过整块后停在最后一个番茄的小歇末尾。 */
+export function pomodoro(b: Block, run: Run, nowMs: number) {
+  const pausedMs = run.pauses.reduce((s, [f, t]) => s + ((t ? Date.parse(t) : nowMs) - Date.parse(f)), 0);
+  const open = isPaused(run) ? nowMs - Date.parse(run.pauses[run.pauses.length - 1][0]) : 0;
+  // 继续时块往后延长过（暂停按 5 分钟取整）：番茄个数按点开始时的计划起止算（和后端提醒一致）
+  const span = toMin(run.planned_end ?? b.end) - toMin(run.planned_start ?? b.start);
   const total = Math.max(1, Math.ceil(span / 30));
-  const focus = Math.max(0, Math.floor((nowMs - (run ? Date.parse(run.started_at) : startMs) - pausedMs) / 1000));
+  const focus = Math.max(0, Math.floor((nowMs - Date.parse(run.started_at) - pausedMs) / 1000));
   const paused = isPaused(run);
   const pausedSec = Math.floor(open / 1000);
   if (focus >= total * POMODORO) return { index: total, total, phase: "break" as const, leftSec: 0, paused, pausedSec };

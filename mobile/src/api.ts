@@ -202,6 +202,8 @@ export const deleteBlock = (id: string, version: number) => send<Plan>("DELETE",
 export const reflow = (version: number) => send<Plan & { before: Block[] }>("POST", "/plan/reflow", { version });
 const blockPath = (id: string, what: string) => `/block/${encodeURIComponent(id)}/${what}`;
 /** 被打断了 / 继续 / 做完了：不带版本，后端按今天最新的计划办。继续时 ask_reflow = 停太久或推不开，要问要不要重排。 */
+/** 开始：晚开始和被打断一样，晚得久（或推不开）ask_reflow 为真。 */
+export const startBlock = (id: string) => send<Plan & { ask_reflow: boolean; overlaps: string[] }>("POST", blockPath(id, "start"));
 export const pauseBlock = (id: string) => send<Plan>("POST", blockPath(id, "pause"));
 export const resumeBlock = (id: string) => send<Plan & { ask_reflow: boolean; overlaps: string[] }>("POST", blockPath(id, "resume"));
 export const doneBlock = (id: string) => send<Plan>("POST", blockPath(id, "done"));
