@@ -38,6 +38,8 @@ TABLES = {
                           "council": "json", "council_status": "text"},
     "day_items": {"day": "text", "items": "json"},
     "duration_memory": {"key": "text", "minutes": "int", "updated_at": "text"},
+    "block_runs": {"day": "text", "block_id": "text", "started_at": "text", "pauses": "json", "done_at": "text",
+                   "planned_start": "text", "planned_end": "text"},
 }
 
 

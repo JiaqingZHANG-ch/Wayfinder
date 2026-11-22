@@ -23,6 +23,7 @@
 | weekly_reviews | 复盘统计、正文、调整和回答、带进下周的问题 | | | | |
 | model_calls | 每次发给模型的全部内容、模型的回答、用时 | | | | |
 | crisis_events | 触发危机提示的那段话、日期 | | | | |
+| block_runs | 每一块实际几点开始、各段暂停、几点做完、当时的计划起止 | | | | |
 | `var/google/` 里的文件 | Google 授权令牌、日历 id（不在数据库里） | | | | |
 
 导出（`GET /export`）和删除（`DELETE /me`）覆盖上面数据库里的每张表；`tests/test_db.py` 的 `test_export_and_delete_cover_every_table` 管着：加了新表忘了登记会红。`var/google/` 的令牌不在删除范围内，删账号时要不要一起删，也请想一下。

@@ -479,6 +479,7 @@ def test_export_has_everything_and_delete_removes_it(setup):
     db.add_quarter(1, datetime(2026, 11, 20).date(), {"健康": 5}, "健康", "跑步", "", "", [])
     db.set_day_items(1, datetime(2026, 11, 20).date(), [])
     db.remember_duration(1, "写报告", 60)
+    db.save_block_run(1, datetime(2026, 11, 20).date(), "reading", {"started_at": "2026-11-20T15:00:00+01:00", "pauses": [], "done_at": None, "planned_start": "15:00", "planned_end": "16:00"})
     client.post("/checkin", json={"sentence": "我想死"})
     db.consent(1, "隐私", PRIVACY_VERSION)
     tables = client.get("/export").json()["tables"]

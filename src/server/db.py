@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS day_items (
 CREATE TABLE IF NOT EXISTS duration_memory (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, minutes INTEGER NOT NULL,
     updated_at TEXT NOT NULL, PRIMARY KEY (user_id, key));
+-- 做事记录：今天的一块第一次点「被打断了 / 做完了」时建；pauses 是 [[from, to|null], …]，planned_* 是当时的计划起止
+CREATE TABLE IF NOT EXISTS block_runs (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, day TEXT NOT NULL, block_id TEXT NOT NULL,
+    started_at TEXT NOT NULL, pauses TEXT NOT NULL, done_at TEXT, planned_start TEXT NOT NULL,
+    planned_end TEXT NOT NULL, PRIMARY KEY (user_id, day, block_id));
 CREATE TABLE IF NOT EXISTS crisis_events (
     id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day TEXT NOT NULL, text TEXT NOT NULL, resumed INTEGER NOT NULL DEFAULT 0);
@@ -85,8 +90,9 @@ CREATE TABLE IF NOT EXISTS crisis_events (
 # 导出和删除覆盖的表：加了新表要加在这里（tests/test_db.py 会查漏）
 USER_TABLES = ("users", "consents", "settings", "day_plans", "day_logs", "messages", "user_quotes", "profiles", "deep_talks",
                "weekly_reviews", "model_calls", "crisis_events", "letters",
-               "quarterly_reviews", "day_items", "duration_memory")
-JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council", "scores", "goals")
+               "quarterly_reviews", "day_items", "duration_memory", "block_runs")
+JSON_COLUMNS = ("plan_input", "plan", "items", "stats", "adjustments", "request", "answers", "council", "scores", "goals",
+                "pauses")
 QUOTE_USES = ("档案", "对账", "复盘", "回信")
 PROFILE_LEVELS = ("使命", "目标", "障碍", "策略", "方向", "近期观察")
 PROFILE_SOURCES = ("建档", "复盘", "深度长谈", "季度回顾")
@@ -229,18 +235,35 @@ class Db:
 
     # 计划：每次重排加一个新版本，旧版本留着
     def add_plan(self, user_id: int, day: date, plan: dict, energy_level: int | None,
-                 *, only_if_none: bool = False) -> int:
-        """存一个新版本，返回版本号。only_if_none：这天已经有计划就不存（两个请求同时生成当天计划时用）。"""
+                 *, only_if_none: bool = False, confirmed: bool = False) -> int:
+        """存一个新版本，返回版本号。only_if_none：这天已经有计划就不存（两个请求同时生成当天计划时用）。
+        confirmed：存成已确认（做事中途往后推、截短时沿用上一版的确认状态）。"""
         def go(c):
             c.execute("BEGIN IMMEDIATE")  # 先拿写锁再读版本号，两个请求同时来也不会撞号
             (latest,) = c.execute("SELECT COALESCE(MAX(version), 0) FROM day_plans WHERE user_id = ? AND day = ?",
                                   (user_id, day.isoformat())).fetchone()
             if only_if_none and latest:
                 return latest
-            c.execute("INSERT INTO day_plans (user_id, day, version, plan, energy_level) VALUES (?, ?, ?, ?, ?)",
-                      (user_id, day.isoformat(), latest + 1, json.dumps(plan, ensure_ascii=False), energy_level))
+            c.execute("INSERT INTO day_plans (user_id, day, version, plan, energy_level, confirmed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                      (user_id, day.isoformat(), latest + 1, json.dumps(plan, ensure_ascii=False), energy_level,
+                       _now() if confirmed else None))
             return latest + 1
         return self._run(go)
+
+    # 做事记录
+    def save_block_run(self, user_id: int, day: date, block_id: str, run: dict) -> None:
+        self._run(lambda c: c.execute(
+            "INSERT OR REPLACE INTO block_runs (user_id, day, block_id, started_at, pauses, done_at, planned_start, "
+            "planned_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, day.isoformat(), block_id, run["started_at"], json.dumps(run["pauses"]), run["done_at"],
+             run["planned_start"], run["planned_end"])))
+
+    def block_runs(self, user_id: int, day: date) -> dict[str, dict]:
+        rows = self._run(lambda c: c.execute(
+            "SELECT block_id, started_at, pauses, done_at, planned_start, planned_end FROM block_runs "
+            "WHERE user_id = ? AND day = ?", (user_id, day.isoformat())).fetchall())
+        return {b: {"started_at": s, "pauses": json.loads(p), "done_at": d, "planned_start": ps, "planned_end": pe}
+                for b, s, p, d, ps, pe in rows}
 
     def latest_plan(self, user_id: int, day: date) -> dict | None:
         """最新一版：{version, plan, energy_level, confirmed_at}；这天还没有计划就是 None。"""

@@ -30,6 +30,7 @@ def full_db(path):
         db.add_quarter(u, date(2026, 11, 20), {"健康": 5}, "健康", "跑步", "", "", [])
         db.set_day_items(u, DAY, [])
         db.remember_duration(u, "写报告", 60)
+        db.save_block_run(u, DAY, "reading", {"started_at": "2026-11-20T15:00:00+01:00", "pauses": [], "done_at": None, "planned_start": "15:00", "planned_end": "16:00"})
     return db
 
 

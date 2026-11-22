@@ -147,3 +147,20 @@ def test_deep_talks_are_exported_and_deleted(tmp_path):
     assert db.export(1)["deep_talks"][0]["answers"]["why"] == "换一份能养活自己的工作"
     db.delete_user(1)
     assert db.deep_talk_rows(1, 1) == []
+
+
+def test_block_runs_roundtrip(db):
+    run = {"started_at": "2026-11-20T15:00:00+01:00", "pauses": [["2026-11-20T15:20:00+01:00", None]],
+           "done_at": None, "planned_start": "15:00", "planned_end": "16:00"}
+    db.save_block_run(1, DAY, "reading", run)
+    assert db.block_runs(1, DAY) == {"reading": run}
+    db.save_block_run(1, DAY, "reading", {**run, "done_at": "2026-11-20T15:50:00+01:00"})
+    assert db.block_runs(1, DAY) == {"reading": {**run, "done_at": "2026-11-20T15:50:00+01:00"}}
+    assert db.block_runs(2, DAY) == {}
+
+
+def test_add_plan_confirmed(db):
+    db.add_plan(1, DAY, {"blocks": []}, None, confirmed=True)
+    assert db.latest_plan(1, DAY)["confirmed_at"] is not None
+    db.add_plan(1, DAY, {"blocks": []}, None)
+    assert db.latest_plan(1, DAY)["confirmed_at"] is None
