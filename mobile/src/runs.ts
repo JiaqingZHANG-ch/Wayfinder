@@ -1,4 +1,4 @@
-import type { Block, Run } from "./api";
+import type { Block, CheckinItem, Run } from "./api";
 
 // 做事陪跑的纯函数（不碰 React）：「现在」卡显示哪一块、番茄走到哪了。自检：node --experimental-strip-types scripts/runs-check.mjs
 
@@ -34,4 +34,12 @@ export function pomodoro(b: Block, run: Run | undefined, nowMs: number, startMs:
   const within = focus % POMODORO;
   const phase = within < FOCUS ? ("focus" as const) : ("break" as const);
   return { index: Math.floor(focus / POMODORO) + 1, total, phase, leftSec: (phase === "focus" ? FOCUS : POMODORO) - within, paused, pausedSec };
+}
+
+/** 晚上对账能先填成「做了」的事：这件事今天所有的块都点过「做完了」（块属于哪件事：块 id 或 task_id 就是事的 id）。 */
+export function doneItems(items: CheckinItem[], blocks: Block[], runs: Record<string, Run>): Set<string> {
+  return new Set(items.filter((it) => {
+    const mine = blocks.filter((b) => b.id === it.id || b.task_id === it.id);
+    return mine.length > 0 && mine.every((b) => !!runs[b.id]?.done_at);
+  }).map((it) => it.id));
 }

@@ -14,6 +14,7 @@ import { ahead, haptic, Pressy, Skeleton } from "@/components/motion";
 import { toMin } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, ErrorState, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
 import { MENTOR } from "@/features";
+import { doneItems } from "@/runs";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, NightProvider, radius, space, type, useColors } from "@/theme";
 
@@ -38,11 +39,12 @@ const INVITE: Record<number, [string, string]> = {
   4: ["写三个版本", "写三个五年后的你，几位顾问各说几句。"],
 };
 
-/** 每件事一屏（项目做了再问一句和预想比）；托盘格能点回去改；最后一件对完就存，换成收尾。 */
-function stepsOf(items: CheckinItem[], all: Record<string, Choice>): Step[] {
+/** 每件事一屏（项目做了再问一句和预想比）；托盘格能点回去改；最后一件对完就存，换成收尾。
+ * pre：白天点过「做完了」、已经先填好的事，不再问做没做（项目照样问和预想比）。 */
+function stepsOf(items: CheckinItem[], all: Record<string, Choice>, pre: Set<string>): Step[] {
   const out: Step[] = [];
   for (const item of items) {
-    out.push({ item });
+    if (!pre.has(item.id)) out.push({ item });
     const s = all[item.id]?.status;
     if (item.project && s && s !== "skip") out.push({ item, vs: true });
   }
@@ -61,6 +63,7 @@ function Flow() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [moved, setMoved] = useState<string[]>([]);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
+  const [pre, setPre] = useState<Set<string>>(new Set());
   const [idx, setIdx] = useState(0);
   const [note, setNote] = useState("");
   const [blocker, setBlocker] = useState("");
@@ -80,7 +83,8 @@ function Flow() {
 
   function load() {
     getToday().then((plan) => {
-      setItems(checkinItems(plan));
+      const list = checkinItems(plan);
+      setItems(list);
       setBlocks(plan.blocks);
       // 白天重排时拿掉的事已经不在计划里，自然不进对账；求解器只在 warnings 里留下「来不及排了」的，收尾时提一句
       setMoved(plan.warnings.filter((w) => w.startsWith(LATE)).map((w) => plain(w.slice(LATE.length))));
@@ -89,11 +93,19 @@ function Flow() {
         setNote(plan.checkin.note ?? "");
         setBlocker(plan.checkin.blocker ?? "");
         setTomorrow(plan.tomorrow_task ?? "");
+      } else { // 第一次对：白天点过「做完了」的事先填成做了
+        const done = doneItems(list, plan.blocks, plan.runs ?? {});
+        const all = Object.fromEntries([...done].map((id) => [id, { status: "done" as const }]));
+        setPre(done);
+        setChoices(all);
+        // 全都点过了、也没有项目要问和预想比：直接存，换成收尾
+        if (done.size && !stepsOf(list, all, done).length) send({ result: { items: all } });
       }
     }, () => setFailed(true));
   }
+  const init = useEffectEvent(() => load()); // 只在打开时拿一次（load 里可能直接存）
   useEffect(() => {
-    load();
+    init();
     // 网页上 RN Web 的读屏检测恒为真，会让每件都多点一次「下一件」：网页照常自动翻
     if (Platform.OS !== "web") AccessibilityInfo.isScreenReaderEnabled().then(setReader, () => {});
   }, []);
@@ -104,7 +116,7 @@ function Flow() {
     return () => clearTimeout(t);
   }, [pending]);
 
-  const steps = stepsOf(items ?? [], choices);
+  const steps = stepsOf(items ?? [], choices, pre);
   const step = steps[Math.min(idx, steps.length - 1)] as Step | undefined;
   const texts = () => Object.fromEntries(Object.entries({ note, blocker, tomorrow_task: tomorrow }).filter(([k]) => touched.has(k)));
 
@@ -116,7 +128,7 @@ function Flow() {
 
   /** 这件对完了：项目做了就接着问和预想比，否则回到第一件还没对的；都对完就存。 */
   function forward(from: Step, all: Record<string, Choice>) {
-    const st = stepsOf(items ?? [], all);
+    const st = stepsOf(items ?? [], all, pre);
     const here = st.findIndex((x) => x.item.id === from.item.id && !x.vs);
     if (!from.vs && st[here + 1]?.vs) return go(here + 1);
     const next = st.findIndex((x) => !x.vs && !all[x.item.id]?.status);
@@ -192,7 +204,9 @@ function Flow() {
     return shell(
       <Closing items={items ?? []} choices={choices} moved={moved} onEdit={(id) => {
         setDone(false);
-        go(steps.findIndex((x) => x.item.id === id && !x.vs));
+        const rest = new Set([...pre].filter((x) => x !== id)); // 先填好的也能点回去改：这件改成要问
+        setPre(rest);
+        go(stepsOf(items ?? [], choices, rest).findIndex((x) => x.item.id === id && !x.vs));
       }} footer={(
         <>
           {message && <Notice tone="error">{message}</Notice>}

@@ -1,7 +1,7 @@
 // 做事陪跑的自检：cd mobile && node --experimental-strip-types scripts/runs-check.mjs
 import assert from "node:assert/strict";
 
-import { pickNow, pomodoro } from "../src/runs.ts";
+import { doneItems, pickNow, pomodoro } from "../src/runs.ts";
 
 const b = (id, start, end, kind = "must", extra = {}) => ({ id, title: id, start, end, kind, task_id: null, pomodoros: null, ...extra });
 const at = (hhmm) => `2026-11-20T${hhmm}:00+01:00`;
@@ -28,4 +28,10 @@ assert.deepEqual(pomodoro(read, run("15:00", [["15:20", null]]), ms("15:26"), ms
 assert.deepEqual(pomodoro(read, undefined, ms("16:10"), ms("15:00")), { index: 2, total: 2, phase: "break", leftSec: 0, paused: false, pausedSec: 0 });
 
 
+// 对账预填：一件事今天所有块都做完才算
+const items = [{ id: "read", title: "看书", project: false, tag: "", kind: "must" }, { id: "r", title: "写报告", project: true, tag: "", kind: "proj" }];
+const two = [read, report, b("report-1", "18:00", "18:30", "proj", { task_id: "r" })];
+assert.deepEqual([...doneItems(items, two, { read: run("15:00", [], "15:50"), report: run("16:00", [], "16:50") })], ["read"]);
+assert.deepEqual([...doneItems(items, [read, report], { read: run("15:00", [], "15:50"), report: run("16:00", [], "16:50") })].sort(), ["r", "read"]);
+assert.deepEqual([...doneItems(items, two, {})], []);
 console.log("runs-check ok");
