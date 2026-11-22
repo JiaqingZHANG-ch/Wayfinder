@@ -268,3 +268,31 @@ def test_today_pomodoro_reminders_only_after_start(day):
     assert not [r for r in client.get("/today").json()["reminders"] if r["kind"] == "pomodoro"]
     start(client, t, rid, (18, 50))
     assert [r for r in client.get("/today").json()["reminders"] if r["kind"] == "pomodoro"]
+
+
+def test_late_start_then_reflow_same_minute_keeps_block(day):
+    # 评审：晚开始把块的开始改成了现在，同一分钟里点重排，replan 只把「开始早于现在」的当过去留着，这块就没了
+    client, t, plan = day
+    r = start(client, t, "exam-prep-0", (22, 10))  # 21:45 那块晚了 25 分钟
+    assert r["ask_reflow"] is True and block(r, "exam-prep-0")["start"] == "22:10"
+    after = client.post("/plan/reflow", json={"version": r["version"]}).json()
+    assert (block(after, "exam-prep-0")["start"], block(after, "exam-prep-0")["end"]) == \
+        (block(r, "exam-prep-0")["start"], block(r, "exam-prep-0")["end"])
+
+
+def test_start_after_midnight_is_409(tmp_path):
+    # 评审：逻辑日到凌晨 4 点，00:30 时按「一天里的分钟」比，20:45 的块看起来还没过
+    from datetime import datetime
+    from fastapi.testclient import TestClient
+    from mentor.model import FakeModel
+    from server.api import create_app
+    from server.db import Db
+    from test_day_say_api import TEMPLATE
+    now = [datetime(2026, 11, 20, 8, 0)]
+    db, model = Db(tmp_path / "app.db"), FakeModel()
+    client = TestClient(create_app(db, model, template=TEMPLATE, now=lambda tz: now[0].replace(tzinfo=tz)))
+    model.replies.append(reply(MEETING, REPORT))
+    say(client)
+    now[0] = datetime(2026, 11, 21, 0, 30)
+    r = act(client, "start", "reading")
+    assert r.status_code == 409

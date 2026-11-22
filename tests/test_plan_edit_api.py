@@ -343,3 +343,11 @@ def test_edit_title_renames_every_block_of_the_item(tmp_path):
     assert len(parts) > 1
     r = rename(client, plan, parts[0], "写实验报告").json()
     assert {b["title"] for b in r["blocks"] if b.get("task_id") == parts[0]["task_id"]} == {"写实验报告"}
+
+
+def test_time_edit_keeps_working_with_long_title(tmp_path):
+    # 评审：只改时间也查了旧名字的长度，「明天的一件事」最长 40 字，拖它就 422 了
+    client, plan = full_day(tmp_path, "把" * 39)
+    b = next(x for x in plan["blocks"] if x.get("task_id") == "one-thing")
+    r = edit(client, plan, b["id"], b["start"], to_hhmm(to_min(b["end"]) - 5))
+    assert r.status_code == 200, r.text

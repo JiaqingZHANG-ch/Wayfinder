@@ -358,7 +358,10 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         钉住的块（unpin 里的除外）：还没开始的当固定事项喂求解器，排完按 id 换回原样（kind、pinned、task_id）；
         求解器没留下的（比如和正在做的块重叠）也原样加回去，允许重叠。今天跳过的不排，今天必做的排不完只提醒。"""
         before = stored["plan"]["blocks"] if stored else []
-        pins = {b["id"]: b for b in before if b.get("pinned") and b["id"] not in unpin}
+        runs = db.block_runs(USER_ID, day)
+        # 晚开始把块的开始改成了现在：同一分钟里重排时 replan 不当它是过去的，开始过、没做完的也当钉住的原样留着
+        going = {b["id"] for b in before if b["id"] in runs and not runs[b["id"]]["done_at"] and to_min(b["start"]) >= now_min}
+        pins = {b["id"]: b for b in before if (b.get("pinned") or b["id"] in going) and b["id"] not in unpin}
         fresh = {i: b for i, b in pins.items() if to_min(b["start"]) >= now_min}  # 已经开始的 replan_from 当过去的留着
         took: dict[str, int] = {}
         for b in fresh.values():
@@ -378,7 +381,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         if level:
             d["energy_level"] = level
         # 白天点过「做完了」的事（它今天的块全都做完了）不再排：提前做完时剩下的分钟不该被重排回来
-        runs, ids = db.block_runs(USER_ID, day), {x["id"] for k in ("habits", "flex", "tasks") for x in d.get(k, [])}
+        ids = {x["id"] for k in ("habits", "flex", "tasks") for x in d.get(k, [])}
         keys = {b.get("task_id") or b["id"] for b in before}
         finished = {k for k in keys & ids
                     if all(runs.get(b["id"], {}).get("done_at") for b in before if (b.get("task_id") or b["id"]) == k)}
@@ -616,7 +619,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         title = body.title.strip() if body.title is not None else b["title"]
         if body.title is not None and not item:
             raise HTTPException(422, "习惯和项目的名字在设置里改")
-        if not 1 <= len(title) <= 30:
+        if body.title is not None and not 1 <= len(title) <= 30:  # 只改时间不查旧名字（明天的一件事最长 40 字）
             raise HTTPException(422, "名字要 1–30 个字")
         if b["kind"] in ("class", "life") and not item:  # 说的固定事项求解器也输出成 class，它能改
             raise HTTPException(422, "课、吃饭和路上的块不能改时间")
@@ -740,7 +743,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         t, day, stored, b, run = run_of(block_id)
         if run is not None:
             raise HTTPException(409, "这一块已经开始了")
-        if to_min(b["end"]) <= t.hour * 60 + t.minute:
+        if planned_at(day, b) + timedelta(minutes=minutes(b)) <= t:  # 按时刻比：逻辑日到凌晨 4 点，过了半夜也算过了
             raise HTTPException(409, "这一块的时间已经过了")
         db.save_block_run(USER_ID, day, block_id, new_run(b, t))
         if (planned := planned_at(day, b)) > t - timedelta(minutes=1):  # 准点（同一分钟里）：只记录
