@@ -10,7 +10,7 @@ import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -38,7 +38,7 @@ from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm, to_min
 from planner.solve import DayPlan, replan_from, solve_day
 from server.replan import replan_after
-from server.runs import MIN_BLOCK, clashes, cut_at, extend, focus_seconds, run_reminders
+from server.runs import MIN_BLOCK, SMALL_BREAK, clashes, cut_at, extend, focus_seconds, run_reminders
 
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
@@ -486,7 +486,12 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         # 对过账就不再提醒对账，报过电量就不再提醒报电量
         reminders = [r for r in todays_reminders(stored["plan"], settings)
                      if not (r["kind"] == "evening" and log) and not (r["kind"] == "after_class" and stored["energy_level"])]
+        runs, blocks = db.block_runs(USER_ID, day), stored["plan"]["blocks"]
+        reminders = sorted(reminders + run_reminders(blocks, runs, {b["id"] for b in blocks if operable(day, b)}, clock(),
+                                                     lambda b: planned_at(day, b)), key=lambda r: r["at"])
         return {**out(day, stored), "reminders": reminders, "items": db.day_items(USER_ID, day),
+                "runs": {k: {**r, "actual_min": round(focus_seconds(r, datetime.fromisoformat(r["done_at"])) / 60)
+                             if r["done_at"] else None} for k, r in runs.items()},
                 "checked_in": bool(log), "tomorrow_task": (log[0]["tomorrow_task"].strip() or None) if log else None,
                 # 往后 6 天的提醒也一起给：手机一次定好，那几天不打开 App 也会响
                 "later_reminders": [{**r, "day": d.isoformat()} for d in (day + timedelta(days=k) for k in range(1, 7))
@@ -655,6 +660,73 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         plan = reflow(day, db.plan_input(USER_ID), stored, t.hour * 60 + t.minute, stored["energy_level"])
         db.add_plan(USER_ID, day, plan, stored["energy_level"])
         return {**today_body(day), "before": tag_items(day, stored["plan"])["blocks"], "overlaps": overlaps(plan["blocks"])}
+
+    def operable(day, b: dict) -> bool:
+        """能计时（被打断 / 做完）的块：习惯、项目、可选项和当天事项；课和吃饭不用。和 /plan/edit 能改的一致。"""
+        return b["kind"] in ("must", "proj", "flex") or item_of(day, b) is not None
+
+    def planned_at(day, b: dict) -> datetime:
+        """块的计划开始时刻：逻辑日的日期 + 块的 start，用户的时区。"""
+        h, m = divmod(to_min(b["start"]), 60)
+        return datetime.combine(day, time(h, m), tzinfo=clock().tzinfo)
+
+    def run_of(block_id: str):
+        """三个做事接口共用：按今天最新的计划找块、查能不能计时，返回 (现在, 逻辑日, 最新版, 块, 这块的记录)。
+        做事中途不带 version：版本过期弹 409 太打扰。还没有记录就按计划开始时间新建一条（不存）。"""
+        t = clock()
+        day = logical_date(t)
+        stored = db.latest_plan(USER_ID, day)
+        if stored is None:
+            raise HTTPException(404, "计划里没有这一块")
+        b = find_block(stored, block_id)
+        if not operable(day, b):
+            raise HTTPException(422, "这一块不用计时")
+        run = db.block_runs(USER_ID, day).get(block_id)
+        if run and run["done_at"]:
+            raise HTTPException(409, "这一块已经做完了")
+        if planned_at(day, b) > t:
+            raise HTTPException(409, "这一块还没开始")
+        run = run or {"started_at": planned_at(day, b).isoformat(), "pauses": [], "done_at": None,
+                      "planned_start": b["start"], "planned_end": b["end"]}
+        return t, day, stored, b, run
+
+    def paused(run: dict) -> bool:
+        return bool(run["pauses"]) and run["pauses"][-1][1] is None
+
+    def save_blocks(day, stored: dict, blocks: list[dict]) -> None:
+        """做事中途改了时间：存成新版本，原来确认过就还是确认的（日历不重写）。"""
+        db.add_plan(USER_ID, day, {**stored["plan"], "blocks": blocks}, stored["energy_level"],
+                    confirmed=stored["confirmed_at"] is not None)
+
+    @app.post("/block/{block_id}/pause", summary="被打断了：这一块的计时停下（第一次点就从计划开始时间算起）；不改计划")
+    def post_block_pause(block_id: str):
+        t, day, _, _, run = run_of(block_id)
+        if paused(run):
+            raise HTTPException(409, "这一块已经停着了")
+        db.save_block_run(USER_ID, day, block_id, {**run, "pauses": [*run["pauses"], [t.isoformat(), None]]})
+        return today_body(day)
+
+    @app.post("/block/{block_id}/resume", summary="继续：停了 15 分钟以内，后面的块往后推；更久（或推不开）就 ask_reflow，App 问要不要重排")
+    def post_block_resume(block_id: str):
+        t, day, stored, _, run = run_of(block_id)
+        if not paused(run):
+            raise HTTPException(409, "这一块没在暂停")
+        start = run["pauses"][-1][0]
+        db.save_block_run(USER_ID, day, block_id, {**run, "pauses": [*run["pauses"][:-1], [start, t.isoformat()]]})
+        g = -(-int((t - datetime.fromisoformat(start)).total_seconds()) // 60)
+        blocks, ok = extend(stored["plan"]["blocks"], block_id, -(-g // 5) * 5, plan_input(day).sleep, g <= SMALL_BREAK)
+        if blocks != stored["plan"]["blocks"]:
+            save_blocks(day, stored, blocks)
+        return {**today_body(day), "ask_reflow": not ok, "overlaps": [] if ok else clashes(blocks, block_id)}
+
+    @app.post("/block/{block_id}/done", summary="做完了：记下做完的时间；提前做完就把这一块截到现在，后面的不动")
+    def post_block_done(block_id: str):
+        t, day, stored, _, run = run_of(block_id)
+        pauses = [*run["pauses"][:-1], [run["pauses"][-1][0], t.isoformat()]] if paused(run) else run["pauses"]
+        db.save_block_run(USER_ID, day, block_id, {**run, "pauses": pauses, "done_at": t.isoformat()})
+        if cut := cut_at(stored["plan"]["blocks"], block_id, t.hour * 60 + t.minute):
+            save_blocks(day, stored, cut)
+        return today_body(day)
 
     def merge_log(day, result: dict, explicit: set[str]) -> dict:
         """和今天已有的记录合并（只补这次说到的，explicit 里的字段可以清空），补上电量，存下，返回整条。"""

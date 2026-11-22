@@ -10,6 +10,7 @@ from planner.solve import FREE_MIN_GAP, POMODORO_MIN
 
 MIN_BLOCK = 10  # 一块最短几分钟（手动改、提前做完截短都按这个）
 BREAK_AT = 25  # 一个番茄里专注到第几分钟开始小歇
+SMALL_BREAK = 15  # 被打断不超过这么多分钟算小打断：继续时只往后推，不问重排（用户定的）
 
 
 def _fixed(b: dict) -> bool:
