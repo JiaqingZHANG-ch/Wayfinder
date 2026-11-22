@@ -71,6 +71,7 @@ uv run python -m planner <输入.json> -o <输出.json>
 - `steps`、`done_criteria`：给人看的步骤和完成标志；
 - `est_factor`：估时放大系数，默认 1.0；
 - `must_today`：今天必须做完，默认 `false`。为 `true` 时 `remaining_min` 今天全部排完（按钟点分钟，不按时段效率折算），超出精力上限也照排，块长按 5 分钟取整；排不下就报错并点名，`soft_must` 时改成写进 warnings（C28）。
+- `first`：昨晚定的「明天的一件事」，默认 `false`。为 `true` 时权重翻倍：今天必做的排不下时先保它，不让给拉长别的事。
 
 ## 只重排今晚
 

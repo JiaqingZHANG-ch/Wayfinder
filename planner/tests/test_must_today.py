@@ -85,3 +85,15 @@ def test_replan_deducts_clock_minutes_of_started_must_blocks():
     b.end = b.start + 30  # 拉短成 30 分钟，progress_min 还写着原来的
     rest = replan_from(inp, to_hhmm(b.start + 10), before=plan.blocks)
     assert sum(x.end - x.start for x in rest.blocks if x.task_id == "say-1") == 120
+
+
+@pytest.mark.parametrize("first,kept", [(False, 0), (True, 30)])
+def test_first_task_kept_when_must_today_overflows(first, kept):
+    # 昨晚定的「明天的一件事」（first）：今天必做的排不下时先保它。不标 first 时它 30 分钟、多开一块有罚分，平局总输给拉长别的事
+    inp = student()
+    for i, (m, heavy) in enumerate([(60, False), (120, True), (30, False), (90, False)]):
+        inp.tasks.append(Task(f"say-{i + 2}", "说的事", f"事{i}", m, inp.day, heavy, 30, 180, "any", must_today=True))
+    inp.tasks.append(Task("one", "昨晚定的一件事", "交作业", 30, inp.day, False, 30, 180, "any", must_today=True, first=first))
+    plan = solve_day(inp, soft_must=True)
+    assert progress(plan, "one") == kept
+    assert any("还差" in w for w in plan.warnings)

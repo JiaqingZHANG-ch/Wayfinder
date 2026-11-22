@@ -121,6 +121,7 @@ class Task:
     done_criteria: str = ""
     est_factor: float = 1.0
     must_today: bool = False  # 用户说了今天要做：今天必须排完，不受精力上限和截止日提醒管（C28）
+    first: bool = False  # 昨晚定的「明天的一件事」：权重翻倍，今天必做的排不下时先保它
 
 
 @dataclass
@@ -232,6 +233,7 @@ def _load(raw: dict) -> PlanInput:
             done_criteria=t.get("done_criteria", ""),
             est_factor=float(t.get("est_factor", 1.0)),
             must_today=bool(t.get("must_today", False)),
+            first=bool(t.get("first", False)),
         )
 
     return PlanInput(

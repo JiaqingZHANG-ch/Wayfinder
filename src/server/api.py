@@ -291,8 +291,9 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         last = db.logs_between(USER_ID, day - timedelta(days=1), day - timedelta(days=1))
         if last and (t := last[0]["tomorrow_task"].strip()):
             d["tasks"] = [*d.get("tasks", []), {"id": ONE_THING, "project": "昨晚定的一件事", "title": t[:40],
-                                                "remaining_min": 30,  # 截止写成明天：权重照样最高一档，又不会报「截止日已到」
-                                                "deadline": (day + timedelta(days=1)).isoformat()}]
+                                                # 昨晚自己定的：今天必排、截止今天，first 让它在排不下时先保住（不然 30 分钟一块总输给拉长别的事）。
+                                                # 今天必做的不报「截止日已到」，所以截止可以写今天
+                                                "remaining_min": 30, "deadline": day.isoformat(), "must_today": True, "first": True}]
         return d
 
     def skipped(day) -> list[str]:

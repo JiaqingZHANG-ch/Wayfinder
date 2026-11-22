@@ -18,6 +18,5 @@ def slack_days(task: Task, today: date, daily_cap: int) -> float:
 
 
 def weight(task: Task, today: date, daily_cap: int) -> int:
-    if task.deadline is None:
-        return 10
-    return round(1000 / max(slack_days(task, today, daily_cap), 0.5))
+    w = 10 if task.deadline is None else round(1000 / max(slack_days(task, today, daily_cap), 0.5))
+    return 2 * w if task.first else w

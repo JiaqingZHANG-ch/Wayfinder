@@ -267,3 +267,35 @@ def test_pin_overlapping_block_in_progress_is_kept(tmp_path):
     report = [x for x in r["blocks"] if x["title"] == "写报告"]
     assert [(x["start"], x["end"], x["pinned"]) for x in report] == [(to_hhmm(s + 20), to_hhmm(s + 110), True)]
     assert {"exam-prep-0", report[0]["id"]} <= set(r["overlaps"])
+
+
+FULL = [item("写报告", minutes=120, effort="heavy"), item("健身", minutes=60), item("复习", minutes=120, effort="heavy"),
+        item("洗衣服", minutes=30, effort="light"), item("读论文", minutes=90)]
+
+
+def full_day(tmp_path, tomorrow_task=""):
+    """08:00 说五件事，一天排不下（有「还差 N 分钟」）；昨晚可以先定好「明天的一件事」。"""
+    db, model = Db(tmp_path / "app.db"), FakeModel()
+    client = TestClient(create_app(db, model, template=TEMPLATE, now=lambda tz: datetime(2026, 11, 20, 8, 0, tzinfo=tz)))
+    db.save_log(1, {"date": "2026-11-19", "energy_after_class": 3, "blocker": "", "tomorrow_task": tomorrow_task,
+                    "note": "", "yesterday_done": None, "items": {}})
+    model.replies.append(reply(*FULL))
+    return client, say(client).json()
+
+
+def test_one_thing_survives_reflow_on_full_day(tmp_path):
+    # 昨晚自己定的事和今天说的一样必排：排满的一天挪一块再重排，它也不被挤掉
+    client, plan = full_day(tmp_path, "交作业")
+    one = [b for b in plan["blocks"] if b.get("task_id") == "one-thing"]
+    assert sum(mins(b) for b in one) == 30
+    said = next(b for b in plan["blocks"] if b.get("item_id"))  # 挪一块说的事（排满时哪件被挤掉不一定）
+    plan = edit(client, plan, said["id"], to_hhmm(to_min(said["start"]) + 15), to_hhmm(to_min(said["end"]) + 15)).json()
+    r = client.post("/plan/reflow", json={"version": plan["version"]}).json()
+    assert sum(mins(b) for b in r["blocks"] if b.get("task_id") == "one-thing") == 30
+
+
+def test_reflow_without_edit_keeps_plan(tmp_path):
+    # 排满的一天什么都不改就重排：计划一点不变（复现「重排挤掉块」时确认过的守护）
+    client, plan = full_day(tmp_path)
+    r = client.post("/plan/reflow", json={"version": plan["version"]}).json()
+    assert r["blocks"] == plan["blocks"]
