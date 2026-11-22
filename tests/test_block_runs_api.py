@@ -173,3 +173,14 @@ def test_export_and_delete_include_block_runs(day):
     assert len(client.get("/export").json()["tables"]["block_runs"]) == 1
     client.delete("/me", params={"confirm": "true"})
     assert client.get("/export").json()["tables"]["block_runs"] == []
+
+
+def test_done_early_then_reflow_does_not_bring_task_back(day):
+    # 评审发现：提前点了做完，下一次重排把写报告剩下的分钟又排了回来
+    client, t, plan = day
+    rid, task = report(plan)["id"], report(plan)["task_id"]
+    t[:] = [19, 16]
+    v = act(client, "done", rid).json()["version"]
+    t[:] = [19, 21]
+    after = client.post("/plan/reflow", json={"version": v}).json()
+    assert [b["id"] for b in after["blocks"] if b.get("task_id") == task] == [rid]

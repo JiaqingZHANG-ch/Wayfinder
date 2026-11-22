@@ -110,10 +110,12 @@ def run_reminders(blocks: list[dict], runs: dict[str, dict], operable: set[str],
             continue  # 没点过、也已经过去了
         r = run or {"started_at": started_at(b).isoformat(), "pauses": []}
         done = focus_seconds(r, now)
-        # 继续时块往后延长过暂停的时长：番茄个数按专注时长（块长减去暂停）算，不把停的那段也算成番茄
-        n = max(1, -(-((to_min(b["end"]) - to_min(b["start"])) * 60 - paused_seconds(r, now)) // (POMODORO_MIN * 60)))
+        # 继续时块往后延长过（暂停按 5 分钟取整）：番茄个数按第一次点按钮时的计划起止算，不把停的那段也算成番茄
+        span = to_min(r.get("planned_end", b["end"])) - to_min(r.get("planned_start", b["start"]))
+        n = max(1, -(-span // POMODORO_MIN))
         marks = [((POMODORO_MIN * (k - 1) + BREAK_AT) * 60, "休息 5 分钟") for k in range(1, n + 1)] + \
                 [(POMODORO_MIN * k * 60, "回来接着做") for k in range(1, n)]
-        out += [{"kind": "pomodoro", "at": (now + timedelta(seconds=t - done)).strftime("%H:%M"), "title": title,
-                 "body": b["title"], "url": "/"} for t, title in marks if t > done]
+        end = started_at(b) + timedelta(minutes=to_min(b["end"]) - to_min(b["start"]))
+        out += [{"kind": "pomodoro", "at": t_at.strftime("%H:%M"), "title": title, "body": b["title"], "url": "/"}
+                for t, title in marks if t > done and (t_at := now + timedelta(seconds=t - done)) <= end]  # 块结束后不再响
     return sorted(out, key=lambda r: r["at"])

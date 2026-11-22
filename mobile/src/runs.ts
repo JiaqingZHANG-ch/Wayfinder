@@ -14,20 +14,29 @@ export function operable(b: Block): boolean {
 
 const isPaused = (run: Run | undefined) => !!run && run.pauses.length > 0 && run.pauses[run.pauses.length - 1][1] === null;
 
-/** 「现在」卡显示哪一块：暂停着没做完的优先（你是从它那里被打断的）；否则现在所在、没做完的那块；都没有就 null。 */
+/** 「现在」卡显示哪一块：暂停着没做完的优先（你是从它那里被打断的）；否则现在所在、没做完的那块；
+ * 再没有，就是点过按钮、已经过了结束时间还没点做完的最后一块（比如继续时被课截住，让人还能点「做完了」）；都没有就 null。 */
 export function pickNow(blocks: Block[], runs: Record<string, Run>, nowMin: number): Block | null {
   const open = blocks.filter((b) => operable(b) && !runs[b.id]?.done_at);
   return open.find((b) => isPaused(runs[b.id]))
     ?? open.find((b) => toMin(b.start) <= nowMin && nowMin < toMin(b.end))
+    ?? open.filter((b) => runs[b.id] && toMin(b.end) <= nowMin).at(-1)
     ?? null;
+}
+
+/** 对账里，从第 at 屏往后找：先填好的项目还没答「和预想比」的那一屏；没有就 -1。只往后找，点「跳过」才不会绕回来。 */
+export function laterPreVs(steps: { item: { id: string }; vs?: boolean }[], at: number,
+  all: Record<string, { vs_plan?: string }>, pre: Set<string>): number {
+  return steps.findIndex((x, i) => i > at && !!x.vs && pre.has(x.item.id) && !all[x.item.id]?.vs_plan);
 }
 
 /** 番茄走到哪了。没点过按钮（run 为空）就从计划开始时刻 startMs 算。专注时长超过整块后停在最后一个番茄的小歇末尾。 */
 export function pomodoro(b: Block, run: Run | undefined, nowMs: number, startMs: number) {
   const pausedMs = (run?.pauses ?? []).reduce((s, [f, t]) => s + ((t ? Date.parse(t) : nowMs) - Date.parse(f)), 0);
   const open = isPaused(run) ? nowMs - Date.parse(run!.pauses[run!.pauses.length - 1][0]) : 0;
-  // 继续时块往后延长过暂停的时长：番茄个数按专注时长（块长减去已经停完的那几段）算
-  const total = Math.max(1, Math.ceil(((toMin(b.end) - toMin(b.start)) * 60_000 - (pausedMs - open)) / (POMODORO * 1000)));
+  // 继续时块往后延长过（暂停按 5 分钟取整）：番茄个数按第一次点按钮时的计划起止算（和后端提醒一致）
+  const span = toMin(run?.planned_end ?? b.end) - toMin(run?.planned_start ?? b.start);
+  const total = Math.max(1, Math.ceil(span / 30));
   const focus = Math.max(0, Math.floor((nowMs - (run ? Date.parse(run.started_at) : startMs) - pausedMs) / 1000));
   const paused = isPaused(run);
   const pausedSec = Math.floor(open / 1000);

@@ -34,7 +34,8 @@ export type DayItem = {
 export type Reminder = { kind: "after_class" | "evening" | "letter" | "block" | "pomodoro"; at: string; title: string; body: string; url: string };
 
 /** 今天一块的做事记录：开始（计划开始时刻）、各段暂停 [从, 到|null]、做完的时间；actual_min 只有做完了才有。 */
-export type Run = { started_at: string; pauses: [string, string | null][]; done_at: string | null; actual_min: number | null };
+export type Run = { started_at: string; pauses: [string, string | null][]; done_at: string | null; actual_min: number | null;
+  planned_start?: string; planned_end?: string }; // 第一次点按钮时这一块的计划起止（继续时块会延长，番茄个数按这个算）
 
 export type Plan = {
   day: string;

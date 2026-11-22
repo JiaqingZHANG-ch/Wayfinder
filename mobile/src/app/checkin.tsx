@@ -14,7 +14,7 @@ import { ahead, haptic, Pressy, Skeleton } from "@/components/motion";
 import { toMin } from "@/components/plan-view";
 import { Body, Button, Card, CrisisCard, ErrorState, Field, Icon, IconName, Notice, Small, Title } from "@/components/ui";
 import { MENTOR } from "@/features";
-import { doneItems } from "@/runs";
+import { doneItems, laterPreVs } from "@/runs";
 import { Status, STATUS_LABELS, VS_PLAN_LABELS, VsPlan } from "@/labels";
 import { motion, NightProvider, radius, space, type, useColors } from "@/theme";
 
@@ -133,6 +133,10 @@ function Flow() {
     if (!from.vs && st[here + 1]?.vs) return go(here + 1);
     const next = st.findIndex((x) => !x.vs && !all[x.item.id]?.status);
     if (next >= 0) return go(next);
+    // 先填好的项目没有「做没做」那一屏，它的「和预想比」只能从这里接上
+    const at = st.findIndex((x) => x.item.id === from.item.id && !!x.vs === !!from.vs);
+    const vs = laterPreVs(st, at, all, pre);
+    if (vs >= 0) return go(vs);
     const picked: Record<string, { status: Status; vs_plan?: VsPlan }> = {};
     for (const [id, ch] of Object.entries(all)) {
       if (ch.status) picked[id] = { status: ch.status, vs_plan: ch.status === "skip" ? undefined : ch.vs_plan };

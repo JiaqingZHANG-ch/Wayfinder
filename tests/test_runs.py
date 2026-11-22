@@ -105,7 +105,26 @@ def test_pomodoro_without_run_uses_planned_start():
 
 def test_pomodoro_count_ignores_pause_extension():
     # 看书本来 15:00–16:00（2 个番茄），停了 10 分钟、继续时延长到 16:10：专注还是 60 分钟，仍是 2 个，最后一个不提醒回来
-    run = {"started_at": iso("15:00"), "pauses": [[iso("15:10"), iso("15:20")]], "done_at": None}
+    run = {"started_at": iso("15:00"), "pauses": [[iso("15:10"), iso("15:20")]], "done_at": None,
+           "planned_start": "15:00", "planned_end": "16:00"}  # 真实的记录都带第一次点按钮时的计划起止
     out = [(r["at"], r["title"]) for r in run_reminders([{**A, "end": "16:10"}], {"a": run}, {"a"}, at("15:21"), started)
            if r["kind"] == "pomodoro"]
     assert out == [("15:35", "休息 5 分钟"), ("15:40", "回来接着做"), ("16:05", "休息 5 分钟")]
+
+
+def test_pomodoro_count_uses_planned_span_after_rounded_extension():
+    # 评审发现：停 7 分钟、继续时按 5 分钟取整延长了 10 分钟；番茄个数要按原来的 15:00–16:30（3 个）算
+    run = {"started_at": iso("15:00"), "pauses": [[iso("15:10"), iso("15:17")]], "done_at": None,
+           "planned_start": "15:00", "planned_end": "16:30"}
+    out = [(r["at"], r["title"]) for r in run_reminders([{**A, "end": "16:40"}], {"a": run}, {"a"}, at("15:20"), started)
+           if r["kind"] == "pomodoro"]
+    assert out[-1] == ("16:32", "休息 5 分钟") and len(out) == 5  # 3 次小歇 + 2 次回来
+
+
+def test_no_pomodoro_reminder_after_block_end():
+    # 评审发现：继续时被课截住，块结束在 09:00，却还在 09:45（上课时）提醒休息
+    a = {**A, "start": "08:00", "end": "09:00"}
+    run = {"started_at": iso("08:00"), "pauses": [[iso("08:10"), iso("08:50")]], "done_at": None,
+           "planned_start": "08:00", "planned_end": "08:20"}
+    out = [r for r in run_reminders([a], {"a": run}, {"a"}, at("08:51"), started) if r["kind"] == "pomodoro"]
+    assert all(r["at"] <= "09:00" for r in out)

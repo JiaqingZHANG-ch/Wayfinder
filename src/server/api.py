@@ -375,6 +375,12 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
                       for x in d.get("tasks", []) if x["remaining_min"] > took.get(x["id"], 0)]
         if level:
             d["energy_level"] = level
+        # 白天点过「做完了」的事（它今天的块全都做完了）不再排：提前做完时剩下的分钟不该被重排回来
+        runs, ids = db.block_runs(USER_ID, day), {x["id"] for k in ("habits", "flex", "tasks") for x in d.get(k, [])}
+        keys = {b.get("task_id") or b["id"] for b in before}
+        finished = {k for k in keys & ids
+                    if all(runs.get(b["id"], {}).get("done_at") for b in before if (b.get("task_id") or b["id"]) == k)}
+        done_ids = [*done_ids, *(finished - set(done_ids))]
         try:
             inp = input_from_dict(d)
         except InputError as e:
