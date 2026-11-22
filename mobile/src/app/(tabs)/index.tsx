@@ -188,10 +188,14 @@ export default function Today() {
   }
 
   /** 手动改一块的时间（拖、拉、面板里改时长都走这里）：返回错误说明，成功是 null。 */
-  async function edit(b: Block, start: number, end: number) {
+  async function edit(b: Block, start: number, end: number, title?: string) {
     if (!plan) return null;
     try {
-      const res = await editBlock(plan.version, b.id, fromMin(start), fromMin(end));
+      const res = await editBlock(plan.version, b.id, fromMin(start), fromMin(end), title);
+      if (isCrisis(res)) {
+        setCrisis(res.message);
+        return null;
+      }
       setPlan(res);
       setAsk(true);
       setMoved(null);
@@ -343,7 +347,7 @@ export default function Today() {
 
       {moved && (
         <View style={{ gap: space.sm }}>
-          {(() => { const ch = planDiff(moved, plan.blocks, "04:00") /* 4 点前算前一天，"00:00" 会被当成半夜 */; return ch.length ? <Changes changes={ch} /> : <Notice>其余的不用动，照原来的来。</Notice>; })()}
+          {(() => { const ch = planDiff(moved, plan.blocks, "04:00", "今天排不下了") /* 4 点前算前一天，"00:00" 会被当成半夜 */; return ch.length ? <Changes changes={ch} /> : <Notice>其余的不用动，照原来的来。</Notice>; })()}
           <Button label="知道了" variant="quiet" onPress={() => setMoved(null)} />
         </View>
       )}

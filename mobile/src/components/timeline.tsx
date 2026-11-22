@@ -27,7 +27,7 @@ const isFree = (b: Block) => b.kind === "life" && b.title.startsWith("自由时�
 const movable = (b: Block) => b.kind === "must" || b.kind === "proj" || b.kind === "flex" || !!b.item_id;
 
 /** 改完一块的结果：返回错误说明，成功是 null。 */
-export type EditBlock = (b: Block, start: number, end: number) => Promise<string | null>;
+export type EditBlock = (b: Block, start: number, end: number, title?: string) => Promise<string | null>;
 
 /**
  * 今天的竖向时间轴：左边整点刻度，右边按时间摆的圆角彩色块，现在那一刻画一条线。
@@ -79,7 +79,7 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
       )}
       {panel && (
         <BlockSheet b={panel} onClose={() => setOpen(null)} onDelete={() => onDelete(panel)}
-          onSave={(end) => onEdit(panel, toMin(panel.start), end)} />
+          onSave={(end, title) => onEdit(panel, toMin(panel.start), end, title)} />
       )}
     </View>
   );

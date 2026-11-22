@@ -195,8 +195,9 @@ export async function transcribe(uri: string): Promise<string> {
   }
 }
 /** 手动改一块的时间。overlaps：撞在一起的块 id。409 = 版本过期（别处改过），要重新拿 /today。 */
-export const editBlock = (version: number, block_id: string, start: string, end: string) =>
-  send<Plan & { overlaps: string[] }>("POST", "/plan/edit", { version, block_id, start, end });
+/** 改一块的起止（title 给了就顺便改名，只有当天说的事能改；名字里有危机字眼返回 Crisis）。 */
+export const editBlock = (version: number, block_id: string, start: string, end: string, title?: string) =>
+  send<(Plan & { overlaps: string[] }) | Crisis>("POST", "/plan/edit", { version, block_id, start, end, ...(title === undefined ? {} : { title }) });
 export const deleteBlock = (id: string, version: number) => send<Plan>("DELETE", `/plan/block/${encodeURIComponent(id)}?version=${version}`);
 /** 把其余的按精力重新排：before 是重排前那一版的块，给 planDiff 用。 */
 export const reflow = (version: number) => send<Plan & { before: Block[] }>("POST", "/plan/reflow", { version });

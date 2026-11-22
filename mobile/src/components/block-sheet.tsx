@@ -6,23 +6,25 @@ import { Block } from "@/api";
 import { Pressy } from "@/components/motion";
 import { fromMin, kindName, toMin } from "@/components/plan-view";
 import { Sheet } from "@/components/sheet";
-import { Button, Icon, IconButton, Notice, Small, Title } from "@/components/ui";
+import { Button, Field, Icon, IconButton, Notice, Small, Title } from "@/components/ui";
 import { radius, space, type, useColors } from "@/theme";
 
 const MIN_MINUTES = 10;
 
 /**
- * 点一块弹出的底部面板：改时长（±5 分钟）、删除。改标题先不做（后端还没接口）。
+ * 点一块弹出的底部面板：改时长（±5 分钟）、删除；当天说的事还能改名字（习惯、项目的名字在设置里改）。
  * 放在 Modal 里：Sheet 本来是整页路由，这里用 onClose 关掉就行；Modal 里要自己包一层手势根。
  * onSave / onDelete 返回错误说明（成功是 null）：成功就关面板，失败留着、把话说在面板里。
  */
 export function BlockSheet({ b, onClose, onSave, onDelete }: {
-  b: Block; onClose: () => void; onSave: (end: number) => Promise<string | null>; onDelete: () => Promise<string | null>;
+  b: Block; onClose: () => void; onSave: (end: number, title?: string) => Promise<string | null>; onDelete: () => Promise<string | null>;
 }) {
   const c = useColors();
   const start = toMin(b.start);
   const was = toMin(b.end) - start;
   const [minutes, setMinutes] = useState(was);
+  const [title, setTitle] = useState(b.title);
+  const renamed = title.trim() !== b.title;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,9 +70,10 @@ export function BlockSheet({ b, onClose, onSave, onDelete }: {
                 </View>
                 {step(5)}
               </View>
+              {b.item_id && <Field label="名字" value={title} onChangeText={setTitle} maxLength={30} editable={!busy} />}
               {error && <Notice tone="error">{error}</Notice>}
-              <Button label="保存" disabled={minutes === was} busyLabel={busy ? "正在保存……" : undefined}
-                onPress={() => run(() => onSave(start + minutes), close)} />
+              <Button label="保存" disabled={(minutes === was && !renamed) || !title.trim()} busyLabel={busy ? "正在保存……" : undefined}
+                onPress={() => run(() => onSave(start + minutes, renamed ? title.trim() : undefined), close)} />
               <Button label="删除这一块" variant="quietDanger" disabled={busy} onPress={() => run(onDelete, close)} />
             </View>
           )}
