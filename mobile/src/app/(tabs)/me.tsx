@@ -1,33 +1,28 @@
 import Constants from "expo-constants";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
-import { DeepTalkState, getDeepTalk, getLetters, getProfile, getQuarter, getSettings, getToday, pendingCount, Profile, Quarter, restartDeepTalk, Settings } from "@/api";
-import { clayIcon } from "@/clay-icon";
-import { EventIcon, Figure } from "@/components/clay";
+import { DeepTalkState, getDeepTalk, getLetters, getProfile, getQuarter, getSettings, pendingCount, Profile, Quarter, restartDeepTalk, Settings } from "@/api";
 import { enter, Skeleton } from "@/components/motion";
-import { Button, Card, ErrorState, ListRow, Notice, Screen, Small } from "@/components/ui";
+import { Button, Card, ErrorState, HeadCard, Icon, KindDot, ListRow, Notice, Screen, Small } from "@/components/ui";
 import { MENTOR } from "@/features";
-import { radius, space, TAB_SPACE, type, useColors, useDark } from "@/theme";
+import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
 /**
- * 「我」（v4 的 #pg-me）：顶上站着小人（表情跟今天报的电量，没报就是微笑），下面依次是我的方向、长谈进度和主按钮、我的记号，
+ * 「我」（v4 的 #pg-me）：顶上暖橙头卡（参考图 1 的个人页：头像、名字、一行小字），下面依次是我的方向、长谈进度和主按钮、我的记号，
  * 最后是计划设置和隐私数据的入口。读的时候方向、长谈、记号先放骨架（版面不跳）；全没拿到整页换 ErrorState，拿到一部分顶上说一句。
  */
 export default function MeScreen() {
   const c = useColors();
-  const dark = useDark();
   const [s, setS] = useState<Settings | null>(null);
   const [dir, setDir] = useState<{ talk: DeepTalkState; confirmed: Profile[] } | null>(null);
-  const [level, setLevel] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [hasLetters, setHasLetters] = useState(false);
   const [quarter, setQuarter] = useState<{ available: boolean; last: Quarter | null } | null>(null);
   const load = useCallback(() => {
     setFailed(false);
-    getToday().then((p) => setLevel(p.energy_level), () => {}); // 拿不到就和今天页一样微笑
     getSettings().then(setS, () => setFailed(true));
     if (!MENTOR) return; // 导师藏起来时，方向、长谈、信、季度回顾都不拿，也就都不显示
     getLetters().then((r) => setHasLetters(r.letters.length > 0), () => {}); // 拿不到就不显示这一行
@@ -64,18 +59,14 @@ export default function MeScreen() {
   if (failed && !s && !dir) return <Screen safeTop bottom={TAB_SPACE}><ErrorState onRetry={load} /></Screen>;
 
   return (
-    <Screen safeTop bottom={TAB_SPACE}>
-      {/* 小镇的一角：顶满，紧贴状态栏下沿 */}
-      <View style={{ marginTop: -space.xl, marginHorizontal: -space.lg, height: 212, alignItems: "center", overflow: "hidden",
-        borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, backgroundColor: c.surface2 }}>
-        <View style={{ width: 149, height: 190, marginTop: 14 }}><Figure level={level} night={dark} left={0} top={0} /></View>
-      </View>
-
-      <Animated.View entering={enter(0)} style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between",
-        gap: space.sm, paddingHorizontal: space.xs }}>
-        <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>我</Text>
-        {!!summary && <Text style={[type.num, { fontSize: 15, color: c.muted }]}>{summary}</Text>}
-      </Animated.View>
+    <Screen bottom={TAB_SPACE}>
+      <HeadCard title="我" sub={summary || "还没设课表和习惯"}
+        lead={(
+          <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 64, height: 64, borderRadius: 32,
+            backgroundColor: c.surface, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="person" size={30} color={c.primaryInk} />
+          </View>
+        )} />
 
       {failed && <Notice>没连上，有些内容没显示。回到这一页会再试一次。</Notice>}
       {MENTOR && !dir && !failed && (
@@ -122,18 +113,21 @@ export default function MeScreen() {
       )}
 
       {s && marks.length > 0 && (
-        // 我的记号：每个习惯和项目一个黏土图标，和今天、本周页里同一个；多了可以横着滑
-        <Animated.View entering={enter(3)} style={{ gap: space.sm, paddingHorizontal: space.xs }}>
-          <Text accessibilityRole="header" style={label}>我的记号</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: space.md, flexGrow: 1, justifyContent: "space-around" }}>
+        // 我的记号：参考图 Active Projects 那种两列浅色瓷砖，习惯和项目用时间轴上同一种颜色
+        <Animated.View entering={enter(3)} style={{ gap: space.sm }}>
+          <Text accessibilityRole="header" style={[label, { paddingHorizontal: space.xs }]}>我的记号</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             {marks.map(([t, kind]) => (
-              <View key={t} accessible accessibilityLabel={t} style={{ alignItems: "center", gap: space.xs, width: 80 }}>
-                <EventIcon icon={clayIcon({ title: t, kind })} size={52} />
-                <Text style={[type.label, { color: c.text }]} numberOfLines={1}>{t}</Text>
+              <View key={t} accessible accessibilityLabel={`${kind === "must" ? "习惯" : "项目"}：${t}`}
+                style={{ flexBasis: "47%", flexGrow: 1, gap: space.md, padding: space.lg, borderRadius: radius.card, backgroundColor: c.kind[kind] }}>
+                <KindDot onTile kind={kind} icon={kind === "must" ? "leaf-outline" : "folder-open-outline"} />
+                <View>
+                  <Text style={[type.label, { fontSize: 16, fontWeight: "700", color: c.text }]} numberOfLines={1}>{t}</Text>
+                  <Text style={[type.small, { color: c.ink2 }]}>{kind === "must" ? "习惯" : "项目"}</Text>
+                </View>
               </View>
             ))}
-          </ScrollView>
+          </View>
         </Animated.View>
       )}
 

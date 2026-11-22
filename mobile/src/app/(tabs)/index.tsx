@@ -287,32 +287,26 @@ export default function Today() {
   return (
     <Screen bottom={TAB_SPACE} footer={footer}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
-      {/* 头卡顶满：抵掉 Screen 的内边距，状态栏叠在橙色上 */}
-      <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg, paddingTop: insets.top + space.lg, paddingHorizontal: space.lg,
-        paddingBottom: space.lg, gap: space.lg, backgroundColor: c.head,
-        borderBottomLeftRadius: radius.xl + 4, borderBottomRightRadius: radius.xl + 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: space.md }}>
+      {/* 参考图 1 中间那屏：奶油底上大标题，右边一个青绿胶囊，下面一排本周日期 */}
+      <Animated.View entering={enter(0)} style={{ gap: space.lg, paddingTop: insets.top + space.sm }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
           <View style={{ flex: 1 }}>
-            <Text accessibilityRole="header" style={[type.display, { fontSize: 34, lineHeight: 42, color: c.onHead }]}>今天</Text>
-            <Text style={[type.label, { color: c.onHead }]}>{dayLabel(plan.day)}</Text>
+            <Text accessibilityRole="header" style={[type.display, { fontSize: 34, lineHeight: 42, color: c.text }]}>今天</Text>
+            <Text style={[type.label, { color: c.muted }]}>{dayLabel(plan.day)}</Text>
           </View>
-          <Pressy onPress={() => router.push("/energy")} accessibilityRole="button" accessibilityLabel="报个电量" scaleTo={0.9}
-            style={{ width: TOUCH + 4, height: TOUCH + 4, borderRadius: radius.pill, backgroundColor: c.primary, boxShadow: c.clayBtn,
-              alignItems: "center", justifyContent: "center" }}>
-            <Icon name="battery-half-outline" size={22} color={c.onPrimary} />
-          </Pressy>
+          <Button hug label="报电量" icon="battery-half-outline" accessibilityHint="打开报电量" onPress={() => router.push("/energy")} />
         </View>
         <View accessible accessibilityLabel={`本周，今天是星期${week.find((d) => d.today)?.wd}`}
           style={{ flexDirection: "row", justifyContent: "space-between" }}>
           {week.map((d) => (
-            <View key={d.wd} style={{ width: 40, paddingVertical: space.sm, borderRadius: radius.btn, alignItems: "center", gap: 2,
-              backgroundColor: d.today ? c.surface : "transparent" }}>
-              <Text style={[type.small, { color: d.today ? c.text : c.onHead }]}>{d.wd}</Text>
-              <Text style={[type.label, type.num, { color: d.today ? c.text : c.onHead }]}>{d.date}</Text>
+            <View key={d.wd} style={{ width: 42, paddingVertical: space.sm, borderRadius: radius.pill, alignItems: "center", gap: 2,
+              backgroundColor: d.today ? c.primary : "transparent" }}>
+              <Text style={[type.small, { color: d.today ? c.onPrimary : c.muted }]}>{d.wd}</Text>
+              <Text style={[type.label, type.num, { fontWeight: "700", color: d.today ? c.onPrimary : c.text }]}>{d.date}</Text>
             </View>
           ))}
         </View>
-      </View>
+      </Animated.View>
 
       {error && <Notice>没连上，显示的是刚才的计划。</Notice>}
 
@@ -328,8 +322,8 @@ export default function Today() {
             {mic === "send" ? <ActivityIndicator size="small" color={c.muted} />
               : <Icon name={mic === "rec" ? "stop" : "mic-outline"} size={20} color={mic === "rec" ? c.onPrimary : c.text} />}
           </Pressy>
+          <Button hug label="排一下" busyLabel={busy === "say" ? "正在排……" : undefined} disabled={!canSay} onPress={arrange} />
         </View>
-        <Button label="排一下" busyLabel={busy === "say" ? "正在排……" : undefined} disabled={!canSay} onPress={arrange} />
         {empty && (
           <View style={{ gap: space.xs, paddingHorizontal: space.xs }}>
             <Small muted>还没说今天要做的事。可以这样说：</Small>
@@ -367,7 +361,7 @@ export default function Today() {
 function TodaySkeleton() {
   return (
     <Screen bottom={TAB_SPACE}>
-      <View style={{ marginTop: -space.lg, marginHorizontal: -space.lg }}><Skeleton height={220} r={radius.xl} /></View>
+      <Skeleton height={150} r={radius.card} />
       <Skeleton height={48} r={radius.in} />
       <Skeleton height={320} r={radius.btn} />
     </Screen>

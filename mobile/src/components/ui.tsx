@@ -26,16 +26,6 @@ export function Glass({ children, style }: { children: ReactNode; style?: StyleP
   return <View style={[{ backgroundColor: c.surface, boxShadow: c.clay }, style]}>{children}</View>;
 }
 
-/** 按下沉底：底边收到 0、整体下移 4px（v4 的 :active）。给 Pressy 用，Pressy 自己的缩放要关掉（scaleTo={1}）。 */
-function useSink(edge: string | undefined) {
-  const [down, setDown] = useState(false);
-  return {
-    onPressIn: () => setDown(true),
-    onPressOut: () => setDown(false),
-    sink: { boxShadow: down ? undefined : edge, top: down && edge ? 4 : 0 } as ViewStyle,
-  };
-}
-
 /**
  * safeTop：页面没有标题栏时让出状态栏的高度。bottom：底下有标签栏时多留的空（另加手机底部的安全区）。
  * footer：固定在底部（有标签栏时在标签栏上方）的主按钮，不跟着内容滚走。
@@ -48,7 +38,7 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
   const column = { maxWidth: MAX_WIDTH, width: "100%" as const, alignSelf: "center" as const };
   const inner = { padding: space.lg, paddingTop: safeTop ? space.xl : space.lg,
     paddingBottom: footer ? space.lg : space.xxl + bottom + (bottom ? insets.bottom : 0), gap: space.lg, ...column };
-  // 有标签栏时：按钮连 4px 底边停在标签栏渐隐的上沿（标签栏 64 高、上面 24 渐隐，底下是 max(安全区, 12)）
+  // 有标签栏时：按钮停在标签栏渐隐的上沿（标签栏 64 高、上面 24 渐隐，底下是 max(安全区, 12)）
   const below = bottom ? Math.max(insets.bottom, space.md) + bottom - 4 : insets.bottom + space.lg;
   return (
     // safeTop：滚动区从状态栏下面开始，状态栏下是实底，滚上去的内容不和时间、信号叠字（v4 的 .scroll{top:44px}）
@@ -64,15 +54,14 @@ export function Screen({ children, scroll = true, safeTop, bottom = 0, refresh, 
   );
 }
 
-/** 卡片：平色块，不描边；卡片内一道高光 + 4px 实色底边（c.clay）。给 onPress 就整张可点（按下沉底）。i 是入场顺序。 */
+/** 卡片：平色块，不描边，一层很淡的柔和阴影（c.clay）。给 onPress 就整张可点（按下微微缩小）。i 是入场顺序。 */
 export function Card({ children, style, onPress, label, i }: {
   children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string; i?: number;
 }) {
   const c = useColors();
-  const { sink, ...press } = useSink(c.clay);
   const look: ViewStyle = { borderRadius: radius.card, padding: space.lg, gap: space.md, backgroundColor: c.surface, boxShadow: c.clay };
   const body = onPress ? (
-    <Pressy onPress={onPress} {...press} scaleTo={1} accessibilityRole="button" accessibilityLabel={label} style={[look, style, sink]}>{children}</Pressy>
+    <Pressy onPress={onPress} scaleTo={0.98} accessibilityRole="button" accessibilityLabel={label} style={[look, style]}>{children}</Pressy>
   ) : (
     <View style={[look, style]}>{children}</View>
   );
@@ -107,6 +96,40 @@ export function Header({ title, sub, onBack }: { title: string; sub?: string; on
         {sub && <Small muted>{sub}</Small>}
       </View>
     </Animated.View>
+  );
+}
+
+/**
+ * 暖橙头卡（参考图 1 的个人页、新建页）：顶满屏宽，状态栏叠在橙色上，只圆下面两个角。
+ * 页面的 Screen 不要 safeTop（头卡自己让出状态栏）。lead 放标题左边（头像），children 放标题下面。
+ */
+export function HeadCard({ title, sub, lead, children }: { title: string; sub?: string; lead?: ReactNode; children?: ReactNode }) {
+  const c = useColors();
+  const insets = useSafeAreaInsets();
+  return (
+    <Animated.View entering={enter(0)} style={{ marginTop: -space.lg, marginHorizontal: -space.lg, paddingTop: insets.top + space.xl,
+      paddingHorizontal: space.lg, paddingBottom: space.xl, gap: space.md, backgroundColor: c.head,
+      borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
+        {lead}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text accessibilityRole="header" style={[type.display, { color: c.onHead }]}>{title}</Text>
+          {!!sub && <Text style={[type.label, type.num, { color: c.onHead }]}>{sub}</Text>}
+        </View>
+      </View>
+      {children}
+    </Animated.View>
+  );
+}
+
+/** 参考图 My tasks 那种彩色圆点图标：这类事的浅色作底，深一档的颜色画线条图标。 */
+/** onTile：放在同色瓷砖上时用白底，不然圆点和瓷砖一个颜色就看不见了。 */
+export function KindDot({ kind, icon, size = 36, onTile }: { kind: "class" | "must" | "proj" | "flex" | "life"; icon: IconName; size?: number; onTile?: boolean }) {
+  const c = useColors();
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: onTile ? c.surface : c.kind[kind], alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name={icon} size={size / 2} color={c.kindEdge[kind]} />
+    </View>
   );
 }
 
@@ -169,19 +192,17 @@ export function Button({ label, onPress, variant = "primary", disabled, busyLabe
   const c = useColors();
   const off = disabled || !!busyLabel;
   const flat = variant === "quiet" || variant === "neutral" || variant === "quietDanger";
-  // 不能点的实心按钮换成次级面灰字、没有底边，不用半透明
+  // 扁平胶囊（参考图 1 的 Add task / Create task）：不能点的实心按钮换成次级面灰字，不用半透明
   const bg = off && !flat ? c.surface2
-    : { primary: c.primary, secondary: c.surface, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
-  const edge = off || flat ? undefined : variant === "primary" ? c.clayBtn : variant === "secondary" ? c.clay : undefined;
-  const { sink, ...press } = useSink(edge);
+    : { primary: c.primary, secondary: c.surface2, quiet: "transparent", neutral: "transparent", quietDanger: "transparent", danger: c.danger }[variant];
   const fg = off ? c.muted
     : { primary: c.onPrimary, secondary: c.text, quiet: c.primaryInk, neutral: c.muted, quietDanger: c.danger, danger: c.bg }[variant];
   return (
-    <Pressy onPress={onPress} {...press} disabled={off} scaleTo={flat ? 0.97 : 1} fadeTo={flat ? 0.6 : 1} accessibilityRole="button"
+    <Pressy onPress={onPress} disabled={off} scaleTo={0.97} fadeTo={flat ? 0.6 : 1} accessibilityRole="button"
       accessibilityLabel={busyLabel ?? label} accessibilityState={{ disabled: off, busy: !!busyLabel }} accessibilityHint={accessibilityHint}
-      style={[{ minHeight: TOUCH + 8, borderRadius: radius.btn, backgroundColor: bg, flexDirection: "row", gap: space.sm,
-        paddingHorizontal: hug ? space.xxl : space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1,
-        ...(hug && { alignSelf: "center" }) }, sink]}>
+      style={{ minHeight: TOUCH + 4, borderRadius: radius.pill, backgroundColor: bg, flexDirection: "row", gap: space.sm,
+        paddingHorizontal: space.xl, alignItems: "center", justifyContent: "center", opacity: off && flat ? 0.5 : 1,
+        ...(hug && { alignSelf: "center" }) }}>
       {icon && !busyLabel && <Icon name={icon} size={18} color={fg} />}
       <Text style={[flat ? type.label : type.body, { color: fg, fontWeight: "600" }]}>{busyLabel ?? label}</Text>
     </Pressy>
@@ -205,12 +226,12 @@ export function Chip({ label, on, onPress, role = "radio" }: {
   label: string; on: boolean; onPress: () => void; role?: "radio" | "checkbox";
 }) {
   const c = useColors();
-  const { sink, ...press } = useSink(`0 4px 0 ${on ? c.primaryEdge : c.cardEdge}`);
   return (
-    <Pressy onPress={() => { haptic.select(); onPress(); }} {...press} accessibilityRole={role} accessibilityLabel={label}
-      accessibilityState={{ checked: on }} scaleTo={1}
-      style={[{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.btn, flexDirection: "row",
-        alignItems: "center", gap: space.xs, backgroundColor: on ? c.tint : c.surface }, sink]}>
+    <Pressy onPress={() => { haptic.select(); onPress(); }} accessibilityRole={role} accessibilityLabel={label}
+      accessibilityState={{ checked: on }} scaleTo={0.96}
+      style={{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.pill, flexDirection: "row",
+        alignItems: "center", gap: space.xs, backgroundColor: on ? c.tint : c.surface2,
+        borderWidth: 1.5, borderColor: on ? c.primaryEdge : "transparent" }}>
       {/* 单选不加勾（加了会变宽、整排跳）；多选给勾留固定位置 */}
       {role === "checkbox" && <Icon name="checkmark" size={16} color={on ? c.onSoft : "transparent"} />}
       <Text style={[type.label, { color: on ? c.onSoft : c.text }]}>{label}</Text>

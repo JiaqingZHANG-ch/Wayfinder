@@ -1,17 +1,14 @@
-import { Image } from "expo-image";
 import { router, useFocusEffect } from "expo-router";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { AppState, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 
 import { getWeek, Week } from "@/api";
-import { type ClayIcon, clayIcon } from "@/clay-icon";
-import { Bean, EventIcon, Mascot } from "@/components/clay";
 import { enter, Pressy, Skeleton } from "@/components/motion";
-import { Button, Card, ErrorState, Icon, Screen } from "@/components/ui";
+import { Button, Card, ErrorState, HeadCard, Icon, KindDot, Screen } from "@/components/ui";
 import { MENTOR } from "@/features";
 import { Status, STATUS_LABELS } from "@/labels";
-import { radius, space, TAB_SPACE, type, useColors, useDark, useNightScene } from "@/theme";
+import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
 /** 「2026-11-14」→「11月14日」 */
 const md = (d: string) => `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`;
@@ -24,11 +21,11 @@ const wd = (start: string, i: number) => "日一二三四五六"[(new Date(`${st
  * 本周（v4 的 #pg-week）：一张记号表——第一行是夜豆（这 7 晚哪几晚记了），下面每个习惯一行七个记号；
  * 再往下是每个项目的估时对比，用石子堆画；复盘入口在最上面。只摆事实，不打分。
  * r4：不再是一摞白卡，只有记号表一张卡，其余靠留白和对齐分组；不放图例（每行的读屏说明里有）。
- * r5：顶上留 120 高的小镇一角，小人走在路上；还没有数据的行只画今天那一格。
+ * r5：还没有数据的行只画今天那一格。
+ * 2026-11-22 对照参考图 1：顶上换成暖橙头卡，行首是彩色圆点图标，项目是浅色瓷砖。
  */
 export default function WeekScreen() {
   const c = useColors();
-  const dark = useDark();
   const [week, setWeek] = useState<Week | null>(null);
   const [error, setError] = useState(false);
 
@@ -59,17 +56,12 @@ export default function WeekScreen() {
   const cells = (days: unknown[], cell: (i: number) => ReactNode) =>
     days.some(Boolean) ? days.map((_, i) => cell(i)) : days.map((_, i) => (i === last ? <Mark key={i} s="skip" /> : <View key={i} />));
   return (
-    <Screen safeTop bottom={TAB_SPACE}>
-      <Corner />
-      <Animated.View entering={enter(0)} style={{ gap: 2, paddingHorizontal: space.xs }}>
-        <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: space.sm }}>
-          <Text accessibilityRole="header" style={[type.display, { color: c.text }]}>本周</Text>
-          <Text style={[type.num, { fontSize: 15, color: c.muted }]}>{range(week.start, week.end)}</Text>
-        </View>
-        <Text style={[type.small, { color: c.muted }]}>
+    <Screen bottom={TAB_SPACE}>
+      <HeadCard title="本周" sub={range(week.start, week.end)}>
+        <Text style={[type.small, { color: c.onHead }]}>
           {n === 0 ? "今晚对一次账，这里就有第一格。" : n === 7 ? "这 7 天每晚都记了。" : "不用天天满，记下来的每一天都算数。"}
         </Text>
-      </Animated.View>
+      </HeadCard>
 
       {/* 复盘入口：导师藏起来时不放 */}
       {!MENTOR ? null : week.review ? (
@@ -96,13 +88,13 @@ export default function WeekScreen() {
             <Text key={i} style={[type.small, { fontWeight: i === last ? "700" : "400", color: i === last ? c.text : c.muted }]}>{wd(week.start, i)}</Text>
           ))}
         </Line>
-        <Line name="记了" sub={`${n} 晚`} h={48}
+        <Line icon={<KindDot kind="class" icon="moon-outline" />} name="记了" sub={`${n} 晚`}
           label={`这 7 晚记了 ${n} 晚：${week.logged.map((x, i) => `星期${wd(week.start, i)}${x ? "记了" : i === last ? "今天还没记" : "没记"}`).join("，")}`}>
           {/* 今天还没记只画空圈，和「那晚没记」的短线分开 */}
-          {cells(week.logged, (i) => week.logged[i] ? <Bean key={i} night={dark} w={26} /> : <Mark key={i} s={i === last ? "skip" : null} />)}
+          {cells(week.logged, (i) => <Mark key={i} s={week.logged[i] ? "done" : i === last ? "skip" : null} />)}
         </Line>
         {week.habits.map((h) => (
-          <Line key={h.id} icon={clayIcon({ title: h.title, kind: "must" })} name={h.title} sub={`${h.done_days} 天`}
+          <Line key={h.id} icon={<KindDot kind="must" icon="leaf-outline" />} name={h.title} sub={`${h.done_days} 天`}
             label={`${h.title}，7 天里做了 ${h.done_days} 天：${h.days.map((d, i) => `星期${wd(week.start, i)}${d ? STATUS_LABELS[d] : "没记"}`).join("，")}`}>
             {cells(h.days, (i) => <Mark key={i} s={h.days[i]} />)}
           </Line>
@@ -119,19 +111,19 @@ export default function WeekScreen() {
         )}
       </Card>
 
-      {week.projects.map((p, i) => <Project key={p.id} p={p} i={3 + i} night={dark} />)}
+      {week.projects.map((p, i) => <Project key={p.id} p={p} i={3 + i} />)}
     </Screen>
   );
 }
 
 /** 记号表的一行：图标、名字和一行小字、七格。表头、夜豆、习惯三种行共用，七格才能上下对齐。 */
 function Line({ icon, name, sub, label, h = 56, children }: {
-  icon?: ClayIcon | null; name?: string; sub?: string; label?: string; h?: number; children: ReactNode;
+  icon?: ReactNode; name?: string; sub?: string; label?: string; h?: number; children: ReactNode;
 }) {
   const c = useColors();
   return (
     <View accessible={!!label} accessibilityLabel={label} style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: h }}>
-      <View style={{ width: 36 }}>{icon && <EventIcon icon={icon} size={36} />}</View>
+      <View style={{ width: 36 }}>{icon}</View>
       <View style={{ width: 68 }}>
         {name && <Text style={[type.label, { fontSize: 15, lineHeight: 18, color: c.text }]} numberOfLines={2}>{name}</Text>}
         {sub && <Text style={[type.small, type.num, { lineHeight: 17, color: c.muted }]}>{sub}</Text>}
@@ -158,10 +150,8 @@ function Mark({ s, size = 18 }: { s: Status | null; size?: number }) {
   );
 }
 
-const PILE = 4; // 一堆最多叠 4 颗，再多看数字
-
-/** 一个项目：名字、几次对账和一句话，下面三堆石子（比预想少 / 差不多 / 比预想多），一颗一次。不装卡片。 */
-function Project({ p, i, night }: { p: Week["projects"][number]; i: number; night: boolean }) {
+/** 一个项目：参考图 Active Projects 那种浅色瓷砖——名字、几次对账和一句话，下面三个数（比预想少 / 差不多 / 比预想多）。 */
+function Project({ p, i }: { p: Week["projects"][number]; i: number }) {
   const c = useColors();
   const total = p.less + p.same + p.more;
   const cols: [string, number][] = [["比预想少", p.less], ["差不多", p.same], ["比预想多", p.more]];
@@ -170,50 +160,26 @@ function Project({ p, i, night }: { p: Week["projects"][number]; i: number; nigh
   const most = total > 1 ? "多半" : ""; // 只记了一次不说「多半」
   const said = !total ? "这周还没记" : leaders.length > 1 ? "有时多、有时少" :
     leaders[0][0] === "差不多" ? `${most}和预想差不多` : `${most}${leaders[0][0]}`;
-  const tall = Math.min(top, PILE) * 31;
   return (
-    <Animated.View entering={enter(i)} accessible style={{ gap: space.md, paddingHorizontal: space.xs, paddingTop: space.sm }}
+    <Animated.View entering={enter(i)} accessible style={{ gap: space.md, padding: space.lg, borderRadius: radius.card, backgroundColor: c.kind.proj }}
       accessibilityLabel={total ? `${p.title}：${said}。比预想少 ${p.less} 次，差不多 ${p.same} 次，比预想多 ${p.more} 次` : `${p.title}：这周还没记`}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <EventIcon icon={clayIcon({ title: p.title, kind: "proj" })} size={36} />
+        <KindDot onTile kind="proj" icon="folder-open-outline" />
         <View style={{ flex: 1 }}>
           <Text style={[type.label, { fontSize: 16, color: c.text }]} numberOfLines={1}>{p.title}</Text>
-          <Text style={[type.small, { color: c.muted }]}>{total ? `${total} 次对账，${said}` : said}</Text>
+          <Text style={[type.small, { color: c.ink2 }]}>{total ? `${total} 次对账，${said}` : said}</Text>
         </View>
       </View>
       {total > 0 && (
-        <View style={{ flexDirection: "row", gap: space.md }} importantForAccessibility="no-hide-descendants">
+        <View style={{ flexDirection: "row", gap: space.sm }} importantForAccessibility="no-hide-descendants">
           {cols.map(([k, v]) => (
-            <View key={k} style={{ flex: 1, alignItems: "center", gap: 2 }}>
-              <View style={{ height: tall, justifyContent: "flex-end", gap: 2 }}>
-                {Array.from({ length: Math.min(v, PILE) }, (_, j) => <Bean key={j} night={night} w={44} h={29} />)}
-              </View>
-              <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 20, lineHeight: 28, color: c.text }]}>{v}</Text>
+            <View key={k} style={{ flex: 1, alignItems: "center", paddingVertical: space.sm, borderRadius: radius.btn, backgroundColor: c.surface }}>
+              <Text style={[type.num, { fontFamily: type.stat.fontFamily, fontSize: 22, lineHeight: 30, color: c.text }]}>{v}</Text>
               <Text style={[type.small, { color: c.muted }]}>{k}</Text>
             </View>
           ))}
         </View>
       )}
     </Animated.View>
-  );
-}
-
-const SCENES = {
-  day: require("../../../assets/images/clay/stage-day.webp"),
-  night: require("../../../assets/images/clay/stage-night.webp"),
-};
-
-/** 顶上的小镇一角（120 高）：舞台那张场景的路面，小人背着书包走在路上。 */
-function Corner() {
-  const c = useColors();
-  const night = useNightScene();
-  return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
-      style={{ marginTop: -space.xl, marginHorizontal: -space.lg, height: 120, overflow: "hidden",
-        borderBottomLeftRadius: radius.card, borderBottomRightRadius: radius.card, backgroundColor: c.stage }}>
-      <Image source={night ? SCENES.night : SCENES.day} contentFit="cover" contentPosition={{ top: "62%" }}
-        style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }} />
-      <View style={{ position: "absolute", left: 28, bottom: 4 }}><Mascot walk height={108} night={night} /></View>
-    </View>
   );
 }

@@ -1,6 +1,6 @@
 /**
  * Wayfinder 的设计令牌：奶油底、暖橙头卡、青绿主按钮、彩色圆角任务块（2026-11-21「说一句话排今天」）。
- * 控件是平色块，不叠模糊投影，厚度只靠一道实色底边 0 4px 0 <edge>（RN 0.88 的 boxShadow，web 和原生都认）。
+ * 2026-11-22 对照参考图 1 改：控件是扁平胶囊，不再有实色底边；卡片只带一层很淡的柔和阴影（RN 0.88 的 boxShadow）。
  * 规范见 docs/design.md。页面里不直接写颜色和数字，都从这里拿。
  * 对比度：文字 ≥ 4.5:1，非文字 ≥ 3:1（WCAG AA）。下面注释里是实测值（WCAG 2 公式算的），改色后要重新核对。
  */
@@ -14,6 +14,7 @@ type Palette = {
   done: string; mark: string; line: string; cardEdge: string; danger: string; ok: string; warn: string; overlay: string;
   hi: string; // 卡片内高光
   stage: string; // 舞台场景图没盖到的那条天（v4 的 .stagebox 底色）
+  lift: string; // 卡片的柔和阴影色
   head: string; onHead: string; // 今天页的暖橙头卡和上面的字
   kind: Kinds; // 时间轴上任务块的填充色（浅），上面写 ink / ink2
   kindEdge: Kinds; // 同色系的深一档：块的描边，也当这类事的记号（图标、进度条）
@@ -41,6 +42,7 @@ const dayPalette: Palette = {
   overlay: "rgba(58, 42, 30, 0.5)",
   hi: "rgba(255, 255, 255, 0.4)",
   stage: "#FFF1DE",
+  lift: "rgba(120, 80, 40, 0.08)",
   head: "#F6B77C", // 暖橙头卡
   onHead: "#3A2A1E", // vs head 7.8:1（ink2 在橙上只有 4.0，头卡上的字一律用它）
   // 块上的字：ink vs 块 9.7–11.7:1，ink2 vs 块 5.0–6.0:1
@@ -71,6 +73,7 @@ const nightPalette: Palette = {
   overlay: "rgba(0, 0, 0, 0.55)",
   hi: "rgba(255, 255, 255, 0.06)",
   stage: "#1B2033",
+  lift: "rgba(0, 0, 0, 0.28)",
   head: "#7A4A27", // 暗橙头卡
   onHead: "#FBF1E4", // vs head 6.6:1
   // 块上的字：ink vs 块 9.2–13.7:1，ink2 vs 块 6.1–9.1:1
@@ -79,11 +82,11 @@ const nightPalette: Palette = {
   kindEdge: { class: "#8FA9E0", must: "#8DBB98", proj: "#D9A170", flex: "#DE939C", life: "#8C7E70" },
 };
 
-/** 新令牌加上旧名字（旧页面还在用，任务 2–4 换完再删）。clay 是卡片的整套厚度：内高光 + 实色底边。 */
+/** 新令牌加上旧名字（旧页面还在用）。clay 现在是卡片的柔和阴影；clayBtn 是按钮（扁平，不带阴影）。 */
 const tokens = (p: Palette) => ({
   ...p,
-  clay: `inset 0 2px 0 ${p.hi}, 0 4px 0 ${p.cardEdge}`,
-  clayBtn: `0 4px 0 ${p.primaryEdge}`,
+  clay: `0 2px 12px ${p.lift}`,
+  clayBtn: `0 0 0 transparent`,
   // 旧名字 → 新值
   card: p.surface,
   sunken: p.surface2,
@@ -93,7 +96,7 @@ const tokens = (p: Palette) => ({
   muted: p.ink2,
   soft: p.tint,
   onSoft: p.primaryInk,
-  shadow: `inset 0 2px 0 ${p.hi}, 0 4px 0 ${p.cardEdge}`,
+  shadow: `0 2px 12px ${p.lift}`,
   glassEdge: "transparent", // 底部面板以前的发丝边：控件不描边
   glassShadow: `inset 0 2px 0 ${p.hi}`,
 });
@@ -105,7 +108,7 @@ export type Colors = typeof light;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 // card / btn / in 是 v4 的三档；sm md lg xl 是旧名字，映射到最接近的一档
-export const radius = { card: 20, btn: 14, in: 12, sm: 12, md: 14, lg: 20, xl: 24, pill: 999 } as const;
+export const radius = { card: 24, btn: 14, in: 12, sm: 12, md: 14, lg: 20, xl: 28, pill: 999 } as const;
 
 
 // 动效：按 Apple HIG 的弹簧手感（不回弹过头），时长 150–400ms；系统开了「减少动态效果」时 reanimated 自动跳过

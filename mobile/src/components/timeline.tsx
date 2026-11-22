@@ -46,12 +46,13 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
     try { return await onEdit(b, s, e); } finally { saving.current = false; }
   };
   const [open, setOpen] = useState<string | null>(null); // 面板里那一块的 id
-  if (!blocks.length) return null;
-  const from = Math.floor(Math.min(...blocks.map((b) => toMin(b.start))) / 60) * 60;
-  const to = Math.ceil(Math.max(...blocks.map((b) => toMin(b.end))) / 60) * 60;
+  const shown = blocks.filter((b) => !isFree(b));
+  if (!shown.length) return null;
+  // 只按画出来的块定起止：自由时间不画，也不该把时间轴撑到早上 7 点
+  const from = Math.floor(Math.min(...shown.map((b) => toMin(b.start))) / 60) * 60;
+  const to = Math.ceil(Math.max(...shown.map((b) => toMin(b.end))) / 60) * 60;
   const hours = Array.from({ length: (to - from) / 60 + 1 }, (_, i) => from + i * 60);
   const guess = new Set(items?.filter((x) => x.estimated).map((x) => x.id));
-  const shown = blocks.filter((b) => !isFree(b));
   // 两两比一下，时间有交叠的就是撞了（块不多，n² 没问题）
   const clash = new Set(shown.filter((a, i) => shown.some((o, j) => j !== i && toMin(a.start) < toMin(o.end) && toMin(o.start) < toMin(a.end))).map((b) => b.id));
   const panel = shown.find((b) => b.id === open);
@@ -59,9 +60,8 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
     <View style={{ height: minToY(to - from) + 10, marginTop: space.xs }}>
       {hours.map((h) => (
         <View key={h} pointerEvents="none" style={{ position: "absolute", top: minToY(h - from), left: 0, right: 0,
-          flexDirection: "row", alignItems: "center", gap: space.sm, marginTop: -9 }}>
-          <Text style={[type.small, type.num, { width: GUTTER - space.sm, lineHeight: 18, color: c.muted }]}>{fromMin(h)}</Text>
-          <View style={{ flex: 1, height: 1, backgroundColor: c.line }} />
+          marginTop: -9 }}>
+          <Text style={[type.small, type.num, { width: GUTTER - space.sm, fontSize: 12, lineHeight: 18, color: c.muted }]}>{fromMin(h)}</Text>
         </View>
       ))}
       {shown.map((b) => (
@@ -168,9 +168,10 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash, done }: 
         else if (n === "longer" && drag.hi >= SNAP) edit(0, SNAP);
         else if (n === "shorter" && minutes - SNAP >= MIN_MINUTES) edit(0, -SNAP);
       } : undefined}
-      style={{ flex: 1, borderRadius: tall ? radius.btn : radius.in, backgroundColor: c.kind[b.kind],
-        borderWidth: clash ? 3 : 1.5, borderColor: clash ? c.warn : c.kindEdge[b.kind],
-        paddingHorizontal: space.md, paddingVertical: tall ? space.sm : 0, justifyContent: tall ? "flex-start" : "center",
+      // 参考图 1：浅色块不描边，矮块是胶囊；只有撞时间的才描一圈琥珀色
+      style={{ flex: 1, borderRadius: Math.min(18, h / 2), backgroundColor: c.kind[b.kind],
+        borderWidth: clash ? 2 : 0, borderColor: c.warn,
+        paddingHorizontal: space.md, paddingVertical: tall ? space.sm : 0, justifyContent: "flex-start", // 矮块横排也靠左，和高块的标题对齐
         flexDirection: tall ? "column" : "row", alignItems: tall ? "stretch" : "center", gap: tall ? 0 : space.sm, overflow: "hidden",
         opacity: done ? 0.55 : 1 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm, flexShrink: 1 }}>
@@ -196,7 +197,8 @@ export function TimelineBlock({ b, top, height, estimated, drag, clash, done }: 
         <GestureDetector gesture={stretch}>
           <View accessible={false} importantForAccessibility="no" style={{ position: "absolute", left: 0, right: 0, bottom: 0,
             height: Math.min(20, h / 2), alignItems: "center", justifyContent: "flex-end", paddingBottom: 3 }}>
-            <View style={{ width: 28, height: 4, borderRadius: radius.pill, backgroundColor: c.kindEdge[b.kind] }} />
+            {/* 矮块只留拉的地方、不画把手，免得压住标题 */}
+            {tall && <View style={{ width: 24, height: 3, borderRadius: radius.pill, backgroundColor: c.kindEdge[b.kind], opacity: 0.5 }} />}
           </View>
         </GestureDetector>
       )}
