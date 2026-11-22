@@ -64,12 +64,6 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
           <Text style={[type.small, type.num, { width: GUTTER - space.sm, fontSize: 12, lineHeight: 18, color: c.muted }]}>{fromMin(h)}</Text>
         </View>
       ))}
-      {shown.map((b) => (
-        <TimelineBlock key={`${b.id}${b.start}${b.end}`} b={b} top={minToY(toMin(b.start) - from)}
-          height={minToY(toMin(b.end) - toMin(b.start))} estimated={!!b.item_id && guess.has(b.item_id)}
-          drag={movable(b) ? { lo: from - toMin(b.start), hi: to - toMin(b.end), onEdit: guarded, onFail: onError, onOpen: () => setOpen(b.id) } : undefined}
-          clash={clash.has(b.id)} done={!!runs?.[b.id]?.done_at} />
-      ))}
       {now >= from && now <= to && (
         <View accessible accessibilityLabel={`现在 ${fromMin(now)}`} pointerEvents="none"
           style={{ position: "absolute", top: minToY(now - from) - 4, left: GUTTER - 4, right: 0, flexDirection: "row", alignItems: "center" }}>
@@ -77,6 +71,12 @@ export function Timeline({ blocks, items, runs, now, onEdit, onDelete, onError }
           <View style={{ flex: 1, height: 2, backgroundColor: c.primaryEdge }} />
         </View>
       )}
+      {shown.map((b) => (
+        <TimelineBlock key={`${b.id}${b.start}${b.end}`} b={b} top={minToY(toMin(b.start) - from)}
+          height={minToY(toMin(b.end) - toMin(b.start))} estimated={!!b.item_id && guess.has(b.item_id)}
+          drag={movable(b) ? { lo: from - toMin(b.start), hi: to - toMin(b.end), onEdit: guarded, onFail: onError, onOpen: () => setOpen(b.id) } : undefined}
+          clash={clash.has(b.id)} done={!!runs?.[b.id]?.done_at} />
+      ))}
       {panel && (
         <BlockSheet b={panel} onClose={() => setOpen(null)} onDelete={() => onDelete(panel)}
           onSave={(end, title) => onEdit(panel, toMin(panel.start), end, title)} />

@@ -3,7 +3,6 @@ import { Redirect, router, useFocusEffect, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Platform, RefreshControl, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, Block, confirmPlan, deleteBlock, editBlock, getMe, getToday, isCrisis, Me, Plan, reflow, say, sayDay, transcribe } from "@/api";
 import { Changes } from "@/components/changes";
@@ -12,7 +11,7 @@ import { planDiff } from "@/diff";
 import { enter, haptic, Pressy, Skeleton } from "@/components/motion";
 import { dayLabel, fromMin, toMin, useNow } from "@/components/plan-view";
 import { Timeline } from "@/components/timeline";
-import { Button, CrisisCard, ErrorState, Field, Icon, Notice, Screen, Small } from "@/components/ui";
+import { Button, CrisisCard, ErrorState, Field, HeadCard, Icon, Notice, Screen, Small } from "@/components/ui";
 import { scheduleReminders } from "@/notifications";
 import { radius, space, TAB_SPACE, type, useColors } from "@/theme";
 
@@ -21,6 +20,7 @@ const EXAMPLE = "9 点到 11 点上课，下午写报告，晚上健身一小时
 const TOUCH = 44;
 const MAX_REC = 60; // 最长录这么多秒，到了自动停
 const NO_MIC = "录不了音，用键盘上的话筒说也行。";
+const LATE = "来不及排了：";
 
 /** 手机上的本地提醒全清再按这份计划重定（定不上也不挡着看计划）。 */
 function remind(p: Plan) {
@@ -60,7 +60,6 @@ export default function Today() {
   const last = useRef<string | null>(null);
   const now = useNow();
   const c = useColors();
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
 
   const load = useCallback(() => {
@@ -283,36 +282,44 @@ export default function Today() {
   const empty = !plan.items?.length;
   const canSay = !!text.trim() && !busy;
   const week = weekOf(plan.day);
+  const late = plan.warnings.filter((w) => w.startsWith(LATE)).map((w) => w.slice(LATE.length)); // 好几条「来不及排了」并成一条
 
   return (
     <Screen bottom={TAB_SPACE} footer={footer}
       refresh={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primaryEdge} />}>
-      {/* 参考图 1 中间那屏：奶油底上大标题，右边一个青绿胶囊，下面一排本周日期 */}
-      <Animated.View entering={enter(0)} style={{ gap: space.lg, paddingTop: insets.top + space.sm }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.md }}>
-          <View style={{ flex: 1 }}>
-            <Text accessibilityRole="header" style={[type.display, { fontSize: 34, lineHeight: 42, color: c.text }]}>今天</Text>
-            <Text style={[type.label, { color: c.muted }]}>{dayLabel(plan.day)}</Text>
-          </View>
-          <Button hug label="报电量" icon="battery-half-outline" accessibilityHint="打开报电量" onPress={() => router.push("/energy")} />
-        </View>
+      {/* 和本周、我同一张暖橙头卡；报电量是次要入口，白底胶囊（青绿在橙上对比不够） */}
+      <HeadCard title="今天" sub={dayLabel(plan.day)}
+        right={(
+          <Pressy onPress={() => router.push("/energy")} accessibilityRole="button" accessibilityLabel="报电量" scaleTo={0.96}
+            style={{ minHeight: TOUCH, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: c.surface,
+              flexDirection: "row", alignItems: "center", gap: space.xs }}>
+            <Icon name="battery-half-outline" size={18} color={c.text} />
+            <Text style={[type.label, { fontWeight: "700", color: c.text }]}>报电量</Text>
+          </Pressy>
+        )}>
         <View accessible accessibilityLabel={`本周，今天是星期${week.find((d) => d.today)?.wd}`}
           style={{ flexDirection: "row", justifyContent: "space-between" }}>
           {week.map((d) => (
             <View key={d.wd} style={{ width: 42, paddingVertical: space.sm, borderRadius: radius.pill, alignItems: "center", gap: 2,
-              backgroundColor: d.today ? c.primary : "transparent" }}>
-              <Text style={[type.small, { color: d.today ? c.onPrimary : c.muted }]}>{d.wd}</Text>
-              <Text style={[type.label, type.num, { fontWeight: "700", color: d.today ? c.onPrimary : c.text }]}>{d.date}</Text>
+              backgroundColor: d.today ? c.surface : "transparent" }}>
+              <Text style={[type.small, { color: d.today ? c.text : c.onHead }]}>{d.wd}</Text>
+              <Text style={[type.label, type.num, { fontWeight: "700", color: d.today ? c.text : c.onHead }]}>{d.date}</Text>
             </View>
           ))}
         </View>
-      </Animated.View>
+      </HeadCard>
+
+      {/* 回来的人先要知道「现在做什么」：现在卡放在输入条前面 */}
+      <NowCard plan={plan} onPlan={(p) => { setPlan(p); remind(p); }} onAsk={() => { setAsk(true); setMoved(null); }}
+        onError={(e) => setSaid(stale(e))} />
 
       {error && <Notice>没连上，显示的是刚才的计划。</Notice>}
 
       <Animated.View entering={enter(1)} style={{ gap: space.sm }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-          <Field style={{ flex: 1 }} placeholder="说说今天要做什么" accessibilityLabel="说说今天要做什么" value={text}
+          {/* 说一句会替换今天说过的全部事项（不是追加），有计划时提示写明 */}
+          <Field style={{ flex: 1 }} placeholder={empty ? "说说今天要做什么" : "重说今天的全部安排"}
+            accessibilityLabel={empty ? "说说今天要做什么" : "重说今天的全部安排，会替换现在的"} value={text}
             onChangeText={setText} returnKeyType="done" onSubmitEditing={() => { if (canSay) arrange(); }} />
           {mic === "rec" && <Text accessibilityElementsHidden style={[type.label, type.num, { color: c.muted }]}>{secs} 秒</Text>}
           <Pressy onPress={toggleMic} disabled={mic === "send"} accessibilityRole="button"
@@ -339,7 +346,8 @@ export default function Today() {
 
       {crisis && <CrisisCard message={crisis} />}
       {said && <Notice>{said}</Notice>}
-      {plan.warnings.map((w) => <Notice key={w}>{w}</Notice>)}
+      {late.length > 0 && <Notice>来不及排了：{late.join("、")}</Notice>}
+      {plan.warnings.filter((w) => !w.startsWith(LATE)).map((w) => <Notice key={w}>{w}</Notice>)}
 
       {moved && (
         <View style={{ gap: space.sm }}>
@@ -347,9 +355,6 @@ export default function Today() {
           <Button label="知道了" variant="quiet" onPress={() => setMoved(null)} />
         </View>
       )}
-
-      <NowCard plan={plan} onPlan={(p) => { setPlan(p); remind(p); }} onAsk={() => { setAsk(true); setMoved(null); }}
-        onError={(e) => setSaid(stale(e))} />
 
       <Animated.View entering={enter(2)}>
         <Timeline blocks={plan.blocks} items={plan.items} runs={plan.runs} now={now} onEdit={edit} onDelete={remove} onError={setSaid} />

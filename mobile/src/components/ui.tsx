@@ -103,7 +103,9 @@ export function Header({ title, sub, onBack }: { title: string; sub?: string; on
  * 暖橙头卡（参考图 1 的个人页、新建页）：顶满屏宽，状态栏叠在橙色上，只圆下面两个角。
  * 页面的 Screen 不要 safeTop（头卡自己让出状态栏）。lead 放标题左边（头像），children 放标题下面。
  */
-export function HeadCard({ title, sub, lead, children }: { title: string; sub?: string; lead?: ReactNode; children?: ReactNode }) {
+export function HeadCard({ title, sub, lead, right, children }: {
+  title: string; sub?: string; lead?: ReactNode; right?: ReactNode; children?: ReactNode;
+}) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   return (
@@ -116,6 +118,7 @@ export function HeadCard({ title, sub, lead, children }: { title: string; sub?: 
           <Text accessibilityRole="header" style={[type.display, { color: c.onHead }]}>{title}</Text>
           {!!sub && <Text style={[type.label, type.num, { color: c.onHead }]}>{sub}</Text>}
         </View>
+        {right}
       </View>
       {children}
     </Animated.View>
@@ -252,7 +255,7 @@ export function ListRow({ icon, title, sub, onPress, last }: {
     <Pressy onPress={onPress} accessibilityRole="button" accessibilityLabel={sub ? `${title}，${sub}` : title} scaleTo={1} fadeTo={0.8}
       style={{ flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 56, paddingVertical: space.sm,
         borderBottomWidth: last ? 0 : 1, borderBottomColor: c.line }}>
-      <View style={{ width: 36, height: 36, borderRadius: radius.in, backgroundColor: c.surface2,
+      <View style={{ width: 36, height: 36, borderRadius: radius.pill, backgroundColor: c.surface2,
         alignItems: "center", justifyContent: "center" }}>
         <Icon name={icon} size={18} color={c.muted} />
       </View>

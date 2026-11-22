@@ -119,9 +119,10 @@ export default function MeScreen() {
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
             {marks.map(([t, kind]) => (
               <View key={t} accessible accessibilityLabel={`${kind === "must" ? "习惯" : "项目"}：${t}`}
-                style={{ flexBasis: "47%", flexGrow: 1, gap: space.md, padding: space.lg, borderRadius: radius.card, backgroundColor: c.kind[kind] }}>
+                style={{ flexBasis: "47%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: space.md, padding: space.lg,
+                  borderRadius: radius.card, backgroundColor: c.kind[kind] }}>
                 <KindDot onTile kind={kind} icon={kind === "must" ? "leaf-outline" : "folder-open-outline"} />
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={[type.label, { fontSize: 16, fontWeight: "700", color: c.text }]} numberOfLines={1}>{t}</Text>
                   <Text style={[type.small, { color: c.ink2 }]}>{kind === "must" ? "习惯" : "项目"}</Text>
                 </View>

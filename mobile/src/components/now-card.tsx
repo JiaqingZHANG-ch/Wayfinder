@@ -91,7 +91,7 @@ export function NowCard({ plan, onPlan, onAsk, onError }: {
     return (
       <Card>
         {head}
-        <Text style={[type.label, type.num, { color: c.muted }]}>{b.start}–{b.end} · 还没开始</Text>
+        <Text style={[type.label, { color: c.muted }]}>还没开始</Text>
         <View style={{ flexDirection: "row", gap: space.sm }}>
           <View style={{ flex: 1 }}><Button label="开始" disabled={busy} onPress={() => act(() => startBlock(b.id))} /></View>
           <View style={{ flex: 1 }}><Button label="做完了" variant="secondary" disabled={busy} onPress={() => finish(b.id)} /></View>

@@ -88,7 +88,7 @@ export default function WeekScreen() {
             <Text key={i} style={[type.small, { fontWeight: i === last ? "700" : "400", color: i === last ? c.text : c.muted }]}>{wd(week.start, i)}</Text>
           ))}
         </Line>
-        <Line icon={<KindDot kind="class" icon="moon-outline" />} name="记了" sub={`${n} 晚`}
+        <Line icon={<KindDot kind="class" icon="moon-outline" />} name="晚上对账" sub={`${n} 晚`}
           label={`这 7 晚记了 ${n} 晚：${week.logged.map((x, i) => `星期${wd(week.start, i)}${x ? "记了" : i === last ? "今天还没记" : "没记"}`).join("，")}`}>
           {/* 今天还没记只画空圈，和「那晚没记」的短线分开 */}
           {cells(week.logged, (i) => <Mark key={i} s={week.logged[i] ? "done" : i === last ? "skip" : null} />)}
@@ -109,6 +109,16 @@ export default function WeekScreen() {
             <Icon name="chevron-forward" size={18} color={c.muted} />
           </Pressy>
         )}
+        {/* 图例：记号的意思直接写出来 */}
+        <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md,
+          paddingTop: space.md, marginTop: space.sm, borderTopWidth: 1, borderTopColor: c.line }}>
+          {([["done", "做了"], ["floor", "保底"], ["skip", "没做 / 今天"], [null, "没记"]] as const).map(([s, t]) => (
+            <View key={t} style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+              <Mark s={s} size={14} />
+              <Text style={[type.small, { color: c.muted }]}>{t}</Text>
+            </View>
+          ))}
+        </View>
       </Card>
 
       {week.projects.map((p, i) => <Project key={p.id} p={p} i={3 + i} />)}
@@ -138,7 +148,7 @@ function Line({ icon, name, sub, label, h = 56, children }: {
 }
 
 /** 一天的记号：做了实心、保底半实、没做空心，那天没记一道短线。 */
-function Mark({ s, size = 18 }: { s: Status | null; size?: number }) {
+function Mark({ s, size = 22 }: { s: Status | null; size?: number }) {
   const c = useColors();
   if (!s) return <View style={{ width: size * 0.67, height: 3, borderRadius: 2, backgroundColor: c.mark, marginVertical: (size - 3) / 2 }} />;
   const col = s === "skip" ? c.mark : c.done;
