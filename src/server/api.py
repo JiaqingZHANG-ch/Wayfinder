@@ -38,6 +38,7 @@ from planner.errors import InputError, PlanInfeasible
 from planner.model import input_from_dict, to_hhmm, to_min
 from planner.solve import DayPlan, replan_from, solve_day
 from server.replan import replan_after
+from server.runs import MIN_BLOCK, clashes, cut_at, extend, focus_seconds, run_reminders
 
 from .calendar import CalendarAuthError, CalendarError, CalendarPort, make_calendar
 from .db import Db
@@ -81,7 +82,6 @@ class EditIn(BaseModel):
     end: str = Field(pattern=HHMM)
 
 
-MIN_BLOCK = 10  # 手动改的块最短几分钟
 MAX_REMEMBER = 480  # 记住的时长不超过解析时允许的上限，不然下次说同一件事会被拦下
 PIN = "pin:"  # 重排时钉住的块当固定事项喂求解器，id 加这个前缀
 
