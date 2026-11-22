@@ -197,8 +197,10 @@ export default function Today() {
         return null;
       }
       setPlan(res);
-      setAsk(true);
-      setMoved(null);
+      if (start !== toMin(b.start) || end !== toMin(b.end)) { // 只改了名字：其余的不用重排，不问
+        setAsk(true);
+        setMoved(null);
+      }
       return null;
     } catch (e) {
       return stale(e);
