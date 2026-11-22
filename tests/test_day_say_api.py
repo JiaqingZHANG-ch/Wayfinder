@@ -249,3 +249,17 @@ def test_one_bad_item_is_dropped_others_kept(setup):
     r = say(client)
     assert r.status_code == 200 and len(model.calls) == 1
     assert [i["title"] for i in r.json()["items"]] == ["写报告", "开会"]
+
+
+@pytest.mark.parametrize("first", ["today", "say"])
+def test_first_plan_after_wake_does_not_pretend_morning_was_done(tmp_path, first):
+    # 用户实测：10 点多第一次打开、第一次说，看书被排到早上当「做过了」，今天就不再排
+    client, _, model, _ = clocked(tmp_path, 15)
+    if first == "say":
+        model.replies.append(reply(item("复习", minutes=60)))
+        plan = say(client).json()
+    else:
+        plan = client.get("/today").json()
+    real_blocks = [b for b in real(plan) if b["kind"] in ("must", "proj", "flex")]
+    assert real_blocks and all(b["start"] >= "15:00" for b in real_blocks)
+    assert any(b["id"] == "reading" for b in real_blocks)  # 看书照样排在今天剩下的时间里

@@ -142,7 +142,7 @@ def test_split_task_pin_not_duplicated_after_reflows(tmp_path):
     first = next(b for b in plan["blocks"] if b["title"] == "写报告")
     plan = edit(client, plan, first["id"], to_hhmm(to_min(first["start"]) + 60), to_hhmm(to_min(first["end"]) + 60)).json()
     gym = next(b for b in plan["blocks"] if b["title"] == "健身")
-    plan = edit(client, plan, gym["id"], gym["start"], to_hhmm(to_min(gym["end"]) + 25)).json()
+    plan = edit(client, plan, gym["id"], gym["start"], to_hhmm(to_min(gym["end"]) - 15)).json()
     for _ in range(2):
         plan = client.post("/plan/reflow", json={"version": plan["version"]}).json()
         report = [b for b in plan["blocks"] if b["title"] == "写报告"]

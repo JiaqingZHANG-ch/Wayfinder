@@ -337,7 +337,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         except InputError as e:
             raise HTTPException(422, str(e)) from None
         if latest is None:
-            return solved(lambda: solve_day(inp, soft_must=True)), None
+            return first_plan(day, inp), None
         old = db.plan_input(USER_ID)
         if old is not None and input_from_dict({**day_input(old, day), **({"energy_level": level} if level else {})}) == inp:
             return latest["plan"], level  # 改的东西不影响今天怎么排（比如只改了提醒时间）：今天的计划一点不动
@@ -395,6 +395,18 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         return {**plan, "blocks": sorted(blocks + list(pins.values()), key=lambda b: to_min(b["start"])),
                 "skipped": stored["plan"].get("skipped", []) if stored else []}
 
+    def first_plan(day, inp) -> dict:
+        """今天的第一份计划。起床以后才第一次排（10 点多才打开 App）：App 不知道上午做了什么，就当都还没做、
+        从现在起排；不能假想一个上午当「做过了」（用户实测：看书、练字被排到早上，今天就不再排）。"""
+        t = clock()
+        now = t.hour * 60 + t.minute
+        if t.date() == day and inp.wake < now < inp.sleep:
+            try:
+                return solved(lambda: replan_from(inp, to_hhmm(now), before=[], soft_must=True))
+            except HTTPException:
+                pass  # 太晚了剩下的时间放不下（比如 21 点才第一次打开）：退回排整天，和原来一样
+        return solved(lambda: solve_day(inp, soft_must=True))
+
     def hits(a: dict, b: dict) -> bool:
         return to_min(a["start"]) < to_min(b["end"]) and to_min(b["start"]) < to_min(a["end"])
 
@@ -445,7 +457,7 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
         stored = db.latest_plan(USER_ID, day)
         if stored is None:
             inp = plan_input(day)
-            db.add_plan(USER_ID, day, solved(lambda: solve_day(inp)), None, only_if_none=True)
+            db.add_plan(USER_ID, day, first_plan(day, inp), None, only_if_none=True)
             stored = db.latest_plan(USER_ID, day)
         return stored
 
@@ -528,8 +540,8 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(422, "没听清，换个说法或直接加")
         old = db.day_items(USER_ID, day)
         level = latest["energy_level"] if latest else None
-        # 今天还没有计划（没打开过首页）：先按现在的设置排出今天本来的样子当「已经过去的」，只是不存
-        base = latest or {"plan": solved(lambda: solve_day(plan_input(day), soft_must=True))}
+        # 今天还没有计划（没打开过首页）：先按现在的设置排出今天的第一份计划当底子，只是不存
+        base = latest or {"plan": first_plan(day, plan_input(day))}
         # 这次说的替换掉原来的全部事项：原来那些事项的块不再钉住（还没开始的跟着事项一起没了）
         unpin = {b["id"] for b in latest["plan"]["blocks"] if any(i["id"] in (b["id"], b.get("task_id")) for i in old)} \
             if latest else set()
