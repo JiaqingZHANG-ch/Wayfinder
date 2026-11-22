@@ -48,7 +48,7 @@ def test_energy_replans_tonight_as_new_unconfirmed_version(setup):
     kept = {b["id"] for b in before["blocks"] if b["start"] < "18:00" and b["kind"] != "life"}
     assert kept <= ids(after)  # 18:00 之前的课和已经做的事原样保留
     today = client.get("/today").json()
-    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin", "goals", "items")} == after
+    assert {k: v for k, v in today.items() if k not in ("reminders", "later_reminders", "checked_in", "tomorrow_task", "checkin", "goals", "items", "runs")} == after
 
 
 def test_energy_preview_changes_nothing_until_reported(setup):
@@ -320,10 +320,15 @@ def test_confirm_unknown_profile_is_404(new_user):
     assert new_user[0].post("/profile/confirm", json={"id": 99}).status_code == 404
 
 # ---- 第 5 周：两条本地提醒 ----
+def daily(client) -> list[dict]:
+    """今天的提醒里除去块和番茄的（那些在 test_block_runs_api 里测）。"""
+    return [x for x in client.get("/today").json()["reminders"] if x["kind"] not in ("block", "pomodoro")]
+
+
 def test_today_carries_two_reminders(setup):
     today = setup[0].get("/today").json()
     assert today["checked_in"] is False and today["tomorrow_task"] is None  # 还没对账
-    r = today["reminders"]
+    r = daily(setup[0])
     assert [(x["kind"], x["at"], x["url"]) for x in r] == [("after_class", "16:00", "/energy"), ("evening", "21:00", "/checkin")]
 
 
@@ -331,9 +336,9 @@ def test_reminders_follow_settings(new_user):
     client = new_user[0]
     body = {**SETTINGS, "reminders": {"after_class": True, "evening": "20:30"}}
     client.put("/settings", json=body)
-    assert [(x["kind"], x["at"]) for x in client.get("/today").json()["reminders"]] == [("evening", "20:30")]  # 没课就没有下课那条
+    assert [(x["kind"], x["at"]) for x in daily(client)] == [("evening", "20:30")]  # 没课就没有下课那条
     client.put("/settings", json={**SETTINGS, "reminders": {"after_class": False, "evening": None}})
-    assert client.get("/today").json()["reminders"] == []
+    assert daily(client) == []
     assert client.put("/settings", json={**SETTINGS, "reminders": {"evening": "9pm"}}).status_code == 422
 
 def seed_week(db, last_day=20, days=7):
@@ -663,9 +668,9 @@ def test_checkin_can_clear_text_written_earlier(setup):
 def test_reminders_stop_once_done(setup):
     client, _, _ = setup
     client.post("/energy", json={"level": 3, "now": "17:00"})
-    assert [x["kind"] for x in client.get("/today").json()["reminders"]] == ["evening"]  # 报过电量就不再提醒报电量
+    assert [x["kind"] for x in daily(client)] == ["evening"]  # 报过电量就不再提醒报电量
     client.post("/checkin", json={"result": {"items": {"english": {"status": "done"}}}})
-    assert client.get("/today").json()["reminders"] == []  # 对过账就不再提醒对账
+    assert daily(client) == []  # 对过账就不再提醒对账
 
 
 @pytest.mark.parametrize("body, said", [
