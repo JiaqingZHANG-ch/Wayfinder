@@ -80,6 +80,7 @@ class EditIn(BaseModel):
     block_id: str
     start: str = Field(pattern=HHMM)
     end: str = Field(pattern=HHMM)
+    title: str | None = None  # 改名字（只有当天说的事能改）；不改就不传
 
 
 MAX_REMEMBER = 480  # 记住的时长不超过解析时允许的上限，不然下次说同一件事会被拦下
@@ -607,9 +608,16 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
     @app.post("/plan/edit", summary="手动改一块的起止 → 钉住 → 存成新版本（未确认），不重排；撞了不拦，overlaps 是撞上的块")
     def post_plan_edit(body: EditIn):
         day = logical_date(clock())
+        if crisis := screen(body, day):  # 用户起的名字先查危机，和 /day/say 一样
+            return crisis
         stored = latest_for(day, body.version)
         b = find_block(stored, body.block_id)
         item = item_of(day, b)
+        title = body.title.strip() if body.title is not None else b["title"]
+        if body.title is not None and not item:
+            raise HTTPException(422, "习惯和项目的名字在设置里改")
+        if not 1 <= len(title) <= 30:
+            raise HTTPException(422, "名字要 1–30 个字")
         if b["kind"] in ("class", "life") and not item:  # 说的固定事项求解器也输出成 class，它能改
             raise HTTPException(422, "课、吃饭和路上的块不能改时间")
         s, e = to_min(body.start), to_min(body.end)
@@ -620,12 +628,15 @@ def create_app(db: Db, model: ModelPort, *, template: dict | None = None, calend
             raise HTTPException(422, f"要在起床（{to_hhmm(inp.wake)}）到上床（{to_hhmm(inp.sleep)}）之间")
         if e - s < MIN_BLOCK:
             raise HTTPException(422, f"一块至少 {MIN_BLOCK} 分钟")
-        new = {**b, "start": body.start, "end": body.end, "pinned": True}
+        new = {**b, "start": body.start, "end": body.end, "title": title, "pinned": True}
         blocks = sorted((new if x is b else x for x in stored["plan"]["blocks"]), key=lambda x: to_min(x["start"]))
         if item:
+            # 一件事拆成了几块：名字一起改
+            blocks = [{**x, "title": title} if item["id"] in (x["id"], x.get("task_id")) else x for x in blocks]
+            new = next(x for x in blocks if x["id"] == b["id"])
             # 一件事可能拆成了几块：按这件事今天一共排了多久
             total = sum(minutes(x) for x in blocks if item["id"] in (x["id"], x.get("task_id")))
-            new_item = dict(item)
+            new_item = {**item, "title": title}
             if item["kind"] == "fixed":  # 说的固定事项挪了，事项的起止跟着改，重排时才按新时间
                 new_item |= {"start": body.start, "end": body.end}
             if e - s != minutes(b):  # 用户自己定了时长：事项按今天排的总长，不再标「估」

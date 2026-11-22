@@ -299,3 +299,47 @@ def test_reflow_without_edit_keeps_plan(tmp_path):
     client, plan = full_day(tmp_path)
     r = client.post("/plan/reflow", json={"version": plan["version"]}).json()
     assert r["blocks"] == plan["blocks"]
+
+
+def rename(client, plan, b, title):
+    return client.post("/plan/edit", json={"version": plan["version"], "block_id": b["id"],
+                                           "start": b["start"], "end": b["end"], "title": title})
+
+
+def test_edit_title_of_said_item(setup):
+    client, db, _, plan = setup
+    b = report_block(plan)
+    r = rename(client, plan, b, "  写实验报告 ")
+    assert r.status_code == 200
+    moved = next(x for x in r.json()["blocks"] if x["id"] == b["id"])
+    assert (moved["title"], moved["start"], moved["end"], moved["pinned"]) == ("写实验报告", b["start"], b["end"], True)
+    assert next(i for i in db.day_items(1, DAY) if i["id"] == b["task_id"])["title"] == "写实验报告"
+    assert r.json()["version"] == plan["version"] + 1
+
+
+def test_edit_title_rejects_habit_and_bad_length(setup):
+    client, _, _, plan = setup
+    reading = next(x for x in plan["blocks"] if x["id"] == "reading")
+    r = rename(client, plan, reading, "读小说")
+    assert r.status_code == 422 and "设置里改" in r.json()["detail"]
+    b = report_block(plan)
+    assert rename(client, plan, b, "   ").status_code == 422
+    assert rename(client, plan, b, "字" * 31).status_code == 422
+
+
+def test_edit_title_crisis_returns_message(setup):
+    client, db, _, plan = setup
+    r = rename(client, plan, report_block(plan), "我不想活了").json()
+    assert r["crisis"] is True and db.crisis_count(1) == 1
+    assert client.get("/today").json()["version"] == plan["version"]
+
+
+def test_edit_title_renames_every_block_of_the_item(tmp_path):
+    db, model = Db(tmp_path / "app.db"), FakeModel()
+    client = TestClient(create_app(db, model, template=TEMPLATE, now=lambda tz: datetime(2026, 11, 20, 8, 0, tzinfo=tz)))
+    model.replies.append(reply(item("写报告", minutes=150, effort="heavy")))  # 一块装不下，拆成两块
+    plan = say(client).json()
+    parts = [b for b in plan["blocks"] if b["title"] == "写报告"]
+    assert len(parts) > 1
+    r = rename(client, plan, parts[0], "写实验报告").json()
+    assert {b["title"] for b in r["blocks"] if b.get("task_id") == parts[0]["task_id"]} == {"写实验报告"}
